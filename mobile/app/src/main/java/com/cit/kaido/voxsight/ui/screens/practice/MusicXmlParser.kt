@@ -26,7 +26,13 @@ data class MusicXmlScore(
 data class MusicXmlNote(
     val step: String,
     val octave: Int,
-    val durationDivisions: Int
+    val durationDivisions: Int,
+    /** MusicXML <voice> value (1-based). Defaults to 1 if missing. */
+    val voice: Int = 1,
+    /** MusicXML <staff> value (1-based). Defaults to 1 if missing. */
+    val staff: Int = 1,
+    /** MusicXML <type> value: whole, half, quarter, eighth, 16th, etc. */
+    val type: String = "quarter"
 )
 
 fun parseMusicXmlScore(
@@ -47,6 +53,9 @@ fun parseMusicXmlScore(
     var step: String? = null
     var octave: Int? = null
     var duration: Int? = null
+    var voice: Int? = null
+    var staff: Int? = null
+    var noteType: String? = null
 
     val parser = Xml.newPullParser()
     parser.setInput(StringReader(sanitizeXmlEntities(rawText)))
@@ -80,6 +89,9 @@ fun parseMusicXmlScore(
                             step = null
                             octave = null
                             duration = null
+                            voice = null
+                            staff = null
+                            noteType = null
                         }
                         "rest" -> if (inNote) {
                             isRest = true
@@ -93,6 +105,15 @@ fun parseMusicXmlScore(
                         "duration" -> if (inNote) {
                             duration = parser.nextText().toIntOrNull()
                         }
+                        "voice" -> if (inNote) {
+                            voice = parser.nextText().toIntOrNull()
+                        }
+                        "staff" -> if (inNote) {
+                            staff = parser.nextText().toIntOrNull()
+                        }
+                        "type" -> if (inNote) {
+                            noteType = parser.nextText().trim()
+                        }
                     }
                 }
                 XmlPullParser.END_TAG -> {
@@ -105,7 +126,10 @@ fun parseMusicXmlScore(
                                 MusicXmlNote(
                                     step = step!!,
                                     octave = octave!!,
-                                    durationDivisions = durationValue
+                                    durationDivisions = durationValue,
+                                    voice = voice ?: 1,
+                                    staff = staff ?: 1,
+                                    type = noteType ?: "quarter"
                                 )
                             )
                         }

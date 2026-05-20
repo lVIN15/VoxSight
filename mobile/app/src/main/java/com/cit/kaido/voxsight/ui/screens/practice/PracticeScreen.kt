@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,9 +45,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -143,7 +149,12 @@ private enum class VoicePart(val label: String, val shortLabel: String) {
     Bass("Bass", "B.")
 }
 
-private data class StaffNote(val index: Int, val lineIndex: Int)
+private data class StaffNote(
+    val index: Int,
+    val lineIndex: Int,
+    val voice: Int = 1,
+    val type: String = "quarter"
+)
 
 @Composable
 private fun PracticeTopBar(title: String) {
@@ -359,10 +370,14 @@ private fun AudioVisualMixer(
     playheadProgress: Float,
     staffNotes: List<StaffNote>
 ) {
+    // Distribute notes to SATB parts based on voice number from MusicXML.
+    // Voice 1 → Soprano, 2 → Alto, 3 → Tenor, 4 → Bass.
+    // If the file only uses voice 1, fall back to pitch-range heuristic.
     val notesByPart = remember(staffNotes) {
-        VoicePart.values().associateWith { staffNotes }
+        distributeNotesToParts(staffNotes)
     }
 
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val scrollState = rememberScrollState()
     val staffHeight = 44.dp
     val rowSpacing = 18.dp
@@ -370,10 +385,19 @@ private fun AudioVisualMixer(
     val noteSpacing = 32.dp
     val startPadding = 12.dp
     val endPadding = 24.dp
-    val noteCount = staffNotes.size.coerceAtLeast(1)
-    val baseContentWidth = startPadding + endPadding + noteSpacing * (noteCount - 1)
+
+    // Compute the maximum note count across all parts for proper width
+    val maxNoteCount = notesByPart.values
+        .maxOfOrNull { it.size }
+        ?.coerceAtLeast(1) ?: 1
+    val baseContentWidth = startPadding + endPadding + noteSpacing * (maxNoteCount - 1)
+
+    // Measure the viewport width via onGloballyPositioned instead of
+    // BoxWithConstraints (whose scope was not resolving, causing 0 width).
+    var viewportWidthDp by remember { mutableStateOf(baseContentWidth) }
 
     Row(modifier = Modifier.fillMaxSize()) {
+        // ── Part labels (S. A. T. B.) ───────────────────────────
         Column(
             modifier = Modifier
                 .width(labelWidth)
@@ -395,16 +419,30 @@ private fun AudioVisualMixer(
             }
         }
 
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val contentWidth = baseContentWidth.coerceAtLeast(maxWidth)
+        // ── Scrollable score area ───────────────────────────────
+        // Use weight(1f) so the Row gives this child all remaining
+        // space after the fixed-width label column.
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .onGloballyPositioned { coordinates ->
+                    with(density) {
+                        viewportWidthDp = coordinates.size.width.toDp()
+                    }
+                }
+        ) {
+            val contentWidth = baseContentWidth.coerceAtLeast(viewportWidthDp)
 
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxHeight()
                     .horizontalScroll(scrollState)
             ) {
                 Column(
-                    modifier = Modifier.width(contentWidth),
+                    modifier = Modifier
+                        .width(contentWidth)
+                        .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(rowSpacing)
                 ) {
                     VoicePart.values().forEach { part ->
@@ -439,7 +477,7 @@ private fun StaffCanvas(
     startPadding: androidx.compose.ui.unit.Dp,
     staffHeight: androidx.compose.ui.unit.Dp
 ) {
-    val contentAlpha = if (visualFocusEnabled && !isActive) 0.2f else 1f
+    val contentAlpha = if (visualFocusEnabled && !isActive) 0.15f else 1f
     val lineColor = VoxCardStroke.copy(alpha = contentAlpha)
     val noteColor = if (isActive) VoxPurplePrimary else VoxTextSecondary
 
@@ -453,25 +491,110 @@ private fun StaffCanvas(
         val spacingPx = noteSpacing.toPx()
         val startPx = startPadding.toPx()
 
+        // Draw 5 staff lines
         repeat(5) { index ->
             val y = top + index * lineGap
             drawLine(
                 color = lineColor,
-                start = androidx.compose.ui.geometry.Offset(0f, y),
-                end = androidx.compose.ui.geometry.Offset(size.width, y),
-                strokeWidth = 1.5f
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = 1f
             )
         }
 
+        // Draw each note with proper music notation
         notes.forEachIndexed { idx, note ->
-            val x = startPx + (note.index * spacingPx)
-            val y = top + note.lineIndex * lineGap
+            val cx = startPx + (note.index * spacingPx)
+            val cy = top + note.lineIndex * lineGap
             val color = if (isActive && idx == 0) VoxPurpleAccent else noteColor
-            drawCircle(
+            drawMusicalNote(
+                cx = cx,
+                cy = cy,
+                noteType = note.type,
                 color = color.copy(alpha = contentAlpha),
-                radius = 6.dp.toPx(),
-                center = androidx.compose.ui.geometry.Offset(x, y)
+                lineGap = lineGap,
+                lineIndex = note.lineIndex
             )
+        }
+    }
+}
+
+/**
+ * Draws a single musical note with the correct notation shape:
+ * whole (hollow, no stem), half (hollow + stem), quarter (filled + stem),
+ * eighth (filled + stem + flag), 16th (filled + stem + 2 flags).
+ */
+private fun DrawScope.drawMusicalNote(
+    cx: Float,
+    cy: Float,
+    noteType: String,
+    color: Color,
+    lineGap: Float,
+    lineIndex: Int
+) {
+    val headW = lineGap * 1.4f
+    val headH = lineGap * 0.85f
+    val stemLen = lineGap * 3f
+    val stemW = 1.5.dp.toPx()
+
+    val isHollow = noteType == "whole" || noteType == "half"
+    val hasStem = noteType != "whole"
+    val flagCount = when (noteType) {
+        "eighth" -> 1
+        "16th" -> 2
+        "32nd" -> 3
+        else -> 0
+    }
+    // Stem direction: notes on or above middle line (index<=2) → stem down
+    val stemDown = lineIndex <= 2
+
+    // ── Note head (tilted oval) ──────────────────────────────
+    val w = if (noteType == "whole") headW * 1.15f else headW
+    rotate(degrees = -18f, pivot = Offset(cx, cy)) {
+        if (isHollow) {
+            drawOval(
+                color = color,
+                topLeft = Offset(cx - w / 2, cy - headH / 2),
+                size = Size(w, headH),
+                style = Stroke(width = 2f)
+            )
+        } else {
+            drawOval(
+                color = color,
+                topLeft = Offset(cx - w / 2, cy - headH / 2),
+                size = Size(w, headH)
+            )
+        }
+    }
+
+    if (!hasStem) return
+
+    // ── Stem ─────────────────────────────────────────────────
+    val stemX = if (stemDown) cx - headW * 0.42f else cx + headW * 0.42f
+    val stemEndY = if (stemDown) cy + stemLen else cy - stemLen
+    drawLine(
+        color = color,
+        start = Offset(stemX, cy),
+        end = Offset(stemX, stemEndY),
+        strokeWidth = stemW
+    )
+
+    // ── Flags ────────────────────────────────────────────────
+    if (flagCount > 0) {
+        val flagLen = lineGap * 1.6f
+        for (i in 0 until flagCount) {
+            val offset = i * lineGap * 0.65f
+            val fStart = if (stemDown) stemEndY - offset else stemEndY + offset
+            val curveDir = if (stemDown) -1f else 1f
+            val path = Path().apply {
+                moveTo(stemX, fStart)
+                cubicTo(
+                    stemX + flagLen * 0.3f, fStart + curveDir * lineGap * 0.4f,
+                    stemX + flagLen * 0.7f, fStart + curveDir * lineGap * 0.9f,
+                    stemX + flagLen * 0.4f, fStart + curveDir * lineGap * 1.6f
+                )
+            }
+            drawPath(path, color = color, style = Stroke(width = 2f, cap = StrokeCap.Round))
         }
     }
 }
@@ -486,8 +609,8 @@ private fun PlayheadLine(
         val x = size.width * clamped
         drawLine(
             color = VoxPurpleAccent,
-            start = androidx.compose.ui.geometry.Offset(x, 0f),
-            end = androidx.compose.ui.geometry.Offset(x, size.height),
+            start = Offset(x, 0f),
+            end = Offset(x, size.height),
             strokeWidth = 2.5f,
             cap = StrokeCap.Round
         )
@@ -585,10 +708,20 @@ private fun formatTime(seconds: Int): String {
 
 private fun sampleMusicXmlScore(title: String): MusicXmlScore {
     val notes = listOf(
-        MusicXmlNote("C", 4, 4),
-        MusicXmlNote("E", 4, 4),
-        MusicXmlNote("G", 4, 4),
-        MusicXmlNote("A", 4, 4)
+        MusicXmlNote("C", 5, 4, voice = 1, type = "quarter"),
+        MusicXmlNote("E", 5, 4, voice = 1, type = "quarter"),
+        MusicXmlNote("G", 5, 2, voice = 1, type = "half"),
+        MusicXmlNote("A", 5, 1, voice = 1, type = "whole"),
+        MusicXmlNote("A", 4, 4, voice = 2, type = "eighth"),
+        MusicXmlNote("G", 4, 4, voice = 2, type = "quarter"),
+        MusicXmlNote("F", 4, 4, voice = 2, type = "quarter"),
+        MusicXmlNote("E", 4, 2, voice = 2, type = "half"),
+        MusicXmlNote("E", 3, 4, voice = 3, type = "quarter"),
+        MusicXmlNote("D", 3, 4, voice = 3, type = "eighth"),
+        MusicXmlNote("C", 3, 4, voice = 3, type = "quarter"),
+        MusicXmlNote("B", 2, 4, voice = 4, type = "half"),
+        MusicXmlNote("A", 2, 4, voice = 4, type = "quarter"),
+        MusicXmlNote("G", 2, 4, voice = 4, type = "quarter")
     )
     return MusicXmlScore(
         title = title,
@@ -598,25 +731,96 @@ private fun sampleMusicXmlScore(title: String): MusicXmlScore {
     )
 }
 
+/**
+ * Converts parsed MusicXmlNotes into visual StaffNote positions,
+ * preserving voice assignment and note type for proper rendering.
+ */
 private fun buildStaffNotes(
     notes: List<MusicXmlNote>
 ): List<StaffNote> {
     if (notes.isEmpty()) {
         return listOf(
-            StaffNote(0, 2),
-            StaffNote(2, 1),
-            StaffNote(4, 3)
+            StaffNote(0, 2, voice = 1, type = "quarter"),
+            StaffNote(2, 3, voice = 2, type = "half"),
+            StaffNote(1, 1, voice = 3, type = "eighth"),
+            StaffNote(3, 4, voice = 4, type = "whole")
         )
     }
 
-    return notes.mapIndexed { index, note ->
-        val lineIndex = mapPitchToLine(note.step, note.octave)
-        StaffNote(index, lineIndex)
+    // Group by voice and assign sequential index within each voice
+    val byVoice = notes.groupBy { it.voice }
+    return byVoice.flatMap { (voice, voiceNotes) ->
+        voiceNotes.mapIndexed { index, note ->
+            StaffNote(
+                index = index,
+                lineIndex = mapPitchToLine(note.step, note.octave),
+                voice = voice,
+                type = note.type
+            )
+        }
     }
 }
 
+/**
+ * Distributes StaffNotes into the four SATB parts.
+ *
+ * Strategy:
+ *  1. If the MusicXML has distinct voices (1-4), map them directly.
+ *  2. If all notes share voice 1 (common in single-staff exports),
+ *     distribute by pitch range: highest → Soprano, lowest → Bass.
+ */
+private fun distributeNotesToParts(
+    staffNotes: List<StaffNote>
+): Map<VoicePart, List<StaffNote>> {
+    val distinctVoices = staffNotes.map { it.voice }.distinct().sorted()
+
+    // Direct mapping when the file has multiple voices
+    if (distinctVoices.size >= 2) {
+        val voiceToPart = mutableMapOf<Int, VoicePart>()
+        val parts = VoicePart.values()
+        distinctVoices.forEachIndexed { idx, v ->
+            voiceToPart[v] = parts[idx.coerceAtMost(parts.lastIndex)]
+        }
+        val grouped = staffNotes.groupBy { voiceToPart[it.voice] ?: VoicePart.Soprano }
+        // Re-index notes within each part so they space correctly
+        return parts.associateWith { part ->
+            (grouped[part] ?: emptyList()).mapIndexed { i, n ->
+                n.copy(index = i)
+            }
+        }
+    }
+
+    // Fallback: single voice → split by pitch quartile
+    if (staffNotes.isEmpty()) {
+        return VoicePart.values().associateWith { emptyList() }
+    }
+
+    val sorted = staffNotes.sortedBy { it.lineIndex }
+    val chunkSize = (sorted.size / 4).coerceAtLeast(1)
+    val parts = VoicePart.values()
+    return parts.mapIndexed { idx, part ->
+        val start = idx * chunkSize
+        val end = if (idx == parts.lastIndex) sorted.size else ((idx + 1) * chunkSize).coerceAtMost(sorted.size)
+        val chunk = if (start < sorted.size) sorted.subList(start, end) else emptyList()
+        part to chunk.mapIndexed { i, n -> n.copy(index = i) }
+    }.toMap()
+}
+
+/**
+ * Maps a note pitch (step + octave) to a staff line index (0-4).
+ *
+ * Uses standard treble-clef positioning:
+ *  Line 0 (top)    = F5
+ *  Line 1          = D5
+ *  Line 2 (middle) = B4
+ *  Line 3          = G4
+ *  Line 4 (bottom) = E4
+ *
+ * Notes outside this range are clamped to the nearest line.
+ */
 private fun mapPitchToLine(step: String, octave: Int): Int {
     val normalized = step.replace("b", "").replace("#", "").uppercase()
+    // Diatonic pitch number (C=0, D=1, ... B=6)
     val stepIndex = when (normalized) {
         "C" -> 0
         "D" -> 1
@@ -628,9 +832,16 @@ private fun mapPitchToLine(step: String, octave: Int): Int {
         else -> 0
     }
 
-    val baseIndex = 4 * 7
-    val pitchIndex = (octave * 7) + stepIndex
-    val delta = pitchIndex - baseIndex
-    val wrapped = ((delta % 5) + 5) % 5
-    return 4 - wrapped
+    // Absolute diatonic position (C4 = 28)
+    val pitchPos = (octave * 7) + stepIndex
+
+    // Reference: E4 (bottom staff line, index 4) = position 30
+    // Each line spans 2 diatonic steps
+    // Line 4 = E4 (30), Line 3 = G4 (32), Line 2 = B4 (34),
+    // Line 1 = D5 (36), Line 0 = F5 (38)
+    val e4Pos = 30
+    val lineFromBottom = (pitchPos - e4Pos + 1) / 2
+    val lineIndex = 4 - lineFromBottom
+
+    return lineIndex.coerceIn(0, 4)
 }
