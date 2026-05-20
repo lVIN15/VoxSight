@@ -22,6 +22,10 @@ val VoxTextPrimary = Color(0xFF1A1A2E)
 val VoxTextSecondary = Color(0xFF6B6B80)
 val VoxTextSubtitle = Color(0xFF8E8E9E)
 
+// ── Status Accents ─────────────────────────────────────────────
+
+val VoxAccentGreen = Color(0xFF2FBF71)
+
 // ── Processing Card ─────────────────────────────────────────────
 
 val VoxProcessingBg = Color(0xFFF8F5FC)

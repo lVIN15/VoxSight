@@ -13,13 +13,33 @@
     <string name="take_photo_title">Take Photo</string>
     <string name="take_photo_subtitle">Scan physical sheets with high precision.</string>
     <string name="import_file_title">Import File</string>
-    <string name="import_file_subtitle">Upload PDF or image files from your device.</string>
+    <string name="import_file_subtitle">Upload MusicXML files from your device (testing only).</string>
+
+    <!-- Module 2: Practice Screen -->
+    <string name="practice_title">Kyrie Eleison</string>
+    <string name="voice_part_label">VOICE PART</string>
+    <string name="audio_mute_label">Audio Mute</string>
+    <string name="visual_focus_label">Visual Focus</string>
+
+    <!-- Content Descriptions (Module 2) -->
+    <string name="cd_back">Back</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_play_pause">Play or pause</string>
+    <string name="cd_skip_previous">Skip previous</string>
+    <string name="cd_skip_next">Skip next</string>
 
     <!-- Processing -->
     <string name="processing_title">Processing</string>
     <string name="processing_filename">\'%1$s\'</string>
     <string name="processing_status">OMR Engine extracting notes and rhythm…</string>
     <string name="processing_percent">%1$d%%</string>
+    <string name="processing_bypass_hint">Tap to open Practice screen.</string>
+
+    <!-- Recent Scores -->
+    <string name="recent_scores_title">Recent Scores</string>
+    <string name="recent_scores_view_all">View All</string>
+    <string name="recent_score_type_musicxml">MusicXML</string>
+    <string name="recent_score_time_just_now">Just now</string>
 
     <!-- Content Descriptions -->
     <string name="cd_profile_avatar">Profile avatar</string>

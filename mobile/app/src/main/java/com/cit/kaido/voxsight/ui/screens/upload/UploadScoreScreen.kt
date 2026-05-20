@@ -2,6 +2,7 @@ package com.cit.kaido.voxsight.ui.screens.upload
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -37,16 +38,19 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.ripple
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +61,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.cit.kaido.voxsight.R
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
+import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
+import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
@@ -93,6 +100,11 @@ fun UploadScoreScreen() {
     var isProcessing by remember { mutableStateOf(false) }
     var processingFileName by remember { mutableStateOf("") }
     var processingProgress by remember { mutableFloatStateOf(0f) }
+    var allowMusicXmlBypass by remember { mutableStateOf(false) }
+    var showPracticeScreen by remember { mutableStateOf(false) }
+    var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
+    var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
+    val recentScores = remember { mutableStateListOf<RecentScoreItem>() }
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -104,6 +116,9 @@ fun UploadScoreScreen() {
         ActivityResultContracts.TakePicture()
     ) { success ->
         if (success && pendingCameraUri != null) {
+            allowMusicXmlBypass = false
+            selectedScore = null
+            lastParsedScore = null
             onImageCaptured(
                 context = context,
                 imageUri = pendingCameraUri!!,
@@ -118,13 +133,52 @@ fun UploadScoreScreen() {
 
     /** File picker result — maps to UploadScoreScreen.openGallery() */
     val filePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             val fileName = getFileName(context, it)
+            val isMusicXml = isMusicXmlFile(fileName)
             processingFileName = fileName
             processingProgress = 0f
             isProcessing = true
+            allowMusicXmlBypass = isMusicXml
+            selectedScore = null
+
+            if (isMusicXml) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        it,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) {
+                    // Ignore if permission cannot be persisted.
+                }
+
+                val fallbackTitle = deriveTitleFromFileName(fileName)
+                val parsedScore = parseMusicXmlScore(context, it, fallbackTitle)
+
+                if (parsedScore != null) {
+                    lastParsedScore = parsedScore
+                    allowMusicXmlBypass = false
+
+                    recentScores.add(
+                        0,
+                        RecentScoreItem(
+                            score = parsedScore,
+                            fileType = context.getString(R.string.recent_score_type_musicxml),
+                            timeLabel = context.getString(R.string.recent_score_time_just_now)
+                        )
+                    )
+                } else {
+                    allowMusicXmlBypass = false
+                    Toast.makeText(
+                        context,
+                        "Unable to read this MusicXML file.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                isProcessing = false
+            }
             // TODO: Send file to ScoreUploadController via Retrofit
         }
     }
@@ -147,78 +201,110 @@ fun UploadScoreScreen() {
 
     // ── UI ──────────────────────────────────────────────────────
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VoxBackground)
-            .verticalScroll(scrollState)
-            .padding(horizontal = 24.dp, vertical = 16.dp)
-    ) {
-        // ===== Top Bar: Logo + Profile Avatar =====
-        TopBar()
+    val defaultPracticeTitle = stringResource(R.string.practice_title)
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ===== Title Section =====
-        Text(
-            text = stringResource(R.string.digitize_score_title),
-            style = MaterialTheme.typography.headlineLarge,
-            color = VoxTextPrimary
+    if (showPracticeScreen) {
+        Module2PracticeScreen(
+            score = selectedScore,
+            fallbackTitle = defaultPracticeTitle
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.digitize_score_subtitle),
-            style = MaterialTheme.typography.bodyLarge,
-            color = VoxTextSecondary,
-            lineHeight = 20.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ===== Take Photo Card =====
-        ActionCard(
-            icon = Icons.Outlined.CameraAlt,
-            title = stringResource(R.string.take_photo_title),
-            subtitle = stringResource(R.string.take_photo_subtitle),
-            onClick = {
-                // openCamera() — check permission first
-                val hasPermission = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.CAMERA
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                if (hasPermission) {
-                    pendingCameraUri = createCameraUri(context)
-                    pendingCameraUri?.let { cameraLauncher.launch(it) }
-                } else {
-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ===== Import File Card =====
-        ActionCard(
-            icon = Icons.Outlined.FileUpload,
-            title = stringResource(R.string.import_file_title),
-            subtitle = stringResource(R.string.import_file_subtitle),
-            onClick = {
-                // openGallery() — launch file picker for images
-                filePickerLauncher.launch("image/*")
-            }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ===== Processing Status Card (animated entry) =====
-        AnimatedVisibility(
-            visible = isProcessing,
-            enter = fadeIn() + slideInVertically { it / 2 }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(VoxBackground)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            ProcessingCard(
-                fileName = processingFileName,
-                progress = processingProgress
+            // ===== Top Bar: Logo + Profile Avatar =====
+            TopBar()
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ===== Title Section =====
+            Text(
+                text = stringResource(R.string.digitize_score_title),
+                style = MaterialTheme.typography.headlineLarge,
+                color = VoxTextPrimary
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.digitize_score_subtitle),
+                style = MaterialTheme.typography.bodyLarge,
+                color = VoxTextSecondary,
+                lineHeight = 20.sp
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ===== Take Photo Card =====
+            ActionCard(
+                icon = Icons.Outlined.CameraAlt,
+                title = stringResource(R.string.take_photo_title),
+                subtitle = stringResource(R.string.take_photo_subtitle),
+                onClick = {
+                    // openCamera() — check permission first
+                    val hasPermission = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                    if (hasPermission) {
+                        pendingCameraUri = createCameraUri(context)
+                        pendingCameraUri?.let { cameraLauncher.launch(it) }
+                    } else {
+                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ===== Import File Card =====
+            ActionCard(
+                icon = Icons.Outlined.FileUpload,
+                title = stringResource(R.string.import_file_title),
+                subtitle = stringResource(R.string.import_file_subtitle),
+                onClick = {
+                    // openGallery() — launch file picker for MusicXML only
+                    filePickerLauncher.launch(
+                        arrayOf(
+                            "application/vnd.recordare.musicxml",
+                            "application/vnd.recordare.musicxml+xml",
+                            "application/xml",
+                            "text/xml"
+                        )
+                    )
+                }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ===== Processing Status Card (animated entry) =====
+            AnimatedVisibility(
+                visible = isProcessing,
+                enter = fadeIn() + slideInVertically { it / 2 }
+            ) {
+                ProcessingCard(
+                    fileName = processingFileName,
+                    progress = processingProgress,
+                    bypassEnabled = allowMusicXmlBypass,
+                    onBypass = {
+                        selectedScore = lastParsedScore
+                        showPracticeScreen = true
+                    }
+                )
+            }
+
+            if (recentScores.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                RecentScoresSection(
+                    scores = recentScores,
+                    onScoreSelected = { item ->
+                        selectedScore = item.score
+                        showPracticeScreen = true
+                    }
+                )
+            }
         }
     }
 }
@@ -345,16 +431,32 @@ private fun ActionCard(
 @Composable
 private fun ProcessingCard(
     fileName: String,
-    progress: Float
+    progress: Float,
+    bypassEnabled: Boolean,
+    onBypass: () -> Unit
 ) {
     val percent = (progress * 100).toInt()
-
-    Row(
-        modifier = Modifier
+    val cardModifier = if (bypassEnabled) {
+        Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(VoxProcessingBg)
-            .padding(16.dp),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = VoxPurplePrimary),
+                onClick = onBypass
+            )
+            .padding(16.dp)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(VoxProcessingBg)
+            .padding(16.dp)
+    }
+
+    Row(
+        modifier = cardModifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // File icon
@@ -409,6 +511,15 @@ private fun ProcessingCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = VoxTextSubtitle
             )
+
+            if (bypassEnabled) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.processing_bypass_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VoxProgressText
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(8.dp))
@@ -419,6 +530,120 @@ private fun ProcessingCard(
             style = MaterialTheme.typography.labelLarge,
             color = VoxProgressText
         )
+    }
+}
+
+@Composable
+private fun RecentScoresSection(
+    scores: List<RecentScoreItem>,
+    onScoreSelected: (RecentScoreItem) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.recent_scores_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = VoxTextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = stringResource(R.string.recent_scores_view_all),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = VoxPurplePrimary
+            )
+        }
+
+        scores.forEach { item ->
+            RecentScoreRow(item = item, onClick = { onScoreSelected(item) })
+        }
+    }
+}
+
+@Composable
+private fun RecentScoreRow(
+    item: RecentScoreItem,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = VoxPurplePrimary),
+                onClick = onClick
+            ),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(VoxPurpleIconBg),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Outlined.MusicNote,
+                    contentDescription = null,
+                    tint = VoxPurplePrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = item.score.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                    color = VoxTextPrimary
+                )
+                Text(
+                    text = item.score.composer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VoxTextSubtitle
+                )
+            }
+
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Surface(
+                    color = VoxPurpleIconBg,
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = item.fileType,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = VoxPurplePrimary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Text(
+                    text = item.timeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VoxTextSubtitle
+                )
+            }
+        }
     }
 }
 
@@ -494,3 +719,19 @@ private fun getFileName(context: Context, uri: Uri): String {
     }
     return name
 }
+
+private fun isMusicXmlFile(fileName: String): Boolean {
+    val lower = fileName.lowercase()
+    return lower.endsWith(".musicxml") || lower.endsWith(".xml") || lower.endsWith(".mxl")
+}
+
+private fun deriveTitleFromFileName(fileName: String): String {
+    val trimmed = fileName.substringBeforeLast('.')
+    return trimmed.replace('_', ' ').replace('-', ' ').trim()
+}
+
+private data class RecentScoreItem(
+    val score: MusicXmlScore,
+    val fileType: String,
+    val timeLabel: String
+)
