@@ -32,3 +32,24 @@ val VoxProcessingBg = Color(0xFFF8F5FC)
 val VoxProgressTrack = Color(0xFFE0D4ED)
 val VoxProgressIndicator = Color(0xFF5B2D8E)
 val VoxProgressText = Color(0xFF5B2D8E)
+
+// ── M3 Design System Tokens (from Stitch) ───────────────────────
+
+val VoxM3Primary = Color(0xFF310065)
+val VoxM3PrimaryContainer = Color(0xFF4A148C)
+val VoxM3OnPrimary = Color(0xFFFFFFFF)
+val VoxM3OnPrimaryContainer = Color(0xFFB889FF)
+val VoxM3PrimaryFixed = Color(0xFFEDDCFF)
+val VoxM3PrimaryFixedDim = Color(0xFFD7BAFF)
+
+val VoxM3Surface = Color(0xFFF8F9FF)
+val VoxM3SurfaceContainerLowest = Color(0xFFFFFFFF)
+val VoxM3SurfaceContainerLow = Color(0xFFF2F3F9)
+val VoxM3SurfaceContainerHigh = Color(0xFFE7E8EE)
+val VoxM3SurfaceVariant = Color(0xFFE1E2E8)
+val VoxM3OnSurface = Color(0xFF191C20)
+val VoxM3OnSurfaceVariant = Color(0xFF4A4452)
+val VoxM3OutlineVariant = Color(0xFFCDC3D4)
+val VoxM3Outline = Color(0xFF7C7483)
+
+val VoxM3Error = Color(0xFFBA1A1A)
