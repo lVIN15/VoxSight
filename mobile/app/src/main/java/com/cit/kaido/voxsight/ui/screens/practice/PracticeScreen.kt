@@ -79,7 +79,10 @@ import kotlin.math.roundToInt
 @Composable
 fun Module2PracticeScreen(
     score: MusicXmlScore? = null,
-    fallbackTitle: String = stringResource(R.string.practice_title)
+    fallbackTitle: String = stringResource(R.string.practice_title),
+    isMicEnabled: Boolean = false,
+    onPauseClicked: () -> Unit = {},
+    onBackClicked: () -> Unit = {}
 ) {
     val resolvedScore = score ?: sampleMusicXmlScore(fallbackTitle)
     val staffNotes = remember(resolvedScore) {
@@ -112,7 +115,11 @@ fun Module2PracticeScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            PracticeTopBar(title = resolvedScore.title)
+            PracticeTopBar(
+                title = resolvedScore.title, 
+                isMicEnabled = isMicEnabled,
+                onBackClicked = onBackClicked
+            )
 
             VoicePartCard(
                 selectedPart = selectedPart,
@@ -132,7 +139,12 @@ fun Module2PracticeScreen(
 
             PlaybackControlBar(
                 isPlaying = isPlaying,
-                onPlayPause = { isPlaying = !isPlaying },
+                onPlayPause = { 
+                    if (isPlaying) {
+                        onPauseClicked()
+                    }
+                    isPlaying = !isPlaying 
+                },
                 progress = progress,
                 onProgressChange = { progress = it },
                 currentTime = formatTime(currentSeconds),
@@ -157,12 +169,16 @@ private data class StaffNote(
 )
 
 @Composable
-private fun PracticeTopBar(title: String) {
+private fun PracticeTopBar(
+    title: String, 
+    isMicEnabled: Boolean,
+    onBackClicked: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { }) {
+        IconButton(onClick = onBackClicked) {
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                 contentDescription = stringResource(R.string.cd_back)
@@ -171,11 +187,13 @@ private fun PracticeTopBar(title: String) {
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(VoxAccentGreen, CircleShape)
-        )
+        if (isMicEnabled) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(VoxAccentGreen, CircleShape)
+            )
+        }
 
         Spacer(modifier = Modifier.width(8.dp))
 

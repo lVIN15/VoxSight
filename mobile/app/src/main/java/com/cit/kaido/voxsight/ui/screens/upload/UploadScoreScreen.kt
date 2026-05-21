@@ -92,7 +92,7 @@ import java.io.File
  *  - ProcessingLoadingState.showLoadingDialog() / updateProgress()
  */
 @Composable
-fun UploadScoreScreen() {
+fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
@@ -101,7 +101,6 @@ fun UploadScoreScreen() {
     var processingFileName by remember { mutableStateOf("") }
     var processingProgress by remember { mutableFloatStateOf(0f) }
     var allowMusicXmlBypass by remember { mutableStateOf(false) }
-    var showPracticeScreen by remember { mutableStateOf(false) }
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     val recentScores = remember { mutableStateListOf<RecentScoreItem>() }
@@ -203,16 +202,10 @@ fun UploadScoreScreen() {
 
     val defaultPracticeTitle = stringResource(R.string.practice_title)
 
-    if (showPracticeScreen) {
-        Module2PracticeScreen(
-            score = selectedScore,
-            fallbackTitle = defaultPracticeTitle
-        )
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(VoxBackground)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VoxBackground)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
@@ -290,7 +283,7 @@ fun UploadScoreScreen() {
                     bypassEnabled = allowMusicXmlBypass,
                     onBypass = {
                         selectedScore = lastParsedScore
-                        showPracticeScreen = true
+                        onNavigateToPractice()
                     }
                 )
             }
@@ -301,12 +294,11 @@ fun UploadScoreScreen() {
                     scores = recentScores,
                     onScoreSelected = { item ->
                         selectedScore = item.score
-                        showPracticeScreen = true
+                        onNavigateToPractice()
                     }
                 )
             }
         }
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
