@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.cit.kaido.voxsight.ui.screens.upload.UploadScoreScreen
+import com.cit.kaido.voxsight.ui.navigation.AppNavigation
 import com.cit.kaido.voxsight.ui.theme.VoxSightTheme
 
 class MainActivity : ComponentActivity() {
@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VoxSightTheme {
-                UploadScoreScreen()
+                AppNavigation()
             }
         }
     }
