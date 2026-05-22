@@ -1,6 +1,7 @@
 package com.cit.kaido.voxsight.ui
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cit.kaido.voxsight.MusicPlayerActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,7 +58,7 @@ fun OmrScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var backendUrl by remember { mutableStateOf("http://10.0.2.2:8080") }
+    var backendUrl by remember { mutableStateOf("http://192.168.1.3:8080") }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     
@@ -140,7 +144,7 @@ fun OmrScreen() {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Use http://10.0.2.2:8080 for default Android Emulator.",
+                        "Use http://192.168.1.3:8080 for physical device on local Wi-Fi. (Emulator was 10.0.2.2)",
                         color = TextMutedColor,
                         fontSize = 11.sp
                     )
@@ -160,7 +164,8 @@ fun OmrScreen() {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
+                        .padding(24.dp)
+                        .verticalScroll(androidx.compose.foundation.rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -292,12 +297,33 @@ fun OmrScreen() {
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "Output URL: $backendUrl$resultUrl",
-                            color = AccentColor,
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center
-                        )
+
+                        // Play button — launches MusicPlayerActivity with the score ID
+                        Button(
+                            onClick = {
+                                val scoreId = extractScoreId(resultFilename)
+                                val intent = Intent(context, MusicPlayerActivity::class.java).apply {
+                                    putExtra("SCORE_ID", scoreId)
+                                    putExtra("BACKEND_URL", backendUrl)
+                                }
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            modifier = Modifier.fillMaxWidth(0.8f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Play",
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Play & View SATB",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
 
                     // Error Message View
@@ -314,6 +340,16 @@ fun OmrScreen() {
             }
         }
     }
+}
+
+/**
+ * Extracts the score ID (filename without extension) from the result filename.
+ * e.g. "1716234567890-Merry_Go_Round.xml" -> "1716234567890-Merry_Go_Round"
+ */
+private fun extractScoreId(filename: String?): String {
+    if (filename == null) return ""
+    val dotIndex = filename.lastIndexOf('.')
+    return if (dotIndex > 0) filename.substring(0, dotIndex) else filename
 }
 
 private fun getFileName(context: Context, uri: Uri): String {
