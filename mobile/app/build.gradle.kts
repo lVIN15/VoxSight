@@ -65,6 +65,10 @@ dependencies {
     // Coroutines for background tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // TarsosDSP (from Maven Central via axet fork, since official repo is down)
+    // The @jar suffix forces it to skip AAR extraction, fixing the AarToClassTransform crash.
+    implementation("com.github.axet:TarsosDSP:2.4-1@jar")
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

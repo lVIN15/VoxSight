@@ -26,4 +26,8 @@ object ApiClient {
     val omrService: OmrService by lazy {
         retrofit.create(OmrService::class.java)
     }
+
+    val sessionService: SessionService by lazy {
+        retrofit.create(SessionService::class.java)
+    }
 }

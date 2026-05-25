@@ -1,5 +1,8 @@
 package com.cit.kaido.voxsight.ui.screens.practice
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.MicNone
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -38,11 +43,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -98,6 +107,46 @@ fun Module2PracticeScreen(
     val totalSeconds = resolvedScore.totalSeconds
     val currentSeconds = (totalSeconds * progress).roundToInt()
 
+    // ── Module 4: Pitch Visualizer Controller ─────────────────────────────
+    val pitchController: PitchVisualizerController = viewModel()
+    val pitchUiState by pitchController.uiState.collectAsState()
+
+    // Capture the current progress in a stable lambda so the background
+    // audio thread can query it without capturing a stale snapshot.
+    val progressRef = remember { { progress } }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pitchController.startPitchTracking(
+                score = resolvedScore,
+                playheadProgressProvider = progressRef
+            )
+        }
+    }
+
+    // Start / stop the engine whenever isMicEnabled changes.
+    LaunchedEffect(isMicEnabled, resolvedScore) {
+        if (isMicEnabled) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            pitchController.stopPitchTracking()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { pitchController.stopPitchTracking() }
+    }
+
+    // Keep the voice-part filter in sync with the user's selection.
+    DisposableEffect(selectedPart) {
+        val voiceNumber = selectedPart.ordinal + 1   // Soprano=1, Alto=2, Tenor=3, Bass=4
+        pitchController.updateVoicePart(resolvedScore, voiceNumber)
+        onDispose { }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             VoxBackground,
@@ -118,6 +167,7 @@ fun Module2PracticeScreen(
             PracticeTopBar(
                 title = resolvedScore.title, 
                 isMicEnabled = isMicEnabled,
+                pitchUiState = pitchUiState,
                 onBackClicked = onBackClicked
             )
 
@@ -137,13 +187,24 @@ fun Module2PracticeScreen(
                 staffNotes = staffNotes
             )
 
+            // Module 4 pitch feedback card — hidden when mic is off.
+            PitchFeedbackCard(
+                uiState = pitchUiState,
+                isMicEnabled = isMicEnabled
+            )
+
             PlaybackControlBar(
                 isPlaying = isPlaying,
-                onPlayPause = { 
+                onPlayPause = {
                     if (isPlaying) {
+                        // Pause pressed: flush the accumulated pitch attempts to the server.
+                        if (isMicEnabled) {
+                            val elapsed = (totalSeconds * progress).toInt()
+                            pitchController.flushSession(elapsed)
+                        }
                         onPauseClicked()
                     }
-                    isPlaying = !isPlaying 
+                    isPlaying = !isPlaying
                 },
                 progress = progress,
                 onProgressChange = { progress = it },
@@ -172,6 +233,7 @@ private data class StaffNote(
 private fun PracticeTopBar(
     title: String, 
     isMicEnabled: Boolean,
+    pitchUiState: PitchUiState,
     onBackClicked: () -> Unit
 ) {
     Row(

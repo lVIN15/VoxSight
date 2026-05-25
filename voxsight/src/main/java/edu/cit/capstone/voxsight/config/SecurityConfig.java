@@ -13,10 +13,16 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable()) // Disable CSRF for OMR file uploads
+            .csrf(csrf -> csrf.disable())
+            .headers(headers -> headers
+                // Allow H2 console to render inside its own iframe
+                .frameOptions(frame -> frame.sameOrigin())
+            )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/convert", "/outputs/**").permitAll()
-                .anyRequest().permitAll() // Permit everything for MVP/development simplicity
+                .requestMatchers("/h2-console/**").permitAll()
+                .requestMatchers("/api/session/**").permitAll()
+                .anyRequest().permitAll()
             );
         return http.build();
     }
