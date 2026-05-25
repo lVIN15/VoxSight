@@ -66,6 +66,8 @@ public class OmrController {
                     "-batch",
                     "-export",
                     "MusicXML",
+                    "-output",
+                    uploadsDirPath,
                     uploadedFile.getAbsolutePath()
             );
             pb.redirectErrorStream(true); // Merge stdout and stderr

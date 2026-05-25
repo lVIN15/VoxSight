@@ -60,6 +60,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.FileOutputStream
+import com.cit.kaido.voxsight.network.ApiClient
 import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
@@ -110,6 +120,8 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
 
     // ── Activity Result Launchers ───────────────────────────────
 
+    val coroutineScope = rememberCoroutineScope()
+
     /** Camera capture result — maps to ImageCaptureService.captureImage() */
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -118,13 +130,33 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
             allowMusicXmlBypass = false
             selectedScore = null
             lastParsedScore = null
+            
+            processingFileName = "Scanned Score"
+            processingProgress = 0f
+            isProcessing = true
+            
             onImageCaptured(
                 context = context,
                 imageUri = pendingCameraUri!!,
-                onProcessing = { fileName ->
-                    processingFileName = fileName
-                    processingProgress = 0f
-                    isProcessing = true
+                coroutineScope = coroutineScope,
+                onProgress = { progress -> processingProgress = progress },
+                onSuccess = { score ->
+                    lastParsedScore = score
+                    allowMusicXmlBypass = true
+                    processingProgress = 1f
+                    
+                    recentScores.add(
+                        0,
+                        RecentScoreItem(
+                            score = score,
+                            fileType = context.getString(R.string.recent_score_type_musicxml),
+                            timeLabel = context.getString(R.string.recent_score_time_just_now)
+                        )
+                    )
+                },
+                onError = { error ->
+                    isProcessing = false
+                    Toast.makeText(context, error, Toast.LENGTH_LONG).show()
                 }
             )
         }
@@ -177,8 +209,33 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                     ).show()
                 }
                 isProcessing = false
+            } else {
+                // If it's an image, send to backend
+                onImageCaptured(
+                    context = context,
+                    imageUri = it,
+                    coroutineScope = coroutineScope,
+                    onProgress = { progress -> processingProgress = progress },
+                    onSuccess = { score ->
+                        lastParsedScore = score
+                        allowMusicXmlBypass = true
+                        processingProgress = 1f
+                        
+                        recentScores.add(
+                            0,
+                            RecentScoreItem(
+                                score = score,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = context.getString(R.string.recent_score_time_just_now)
+                            )
+                        )
+                    },
+                    onError = { error ->
+                        isProcessing = false
+                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    }
+                )
             }
-            // TODO: Send file to ScoreUploadController via Retrofit
         }
     }
 
@@ -258,13 +315,15 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                 title = stringResource(R.string.import_file_title),
                 subtitle = stringResource(R.string.import_file_subtitle),
                 onClick = {
-                    // openGallery() — launch file picker for MusicXML only
+                    // openGallery() — launch file picker for MusicXML, images, and PDFs
                     filePickerLauncher.launch(
                         arrayOf(
                             "application/vnd.recordare.musicxml",
                             "application/vnd.recordare.musicxml+xml",
                             "application/xml",
-                            "text/xml"
+                            "text/xml",
+                            "image/*",
+                            "application/pdf"
                         )
                     )
                 }
@@ -669,19 +728,71 @@ private fun createCameraUri(context: Context): Uri {
 private fun onImageCaptured(
     context: Context,
     imageUri: Uri,
-    onProcessing: (String) -> Unit
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onProgress: (Float) -> Unit,
+    onSuccess: (MusicXmlScore) -> Unit,
+    onError: (String) -> Unit
 ) {
-    if (validateImageQuality(imageUri)) {
-        val fileName = getFileName(context, imageUri)
-        onProcessing(fileName)
-        // TODO: Send image to ScoreUploadController via Retrofit
-        //       ScoreUploadController.uploadImage(image)
-    } else {
-        Toast.makeText(
-            context,
-            "Image quality is too low. Please capture a clearer photo.",
-            Toast.LENGTH_LONG
-        ).show()
+    if (!validateImageQuality(imageUri)) {
+        onError("Image quality is too low. Please capture a clearer photo.")
+        return
+    }
+
+    coroutineScope.launch {
+        try {
+            // Fake progress to show activity while Audiveris runs
+            launch {
+                var fakeProgress = 0f
+                while (fakeProgress < 0.9f) {
+                    delay(500)
+                    fakeProgress += 0.05f
+                    onProgress(fakeProgress.coerceAtMost(0.9f))
+                }
+            }
+
+            // Copy URI content to a temp file so Retrofit can send it
+            val tempFile = File(context.cacheDir, "upload_image.jpg")
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(imageUri)?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+
+            // Upload via Retrofit
+            val requestFile = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+            val body = MultipartBody.Part.createFormData("musicFile", tempFile.name, requestFile)
+            
+            val response = ApiClient.omrService.convertScore(body)
+            
+            if (response.fileUrl != null) {
+                // Download the generated XML
+                val xmlResponse = ApiClient.omrService.downloadXml(response.fileUrl)
+                val xmlTempFile = File(context.cacheDir, "result.xml")
+                withContext(Dispatchers.IO) {
+                    FileOutputStream(xmlTempFile).use { output ->
+                        output.write(xmlResponse.bytes())
+                    }
+                }
+                
+                // Parse the XML
+                val scoreTitle = deriveTitleFromFileName(response.fileName ?: "Uploaded Score")
+                val score = parseMusicXmlScore(context, Uri.fromFile(xmlTempFile), scoreTitle)
+                
+                if (score != null) {
+                    onProgress(1f)
+                    onSuccess(score)
+                } else {
+                    onError("Failed to parse the generated MusicXML.")
+                }
+            } else {
+                onError(response.message ?: "Conversion failed.")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onError("Network error: ${e.localizedMessage}")
+        }
     }
 }
 
