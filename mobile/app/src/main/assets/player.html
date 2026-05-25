@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoxSight Player</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, hsl(210, 30%, 15%), hsl(230, 30%, 10%));
+            color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #scoreContainer {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin: 10px;
+            min-height: 240px;
+        }
+
+        #score {
+            width: 100%;
+        }
+
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        button {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: hsl(200, 70%, 45%);
+            color: #fff;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: hsl(200, 70%, 55%);
+        }
+
+        button.muted {
+            background: hsl(0, 70%, 45%);
+        }
+    </style>
+    <!-- OpenSheetMusicDisplay -->
+    <script src="opensheetmusicdisplay.min.js"></script>
+    <!-- Tone.js -->
+    <script src="Tone.min.js"></script>
+    <script src="https://www.verovio.org/javascript/latest/verovio.js"></script>
+</head>
+
+<body>
+    <div id="scoreContainer">
+        <div id="score"></div>
+    </div>
+    <div id="controls">
+        <button id="playBtn">Play</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="stopBtn">Stop</button>
+        <button id="muteSBtn" data-part="S">Mute S</button>
+        <button id="muteABtn" data-part="A">Mute A</button>
+        <button id="muteTBtn" data-part="T">Mute T</button>
+        <button id="muteBBtn" data-part="B">Mute B</button>
+    </div>
+
+    <script>
+        let osmd;
+        let synthS, synthA, synthT, synthB;
+        let masterLimiter;
+        let masterGain;
+        let masterCompressor;
+        let toneConfigured = false;
+        const muteState = { S: false, A: false, T: false, B: false };
+        // ---------- Verovio & MusicXML parsing ----------
+        async function parseMusicXML(musicxmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(musicxmlString, 'application/xml');
+            const satb = { S: [], A: [], T: [], B: [] };
+            const partOrder = ['S', 'A', 'T', 'B'];
+            let partIndex = 0;
+
+            let tempo = 120;
+            const sound = xmlDoc.querySelector('sound[tempo]');
+            if (sound) tempo = Number(sound.getAttribute('tempo')) || tempo;
+
+            // Get the divisions (ticks per quarter note) to calculate accurate beat durations
+            const divisionsNode = xmlDoc.querySelector('divisions');
+            const divisions = divisionsNode ? Number(divisionsNode.textContent) : 1;
+            const beatsPerQuarter = divisions ? 1 / divisions : 1;
+
+            const parts = xmlDoc.querySelectorAll('part');
+            parts.forEach(part => {
+                const id = part.getAttribute('id') || '';
+                // Try ID-based match first, fall back to order
+                const label = (id.includes('S') ? 'S' :
+                    id.includes('A') ? 'A' :
+                        id.includes('T') ? 'T' :
+                            id.includes('B') ? 'B' :
+                                partOrder[partIndex] || 'S');
+                partIndex++;
+
+                let time = 0;
+                part.querySelectorAll('note').forEach(note => {
+                    // Calculate accurate beats using divisions
+                    const durNode = note.querySelector('duration');
+                    const durationBeats = durNode ? (Number(durNode.textContent) * beatsPerQuarter) : 0.5;
+
+                    // If it's a rest, advance time but don't push a note
+                    if (note.querySelector('rest')) {
+                        time += durationBeats;
+                        return;
+                    }
+
+                    const step = note.querySelector('step')?.textContent;
+                    const octave = note.querySelector('octave')?.textContent;
+                    const alter = note.querySelector('alter')?.textContent;
+
+                    if (!step || !octave) return; // Skip if invalid pitch
+
+                    let pitch = step + (alter == 1 ? '#' : alter == -1 ? 'b' : '') + octave;
+
+                    const type = note.querySelector('type')?.textContent;
+                    const durationMap = { whole: '1m', half: '2n', quarter: '4n', eighth: '8n', '16th': '16n', '32nd': '32n' };
+                    const toneDur = durationMap[type] || '4n';
+
+                    satb[label].push({
+                        time: time,
+                        pitch: pitch,
+                        duration: toneDur,
+                        durationBeats: durationBeats, // Added this so Tone.js knows when to release the synth!
+                        voice: label
+                    });
+
+                    time += durationBeats;
+                });
+            });
+
+            return { satb, tempo };
+        }
+
+        // Simple fallback parser using DOMParser (in case Verovio unavailable)
+        function parseMusicXMLFallback(musicxmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(musicxmlString, 'application/xml');
+            const satb = { S: [], A: [], T: [], B: [] };
+            let tempo = 120;
+            const partOrder = ['S', 'A', 'T', 'B'];
+            let partIndex = 0;
+
+            const sound = xmlDoc.querySelector('sound[tempo]');
+            if (sound) tempo = Number(sound.getAttribute('tempo')) || tempo;
+            const parts = xmlDoc.querySelectorAll('part');
+            parts.forEach(part => {
+                const id = part.getAttribute('id') || '';
+                // Try ID-based match first, fall back to order
+                const label = (id.includes('S') ? 'S' :
+                    id.includes('A') ? 'A' :
+                        id.includes('T') ? 'T' :
+                            id.includes('B') ? 'B' :
+                                partOrder[partIndex] || 'S');
+                partIndex++;
+                let time = 0;
+                part.querySelectorAll('note').forEach(note => {
+                    if (note.querySelector('rest')) {
+                        const dur = note.querySelector('duration');
+                        time += dur ? Number(dur.textContent) * 0.25 : 0;
+                        return;
+                    }
+                    const step = note.querySelector('step')?.textContent;
+                    const octave = note.querySelector('octave')?.textContent;
+                    const alter = note.querySelector('alter')?.textContent;
+                    if (!step || !octave) return;
+                    let pitch = step + (alter == 1 ? '#' : alter == -1 ? 'b' : '') + octave;
+                    const type = note.querySelector('type')?.textContent;
+                    const durationMap = { whole: '1m', half: '2n', quarter: '4n', eighth: '8n', '16th': '16n', '32nd': '32n' };
+                    const dur = durationMap[type] || '4n';
+                    satb[label].push({ time, pitch, duration: dur, voice: label });
+                    const durNode = note.querySelector('duration');
+                    const beats = durNode ? Number(durNode.textContent) * 0.25 : 0.5;
+                    time += beats;
+                });
+            });
+            return { satb, tempo };
+        }
+        let parts = {};
+        const firedCounts = { S: 0, A: 0, T: 0, B: 0 };
+        let pendingSatb = null;
+        let pendingTempo = 120;
+
+        function teardownAudioEngine() {
+            try { Tone.Transport.stop(); } catch (_) { }
+            try { Tone.Transport.seconds = 0; } catch (_) { }
+            try { Tone.Transport.cancel(0); } catch (_) { }
+
+            Object.values(parts).forEach(p => p?.dispose?.());
+            parts = {};
+
+            firedCounts.S = 0;
+            firedCounts.A = 0;
+            firedCounts.T = 0;
+            firedCounts.B = 0;
+
+            [synthS, synthA, synthT, synthB].forEach(s => {
+                try { s?.disconnect?.(); } catch (_) { }
+                try { s?.dispose?.(); } catch (_) { }
+            });
+            synthS = synthA = synthT = synthB = undefined;
+
+            // Dispose master chain nodes (they'll be recreated in initAudioEngine)
+            try { masterGain?.disconnect(); masterGain?.dispose(); } catch (_) { }
+            try { masterCompressor?.disconnect(); masterCompressor?.dispose(); } catch (_) { }
+            try { masterLimiter?.disconnect(); masterLimiter?.dispose(); } catch (_) { }
+            masterGain = masterCompressor = masterLimiter = undefined;
+            // NOTE: Do NOT reset toneConfigured here — creating a second AudioContext
+            // orphans the old one and breaks Transport ↔ Part binding in Tone.js.
+        }
+
+        function init() {
+            if (typeof opensheetmusicdisplay === 'undefined') {
+                document.getElementById('score').innerHTML = '<p style="color: orange; padding: 20px;">Note: OpenSheetMusicDisplay library failed to load. Tone.js audio will still play.</p>';
+                return;
+            }
+            osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('score', { autoResize: true, drawTitle: false });
+        }
+
+        function resizeScoreContainer() {
+            const controls = document.getElementById('controls');
+            const scoreContainer = document.getElementById('scoreContainer');
+            if (!controls || !scoreContainer) return;
+            const controlsHeight = controls.getBoundingClientRect().height || 0;
+            const available = window.innerHeight - controlsHeight - 20;
+            scoreContainer.style.height = Math.max(available, 240) + 'px';
+        }
+
+        async function loadScore(data) {
+            console.log('loadScore called with:', data);
+            if (!data || !data.musicxml) {
+                document.getElementById('score').innerHTML = '<p style="color: red; padding: 20px;">Error: No MusicXML data received</p>';
+                return;
+            }
+            // Render MusicXML if OSMD loaded
+            if (osmd) {
+                resizeScoreContainer();
+                osmd.load(data.musicxml)
+                    .then(() => {
+                        requestAnimationFrame(() => {
+                            osmd.render();
+                            if (typeof osmd.resize === 'function') {
+                                osmd.resize();
+                            }
+                        });
+                    })
+                    .catch(e => {
+                        console.error('OSMD load error:', e);
+                        document.getElementById('score').innerHTML = '<p style="color: red; padding: 20px;">Error rendering score.</p>';
+                    });
+            }
+
+            // ---- Determine SATB data and tempo ----
+            // Priority 1: Use pre-parsed SATB from the backend (most reliable voice assignment)
+            const backendSatb = data.satb;
+            const hasBackendSatb = backendSatb &&
+                (backendSatb.S?.length || backendSatb.A?.length ||
+                 backendSatb.T?.length || backendSatb.B?.length);
+
+            if (hasBackendSatb) {
+                pendingSatb = backendSatb;
+                pendingTempo = Number(data.tempo) || 120;
+                console.log('Using backend SATB data. Tempo:', pendingTempo,
+                    'S:', backendSatb.S?.length || 0,
+                    'A:', backendSatb.A?.length || 0,
+                    'T:', backendSatb.T?.length || 0,
+                    'B:', backendSatb.B?.length || 0);
+            } else {
+                // Priority 2: Parse MusicXML ourselves
+                try {
+                    const { satb, tempo } = await parseMusicXML(data.musicxml);
+                    pendingSatb = satb;
+                    pendingTempo = Number(tempo) || 120;
+                    console.log('Parsed SATB from MusicXML. Tempo:', pendingTempo,
+                        'S:', satb.S?.length || 0,
+                        'A:', satb.A?.length || 0,
+                        'T:', satb.T?.length || 0,
+                        'B:', satb.B?.length || 0);
+                } catch (e) {
+                    console.error('Failed to parse MusicXML:', e);
+                    pendingSatb = { S: [], A: [], T: [], B: [] };
+                    pendingTempo = 120;
+                }
+            }
+            window.SATB = pendingSatb;
+            window.TEMPO = pendingTempo;
+
+            // Don't build audio nodes until the user presses Play (Android WebView gesture reliability)
+            teardownAudioEngine();
+            console.log('Audio data prepared; press Play to start.');
+        }
+
+        function initAudioEngine(satb, tempo) {
+            satb = satb || {};
+            console.log('initAudioEngine called with tempo:', tempo, 'satb:', satb);
+
+            // Reset Transport state/scheduled events from any previous run
+            try { Tone.Transport.stop(); } catch (_) { }
+            try { Tone.Transport.seconds = 0; } catch (_) { }
+            try { Tone.Transport.cancel(0); } catch (_) { }
+
+            Object.values(parts).forEach(p => p?.dispose?.());
+            parts = {};
+            firedCounts.S = 0;
+            firedCounts.A = 0;
+            firedCounts.T = 0;
+            firedCounts.B = 0;
+
+            // Avoid piling up synth nodes across reloads
+            [synthS, synthA, synthT, synthB].forEach(s => {
+                try { s?.disconnect?.(); } catch (_) { }
+                try { s?.dispose?.(); } catch (_) { }
+            });
+            synthS = synthA = synthT = synthB = undefined;
+
+            if (!toneConfigured) {
+                Tone.setContext(new Tone.Context({ latencyHint: 'interactive' }));
+                // Defaults are generally the most reliable for Part/Transport scheduling
+                Tone.getContext().lookAhead = 0.1;
+                Tone.getContext().updateInterval = 0.03;
+                toneConfigured = true;
+            }
+            const bpm = Number(tempo) || 120;
+            Tone.Transport.bpm.value = bpm;
+            const secondsPerBeat = 60 / bpm;
+            const minStartSeconds = getMinStartSeconds(satb, secondsPerBeat);
+            console.log('Audio timing: secondsPerBeat=', secondsPerBeat, 'minStartSeconds=', minStartSeconds);
+
+            // Master output chain: Gain → Compressor → Limiter → Speakers
+            masterLimiter = new Tone.Limiter(-6).toDestination();
+            masterCompressor = new Tone.Compressor({
+                threshold: -24,
+                ratio: 6,
+                attack: 0.005,
+                release: 0.15
+            });
+            masterGain = new Tone.Gain(0.45);
+
+            masterGain.connect(masterCompressor);
+            masterCompressor.connect(masterLimiter);
+
+            // Single shared synth for all voices (keeps it simple, avoids overload)
+            // Voice params MUST be at top level — Tone.js v14 ignores nested "options" key
+            const synthOptions = {
+                maxPolyphony: 8,
+                oscillator: {
+                    type: 'sine',  // Cleaner, more musical tones
+                    partials: [1, 2, 3]
+                },
+                envelope: {
+                    attack: 0.008,
+                    decay: 0.1,
+                    sustain: 0.4,
+                    release: 0.3
+                }
+            };
+
+            synthS = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
+            synthA = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
+            synthT = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
+            synthB = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
+
+            // Build Tone.Part per voice
+            // Merge all notes into S for now (SATB separation comes later)
+            const allNotes = [].concat(satb.S || [], satb.A || [], satb.T || [], satb.B || []);
+            parts.S = createPart(allNotes, synthS, 'S', secondsPerBeat, minStartSeconds);
+            parts.A = createPart([], synthA, 'A', secondsPerBeat, minStartSeconds);
+            parts.T = createPart([], synthT, 'T', secondsPerBeat, minStartSeconds);
+            parts.B = createPart([], synthB, 'B', secondsPerBeat, minStartSeconds);
+            console.log('Total notes (merged):', allNotes.length);
+        }
+
+        function getMinStartSeconds(satb, secondsPerBeat) {
+            const all = [];
+            ['S', 'A', 'T', 'B'].forEach(part => {
+                const list = satb?.[part] || [];
+                list.forEach(n => {
+                    if (n && Number.isFinite(Number(n.time))) {
+                        all.push(Number(n.time) * secondsPerBeat);
+                    }
+                });
+            });
+            if (all.length === 0) {
+                return 0;
+            }
+            return Math.max(0, Math.min.apply(null, all));
+        }
+
+        function createPart(notes, synth, label, secondsPerBeat, offsetSeconds) {
+            let badPitchCount = 0;
+            const pitchPattern = /^[A-G](?:#|b)?\d{1,2}$/;
+
+            const toneEvents = (notes || [])
+                .filter(n => n && n.pitch)
+                .map(n => {
+                    const pitch = String(n.pitch).trim();
+                    if (!pitchPattern.test(pitch)) {
+                        badPitchCount++;
+                        if (badPitchCount <= 5) {
+                            console.warn(`[${label}] Invalid pitch skipped:`, pitch);
+                        }
+                        return null;
+                    }
+
+                    const beatTime = Number(n.time);
+                    if (!Number.isFinite(beatTime)) {
+                        return null;
+                    }
+
+                    // Determine duration: if the backend sent a Tone.js duration string (e.g., "4n"), use it directly;
+                    // otherwise treat the value as beats and convert to seconds.
+                    let duration;
+                    if (typeof n.duration === 'string' && isNaN(Number(n.duration))) {
+                        // Assume it's a Tone.js notation like "4n", "8n", etc.
+                        duration = n.duration;
+                    } else {
+                        // Fallback: treat as beats (or use durationBeats if present)
+                        const durationBeats = Number(n.durationBeats ?? n.duration);
+                        const safeDurationBeats = Number.isFinite(durationBeats) && durationBeats > 0 ? durationBeats : 0.5;
+                        duration = Math.max(safeDurationBeats * secondsPerBeat, 0.05);
+                    }
+
+                    let startSeconds = beatTime * secondsPerBeat;
+                    if (!Number.isFinite(startSeconds)) startSeconds = 0;
+                    startSeconds = Math.max(0, startSeconds);
+
+                    return [
+                        startSeconds,
+                        {
+                            pitch,
+                            duration,
+                            label
+                        }
+                    ];
+                })
+                .filter(Boolean);
+
+            toneEvents.sort((a, b) => a[0] - b[0]);
+
+            const part = new Tone.Part((time, value) => {
+                if (!value || muteState[value.label]) return;
+                const key = value.label;
+                if (key && firedCounts[key] != null) {
+                    firedCounts[key] += 1;
+                    if (firedCounts[key] <= 3) {
+                        console.log(`[${key}] fired #${firedCounts[key]} @ ${time.toFixed(3)}s -> ${value.pitch}`);
+                    }
+                }
+                synth.triggerAttackRelease(value.pitch, value.duration, time);
+            }, toneEvents);
+
+            part.loop = false;
+            part.humanize = false;
+
+            const firstTime = toneEvents.length ? toneEvents[0][0] : null;
+            console.log(
+                label,
+                'events:',
+                toneEvents.length,
+                firstTime != null ? `(first @ ${firstTime.toFixed(3)}s)` : '(no events)',
+                badPitchCount ? `(skipped ${badPitchCount} bad pitches)` : ''
+            );
+
+            return part;
+        }     // ---------- Synchronization ----------        //
+
+        function setupSync() {
+            // Approximate measure start times in seconds
+            const bpm = pendingTempo || 120;
+            const secondsPerBeat = 60 / bpm;
+            const beatsPerMeasure = 4; // assume common time; could be derived from Verovio later
+            window.measureMap = {};
+
+            // Determine total beats from SATB data
+            const allNotes = [].concat(pendingSatb?.S || [], pendingSatb?.A || [], pendingSatb?.T || [], pendingSatb?.B || []);
+            const maxBeat = allNotes.reduce((max, n) => Math.max(max, n.time + (n.durationBeats || 0)), 0);
+            const totalMeasures = Math.ceil(maxBeat / beatsPerMeasure);
+
+            for (let i = 1; i <= totalMeasures; i++) {
+                window.measureMap[i] = (i - 1) * beatsPerMeasure * secondsPerBeat;
+            }
+
+            // Update OSMD cursor on Transport ticks
+            Tone.Transport.scheduleRepeat((time) => {
+                const now = Tone.Transport.seconds;
+                let currentMeasure = 1;
+                for (let m in window.measureMap) {
+                    if (now >= window.measureMap[m]) {
+                        currentMeasure = Number(m);
+                    } else break;
+                }
+
+                // TEMPORARILY DISABLED: 'showMeasure' is not a valid OSMD API method. 
+                // Standard OSMD cursor movement relies on osmd.cursor.next()
+                /*
+                if (osmd && osmd.cursor) {
+                    osmd.cursor.showMeasure(currentMeasure); 
+                }
+                */
+            }, '16n');
+        }
+        async function play() {
+            if (!pendingSatb) {
+                console.warn('Play requested but no SATB data is loaded');
+                return;
+            }
+
+            if (!toneConfigured) {
+                Tone.setContext(new Tone.Context({ latencyHint: 'interactive' }));
+                Tone.getContext().lookAhead = 0.1;
+                Tone.getContext().updateInterval = 0.03;
+                toneConfigured = true;
+            }
+
+            await Tone.start();
+            console.log('AudioContext state after Tone.start():', Tone.getContext().state);
+
+            // Build audio graph lazily on first Play (after context is running)
+            if (!parts || Object.keys(parts).length === 0) {
+                try {
+                    initAudioEngine(pendingSatb, pendingTempo);
+                    console.log('Audio engine initialized (lazy)');
+                    setupSync();
+                } catch (e) {
+                    console.error('Error initializing audio on Play:', e);
+                    return;
+                }
+            }
+
+            console.log('Tone ctx:', Tone.getContext().state, 'Transport:', Tone.Transport.state, 'bpm:', Tone.Transport.bpm.value);
+
+            if (!parts || Object.keys(parts).length === 0) {
+                console.warn('Play requested but no parts are loaded');
+                return;
+            }
+
+            if (Tone.Transport.state === 'started') {
+                return;
+            }
+
+            if (Tone.Transport.state === 'paused') {
+                Tone.Transport.start();
+                console.log('Transport resumed');
+                return;
+            }
+
+            // Fresh start from the beginning
+            Tone.Transport.stop();
+            Tone.Transport.seconds = 0;
+
+            // Start Transport immediately, then parts at Transport time 0
+            Tone.Transport.start("+0");
+
+            Object.values(parts).forEach(part => {
+                if (!part) return;
+                try { part.start(0); } catch (e) {
+                    console.error('Error starting part:', e);
+                }
+            });
+
+            console.log('Transport started at', Tone.now().toFixed(3));
+
+            setTimeout(() => {
+                console.log('Fired counts after 1s: S=' + firedCounts.S +
+                    ' A=' + firedCounts.A +
+                    ' T=' + firedCounts.T +
+                    ' B=' + firedCounts.B);
+                if (firedCounts.S === 0 && firedCounts.A === 0 &&
+                    firedCounts.T === 0 && firedCounts.B === 0) {
+                    console.error('WARNING: No notes fired after 1s! Transport state:',
+                        Tone.Transport.state, 'seconds:', Tone.Transport.seconds.toFixed(3));
+                }
+            }, 1000);
+        }
+
+        function pause() {
+            Tone.Transport.pause();
+            console.log('Transport paused');
+        }
+
+        function stop() {
+            Tone.Transport.stop();
+            Tone.Transport.seconds = 0;
+
+            Object.values(parts).forEach(part => {
+                try { part?.stop?.(0); } catch (_) { }
+            });
+
+            console.log('Transport stopped');
+        }
+
+
+        function toggleMute(part) {
+            muteState[part] = !muteState[part];
+            const btn = document.querySelector(`button[data-part="${part}"]`);
+            btn.classList.toggle('muted', muteState[part]);
+            btn.textContent = muteState[part] ? `Unmute ${part}` : `Mute ${part}`;
+        }
+
+        // UI event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+            resizeScoreContainer();
+            window.addEventListener('resize', () => {
+                resizeScoreContainer();
+                if (osmd && typeof osmd.resize === 'function') {
+                    osmd.resize();
+                }
+            });
+            document.getElementById('playBtn').addEventListener('click', play);
+            document.getElementById('pauseBtn').addEventListener('click', pause);
+            document.getElementById('stopBtn').addEventListener('click', stop);
+            document.querySelectorAll('#controls button[data-part]').forEach(btn => {
+                const part = btn.getAttribute('data-part');
+                btn.addEventListener('click', () => toggleMute(part));
+            });
+        });
+    </script>
+</body>
+
+</html>

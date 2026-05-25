@@ -1,0 +1,127 @@
+2026-05-20 17:36:29,117 INFO [1779269781293-Merry_Go_Round_Of_Life]                 Book.java:560  | 2 sheets in C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.pdf
+2026-05-20 17:36:29,217 INFO []                 Book.java:2565 | Stored /book.xml
+2026-05-20 17:36:29,218 INFO []                 Book.java:2525 | Book stored as C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.omr
+2026-05-20 17:36:29,221 INFO []                 Book.java:1929 | Book reaching PAGE on sheets:[#1#2]
+2026-05-20 17:36:29,222 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | LOAD
+2026-05-20 17:36:29,795 INFO [1779269781293-Merry_Go_Round_Of_Life#1]            SheetStub.java:1278 | Loaded image #1 2550x3299 from C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.pdf
+2026-05-20 17:36:29,799 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | BINARY
+2026-05-20 17:36:30,082 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | SCALE
+2026-05-20 17:36:30,102 INFO [1779269781293-Merry_Go_Round_Of_Life#1]         ScaleBuilder.java:255  | Beam  guessed height: 15 -- mid of [7..24]
+2026-05-20 17:36:30,102 INFO [1779269781293-Merry_Go_Round_Of_Life#1]         ScaleBuilder.java:271  | Beam measured height: 13 -- 0.35 of [7..24] range at 111% of needed quorum
+2026-05-20 17:36:30,103 INFO [1779269781293-Merry_Go_Round_Of_Life#1]         ScaleBuilder.java:401  | Normalized black jitter: 4.00 %
+2026-05-20 17:36:30,103 INFO [1779269781293-Merry_Go_Round_Of_Life#1]            ScaleStep.java:65   | Scale{ interline(25,25,25) line(2,2,3) beam(13)}
+2026-05-20 17:36:30,104 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | GRID
+2026-05-20 17:36:30,906 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-05-20 17:36:30,922 INFO [1779269781293-Merry_Go_Round_Of_Life#1]    ClustersRetriever.java:326  | Retrieved raw line clusters: 8 of sizes [5] with interline(25,25,25)
+2026-05-20 17:36:31,552 INFO [1779269781293-Merry_Go_Round_Of_Life#1]            PeakGraph.java:310  | Systems: #1[1, 2] #2[3, 4] #3[5, 6] #4[7, 8]
+2026-05-20 17:36:32,420 INFO [1779269781293-Merry_Go_Round_Of_Life#1]        SystemManager.java:779  | 1 part along 4 systems
+2026-05-20 17:36:32,420 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Book.java:543  | Created scores: [{Score 1}]
+2026-05-20 17:36:32,421 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | HEADERS
+2026-05-20 17:36:33,687 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | STEM_SEEDS
+2026-05-20 17:36:33,838 INFO [1779269781293-Merry_Go_Round_Of_Life#1]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-05-20 17:36:33,886 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | BEAMS
+2026-05-20 17:36:36,545 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | LEDGERS
+2026-05-20 17:36:36,913 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | HEADS
+2026-05-20 17:36:40,511 INFO [1779269781293-Merry_Go_Round_Of_Life#1]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:-0.1,R:-0.4] NOTEHEAD_BLACK[L:0.2,R:0.5]}
+2026-05-20 17:36:40,512 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | STEMS
+2026-05-20 17:36:41,440 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | REDUCTION
+2026-05-20 17:36:41,638 INFO [1779269781293-Merry_Go_Round_Of_Life#1]        ReductionStep.java:105  | Stems free length median value: 88 pixels, 3.5 interlines
+2026-05-20 17:36:41,640 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | CUE_BEAMS
+2026-05-20 17:36:41,678 INFO [1779269781293-Merry_Go_Round_Of_Life#1]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-05-20 17:36:41,679 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | TEXTS
+2026-05-20 17:36:42,746 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | MEASURES
+2026-05-20 17:36:42,751 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Page.java:307  | 23 raw measures: [5 in system#1, 7 in system#2, 6 in system#3, 5 in system#4]
+2026-05-20 17:36:42,751 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | CHORDS
+2026-05-20 17:36:42,760 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | CURVES
+2026-05-20 17:36:43,469 INFO [1779269781293-Merry_Go_Round_Of_Life#1]         SlursBuilder.java:240  | Slurs: 16
+2026-05-20 17:36:43,501 INFO [1779269781293-Merry_Go_Round_Of_Life#1]      SegmentsBuilder.java:155  | Segments: 18
+2026-05-20 17:36:43,511 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | SYMBOLS
+2026-05-20 17:36:44,042 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | LINKS
+2026-05-20 17:36:44,250 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | RHYTHMS
+2026-05-20 17:36:44,389 INFO [1779269781293-Merry_Go_Round_Of_Life#1]        MeasureRhythm.java:1044 | Measure{#4} No timeOffset for HeadChordInter#3996{(0.912/0.912) staff:1 slot#5 dur:1/2}
+2026-05-20 17:36:44,389 INFO [1779269781293-Merry_Go_Round_Of_Life#1]   AbstractChordInter.java:627  | Measure{#4} No timeOffset for HeadChordInter#3996{(0.912/0.912) staff:1 slot#5 dur:1/2}
+2026-05-20 17:36:44,391 INFO [1779269781293-Merry_Go_Round_Of_Life#1]          StackRhythm.java:224  | S1 MeasureStack#4 no correct rhythm
+2026-05-20 17:36:44,402 INFO [1779269781293-Merry_Go_Round_Of_Life#1]       StepMonitoring.java:98   | PAGE
+2026-05-20 17:36:44,408 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Book.java:2584 | Book{1779269781293-Merry_Go_Round_Of_Life} storing
+2026-05-20 17:36:44,452 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Book.java:2565 | Stored /book.xml
+2026-05-20 17:36:44,511 INFO [1779269781293-Merry_Go_Round_Of_Life#1]           DataHolder.java:348  | Stored /sheet#1/BINARY.png
+2026-05-20 17:36:45,085 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                Sheet.java:1583 | Stored /sheet#1/sheet#1.xml
+2026-05-20 17:36:45,085 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Book.java:2525 | Book stored as C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.omr
+2026-05-20 17:36:45,086 INFO [1779269781293-Merry_Go_Round_Of_Life#1]            SheetStub.java:1655 | Sheet#1 disposed
+2026-05-20 17:36:45,107 INFO [1779269781293-Merry_Go_Round_Of_Life#1]                 Book.java:2050 | End of Stub#1
+2026-05-20 17:36:45,108 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | LOAD
+2026-05-20 17:36:45,160 INFO [1779269781293-Merry_Go_Round_Of_Life#2]            SheetStub.java:1278 | Loaded image #2 2550x3299 from C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.pdf
+2026-05-20 17:36:45,161 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | BINARY
+2026-05-20 17:36:45,384 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | SCALE
+2026-05-20 17:36:45,387 INFO [1779269781293-Merry_Go_Round_Of_Life#2]         ScaleBuilder.java:255  | Beam  guessed height: 15 -- mid of [7..24]
+2026-05-20 17:36:45,387 INFO [1779269781293-Merry_Go_Round_Of_Life#2]         ScaleBuilder.java:271  | Beam measured height: 13 -- 0.35 of [7..24] range at 120% of needed quorum
+2026-05-20 17:36:45,387 INFO [1779269781293-Merry_Go_Round_Of_Life#2]         ScaleBuilder.java:401  | Normalized black jitter: 8.00 %
+2026-05-20 17:36:45,387 INFO [1779269781293-Merry_Go_Round_Of_Life#2]            ScaleStep.java:65   | Scale{ interline(25,25,25) line(2,3,4) beam(13)}
+2026-05-20 17:36:45,388 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | GRID
+2026-05-20 17:36:45,439 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       LinesRetriever.java:1500 | Global slope: 0.00000
+2026-05-20 17:36:45,444 INFO [1779269781293-Merry_Go_Round_Of_Life#2]    ClustersRetriever.java:326  | Retrieved raw line clusters: 2 of sizes [5] with interline(25,25,25)
+2026-05-20 17:36:45,463 INFO [1779269781293-Merry_Go_Round_Of_Life#2]            PeakGraph.java:310  | Systems: #1[1, 2]
+2026-05-20 17:36:45,628 INFO [1779269781293-Merry_Go_Round_Of_Life#2]        SystemManager.java:779  | 1 part along 1 system
+2026-05-20 17:36:45,630 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | HEADERS
+2026-05-20 17:36:45,659 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | STEM_SEEDS
+2026-05-20 17:36:45,680 INFO [1779269781293-Merry_Go_Round_Of_Life#2]        StemSeedsStep.java:86   | stem(4 max:5)
+2026-05-20 17:36:45,682 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | BEAMS
+2026-05-20 17:36:48,330 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | LEDGERS
+2026-05-20 17:36:48,353 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | HEADS
+2026-05-20 17:36:49,876 INFO [1779269781293-Merry_Go_Round_Of_Life#2]        HeadSeedTally.java:235  | Scale information: HeadSeeds{NOTEHEAD_VOID[L:0.0] NOTEHEAD_BLACK[L:-0.2]}
+2026-05-20 17:36:49,881 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | STEMS
+2026-05-20 17:36:50,063 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | REDUCTION
+2026-05-20 17:36:50,078 INFO [1779269781293-Merry_Go_Round_Of_Life#2]        ReductionStep.java:105  | Stems free length median value: 88 pixels, 3.5 interlines
+2026-05-20 17:36:50,078 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | CUE_BEAMS
+2026-05-20 17:36:50,080 INFO [1779269781293-Merry_Go_Round_Of_Life#2]         CueBeamsStep.java:81   | Step CUE_BEAMS is skipped because small heads switch is off
+2026-05-20 17:36:50,080 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | TEXTS
+2026-05-20 17:36:50,904 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | MEASURES
+2026-05-20 17:36:50,904 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                 Page.java:307  | 6 raw measures: [6 in system#1]
+2026-05-20 17:36:50,905 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | CHORDS
+2026-05-20 17:36:50,906 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | CURVES
+2026-05-20 17:36:51,237 INFO [1779269781293-Merry_Go_Round_Of_Life#2]         SlursBuilder.java:240  | Slurs: 17
+2026-05-20 17:36:51,270 INFO [1779269781293-Merry_Go_Round_Of_Life#2]      SegmentsBuilder.java:155  | Segments: 7
+2026-05-20 17:36:51,280 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | SYMBOLS
+2026-05-20 17:36:51,472 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | LINKS
+2026-05-20 17:36:51,482 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | RHYTHMS
+2026-05-20 17:36:51,482 INFO [1779269781293-Merry_Go_Round_Of_Life#2]           PageRhythm.java:199  | {Page#2.1} Time value reused from sheet#1
+2026-05-20 17:36:51,484 INFO [1779269781293-Merry_Go_Round_Of_Life#2]       StepMonitoring.java:98   | PAGE
+2026-05-20 17:36:51,484 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                 Book.java:2584 | Book{1779269781293-Merry_Go_Round_Of_Life} storing
+2026-05-20 17:36:51,510 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                 Book.java:2565 | Stored /book.xml
+2026-05-20 17:36:51,558 INFO [1779269781293-Merry_Go_Round_Of_Life#2]           DataHolder.java:348  | Stored /sheet#2/BINARY.png
+2026-05-20 17:36:51,754 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                Sheet.java:1583 | Stored /sheet#2/sheet#2.xml
+2026-05-20 17:36:51,754 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                 Book.java:2525 | Book stored as C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.omr
+2026-05-20 17:36:51,757 INFO [1779269781293-Merry_Go_Round_Of_Life#2]            SheetStub.java:1655 | Sheet#2 disposed
+2026-05-20 17:36:51,838 INFO [1779269781293-Merry_Go_Round_Of_Life#2]                 Book.java:2050 | End of Stub#2
+2026-05-20 17:36:51,838 INFO [1779269781293-Merry_Go_Round_Of_Life]                 Book.java:2057 | End of Book{1779269781293-Merry_Go_Round_Of_Life}
+2026-05-20 17:36:52,066 INFO [1779269781293-Merry_Go_Round_Of_Life]            SheetStub.java:1000 | Loaded /sheet#1/sheet#1.xml
+2026-05-20 17:36:52,143 INFO [1779269781293-Merry_Go_Round_Of_Life]            SheetStub.java:1000 | Loaded /sheet#2/sheet#2.xml
+2026-05-20 17:36:52,356 INFO [1779269781293-Merry_Go_Round_Of_Life]      PartwiseBuilder.java:2706 | Exporting sheet(s): [#1#2]
+2026-05-20 17:36:52,362 WARN [1779269781293-Merry_Go_Round_Of_Life]      PartwiseBuilder.java:2228 | Error visiting Measure{#4} in {Page#1.1}
+java.lang.NullPointerException: Cannot invoke "org.audiveris.omr.math.Rational.compareTo(org.audiveris.omr.math.Rational)" because "w1.timeOffset" is null
+	at org.audiveris.omr.score.PartwiseBuilder$WedgeIterators.lambda$new$0(PartwiseBuilder.java:3718)
+	at java.base/java.util.TimSort.countRunAndMakeAscending(Unknown Source)
+	at java.base/java.util.TimSort.sort(Unknown Source)
+	at java.base/java.util.Arrays.sort(Unknown Source)
+	at java.base/java.util.ArrayList.sortRange(Unknown Source)
+	at java.base/java.util.ArrayList.sort(Unknown Source)
+	at java.base/java.util.Collections.sort(Unknown Source)
+	at org.audiveris.omr.score.PartwiseBuilder$WedgeIterators.<init>(PartwiseBuilder.java:3717)
+	at org.audiveris.omr.score.PartwiseBuilder.processMeasure(PartwiseBuilder.java:2057)
+	at org.audiveris.omr.score.PartwiseBuilder.processPart(PartwiseBuilder.java:2677)
+	at org.audiveris.omr.score.PartwiseBuilder.processSystem(PartwiseBuilder.java:3222)
+	at org.audiveris.omr.score.PartwiseBuilder.processLogicalPart(PartwiseBuilder.java:1874)
+	at org.audiveris.omr.score.PartwiseBuilder.processStub(PartwiseBuilder.java:3173)
+	at org.audiveris.omr.score.PartwiseBuilder.processPartList(PartwiseBuilder.java:2709)
+	at org.audiveris.omr.score.PartwiseBuilder.processScore(PartwiseBuilder.java:2984)
+	at org.audiveris.omr.score.PartwiseBuilder.build(PartwiseBuilder.java:3542)
+	at org.audiveris.omr.score.ScoreExporter.export(ScoreExporter.java:122)
+	at org.audiveris.omr.score.ScoreExporter.export(ScoreExporter.java:163)
+	at org.audiveris.omr.sheet.Book.export(Book.java:630)
+	at org.audiveris.omr.CLI$ProcessingTask.processBook(CLI.java:927)
+	at org.audiveris.omr.CLI$CliTask.call(CLI.java:513)
+	at org.audiveris.omr.Main.runBatchTasks(Main.java:361)
+	at org.audiveris.omr.Main.main(Main.java:263)
+	at Audiveris.main(Audiveris.java:50)
+2026-05-20 17:36:52,418 INFO [1779269781293-Merry_Go_Round_Of_Life]        ScoreExporter.java:164  | Score 1779269781293-Merry_Go_Round_Of_Life exported to C:\Users\John\Desktop\Capstone\VoxSight\voxsight\uploads\1779269781293-Merry_Go_Round_Of_Life.mxl
+2026-05-20 17:36:52,452 INFO [1779269781293-Merry_Go_Round_Of_Life]                Score.java:181  | Closing {Score 1}
