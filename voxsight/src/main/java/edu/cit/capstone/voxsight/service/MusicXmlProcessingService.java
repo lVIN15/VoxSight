@@ -187,13 +187,18 @@ public class MusicXmlProcessingService {
         return midi;
     }
 
-    /** Map duration in beats to Tone.js notation (very simple) */
+    /** Map duration in beats to Tone.js notation, including dotted values */
     private String mapDurationToTone(double beats) {
-        // Assuming 4 beats per whole note. Tone.js uses "1n" for whole, "2n" half, "4n" quarter, "8n" eighth, etc.
+        // Dotted durations first (more specific)
+        if (beats >= 6.0) return "1n.";  // dotted whole
         if (beats >= 4.0) return "1n";
+        if (beats >= 3.0) return "2n.";  // dotted half
         if (beats >= 2.0) return "2n";
+        if (beats >= 1.5) return "4n.";  // dotted quarter
         if (beats >= 1.0) return "4n";
+        if (beats >= 0.75) return "8n."; // dotted eighth
         if (beats >= 0.5) return "8n";
+        if (beats >= 0.375) return "16n."; // dotted 16th
         if (beats >= 0.25) return "16n";
         return "32n";
     }

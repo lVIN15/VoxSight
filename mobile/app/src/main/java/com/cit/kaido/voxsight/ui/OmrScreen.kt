@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -32,7 +33,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cit.kaido.voxsight.MusicPlayerActivity
+import com.cit.kaido.voxsight.PracticeActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,11 +55,11 @@ val TextMutedColor = Color(0xFF94A3B8) // Slate 400
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OmrScreen() {
+fun OmrScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var backendUrl by remember { mutableStateOf("http://192.168.1.3:8080") }
+    var backendUrl by remember { mutableStateOf("http://10.71.181.36:8080") }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     
@@ -67,6 +68,13 @@ fun OmrScreen() {
     var resultUrl by remember { mutableStateOf<String?>(null) }
     var resultFilename by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // v3.7: Store full analysis data for PracticeActivity
+    var analysisMusic by remember { mutableStateOf<String?>(null) }
+    var analysisEvents by remember { mutableStateOf<String?>(null) }
+    var analysisMetadata by remember { mutableStateOf<String?>(null) }
+    var satbConfidence by remember { mutableStateOf<String?>(null) }
+    var structureType by remember { mutableStateOf<String?>(null) }
 
     // Launcher for file picker
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -91,6 +99,15 @@ fun OmrScreen() {
                         fontWeight = FontWeight.Bold,
                         color = TextLightColor
                     )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = TextLightColor
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = PrimaryColor
@@ -144,7 +161,7 @@ fun OmrScreen() {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Use http://192.168.1.3:8080 for physical device on local Wi-Fi. (Emulator was 10.0.2.2)",
+                        "Use http://10.71.181.36:8080 for physical device on local Wi-Fi.",
                         color = TextMutedColor,
                         fontSize = 11.sp
                     )
@@ -222,7 +239,7 @@ fun OmrScreen() {
                             Button(
                                 onClick = {
                                     scope.launch {
-                                        uploadAndConvert(
+                                        uploadAndAnalyze(
                                             context,
                                             backendUrl,
                                             selectedUri!!,
@@ -231,13 +248,19 @@ fun OmrScreen() {
                                                 isLoading = true
                                                 errorMessage = null
                                                 resultUrl = null
-                                                statusMessage = "Uploading file and running Audiveris OMR..."
+                                                analysisMusic = null
+                                                statusMessage = "Uploading & analyzing (Audiveris + SATB)..."
                                             },
-                                            onSuccess = { url, name ->
+                                            onSuccess = { musicXml, eventsJson, metadataJson, confidence, sType ->
                                                 isLoading = false
-                                                resultUrl = url
-                                                resultFilename = name
-                                                statusMessage = "Conversion complete!"
+                                                resultUrl = "analyzed"
+                                                resultFilename = selectedFileName
+                                                analysisMusic = musicXml
+                                                analysisEvents = eventsJson
+                                                analysisMetadata = metadataJson
+                                                satbConfidence = confidence
+                                                structureType = sType
+                                                statusMessage = "Analysis complete!"
                                             },
                                             onError = { err ->
                                                 isLoading = false
@@ -250,7 +273,7 @@ fun OmrScreen() {
                                 colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
                                 enabled = !isLoading
                             ) {
-                                Text("Upload & Convert", color = PrimaryColor, fontWeight = FontWeight.Bold)
+                                Text("Upload & Analyze", color = PrimaryColor, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -285,7 +308,7 @@ fun OmrScreen() {
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Successfully Converted!",
+                            "Analysis Complete!",
                             fontWeight = FontWeight.Bold,
                             color = TextLightColor,
                             fontSize = 18.sp
@@ -296,15 +319,25 @@ fun OmrScreen() {
                             color = TextMutedColor,
                             fontSize = 14.sp
                         )
+                        // Show SATB metadata
+                        if (structureType != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "SATB: $structureType (${satbConfidence ?: "?"})",
+                                color = AccentColor,
+                                fontSize = 13.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Play button — launches MusicPlayerActivity with the score ID
+                        // Play button — launches PracticeActivity with full analysis
                         Button(
                             onClick = {
-                                val scoreId = extractScoreId(resultFilename)
-                                val intent = Intent(context, MusicPlayerActivity::class.java).apply {
-                                    putExtra("SCORE_ID", scoreId)
-                                    putExtra("BACKEND_URL", backendUrl)
+                                val intent = Intent(context, PracticeActivity::class.java).apply {
+                                    putExtra(PracticeActivity.EXTRA_MUSICXML, analysisMusic)
+                                    putExtra(PracticeActivity.EXTRA_EVENTS_JSON, analysisEvents)
+                                    putExtra(PracticeActivity.EXTRA_METADATA_JSON, analysisMetadata)
+                                    putExtra(PracticeActivity.EXTRA_BACKEND_URL, backendUrl)
                                 }
                                 context.startActivity(intent)
                             },
@@ -377,34 +410,40 @@ private fun getFileName(context: Context, uri: Uri): String {
     return result ?: "file"
 }
 
-private suspend fun uploadAndConvert(
+/**
+ * Upload file to /api/analyze — runs Audiveris OMR + SATB analysis.
+ * Returns raw MusicXML + events[] + score_metadata.
+ *
+ * Architecture Contract (v3.7):
+ *   - musicxml is RAW, UNTOUCHED from Audiveris
+ *   - events are ORDER-FROZEN (Fix #40)
+ *   - Schema version is always present
+ */
+private suspend fun uploadAndAnalyze(
     context: Context,
     baseUrl: String,
     uri: Uri,
     filename: String,
     onStart: () -> Unit,
-    onSuccess: (String, String) -> Unit,
+    onSuccess: (musicXml: String, eventsJson: String, metadataJson: String, confidence: String, structureType: String) -> Unit,
     onError: (String) -> Unit
 ) {
     onStart()
 
     withContext(Dispatchers.IO) {
         try {
-            // Read file bytes from Uri
             val contentResolver = context.contentResolver
             val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
             val inputStream = contentResolver.openInputStream(uri)
                 ?: throw IOException("Unable to open input stream for file")
             val fileBytes = inputStream.use { it.readBytes() }
 
-            // Set up client with generous timeout for OMR processes
             val client = OkHttpClient.Builder()
-                .connectTimeout(180, TimeUnit.SECONDS)
-                .readTimeout(180, TimeUnit.SECONDS)
-                .writeTimeout(180, TimeUnit.SECONDS)
+                .connectTimeout(900, TimeUnit.SECONDS) // Audiveris can take up to 15 minutes for multi-page PDFs
+                .readTimeout(900, TimeUnit.SECONDS)
+                .writeTimeout(900, TimeUnit.SECONDS)
                 .build()
 
-            // Prepare multipart form body
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
@@ -415,7 +454,7 @@ private suspend fun uploadAndConvert(
                 .build()
 
             val request = Request.Builder()
-                .url("$baseUrl/api/convert")
+                .url("$baseUrl/api/analyze")
                 .post(requestBody)
                 .build()
 
@@ -425,13 +464,22 @@ private suspend fun uploadAndConvert(
                     val json = JSONObject(bodyString)
                     val success = json.getBoolean("success")
                     if (success) {
-                        val url = json.getString("url")
-                        val resName = json.getString("filename")
+                        val musicXml = json.optString("musicxml", "")
+                        val events = json.optJSONArray("events")?.toString() ?: "[]"
+                        val metadata = json.optJSONObject("score_metadata")?.toString() ?: "{}"
+
+                        // Extract display info
+                        val metaObj = json.optJSONObject("score_metadata")
+                        val confidence = metaObj?.optDouble("satb_confidence", 0.0)?.let {
+                            "%.1f%%".format(it * 100)
+                        } ?: "?"
+                        val sType = metaObj?.optString("structure_type", "UNCERTAIN") ?: "UNCERTAIN"
+
                         withContext(Dispatchers.Main) {
-                            onSuccess(url, resName)
+                            onSuccess(musicXml, events, metadata, confidence, sType)
                         }
                     } else {
-                        val errorMsg = json.optString("error", "OMR conversion failed.")
+                        val errorMsg = json.optString("error", "Analysis failed.")
                         withContext(Dispatchers.Main) {
                             onError(errorMsg)
                         }

@@ -6,13 +6,13 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    // 10.0.2.2 is the localhost loopback for Android Emulators
-    private const val BASE_URL = "http://10.0.2.2:8080/"
+    // 10.71.181.36 is the laptop's IP address on the Wi-Fi network
+    private const val BASE_URL = "http://10.71.181.36:8080/"
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS) // Audiveris takes time
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(900, TimeUnit.SECONDS) // Audiveris takes time
+        .readTimeout(900, TimeUnit.SECONDS)
+        .writeTimeout(900, TimeUnit.SECONDS)
         .build()
 
     val retrofit: Retrofit by lazy {

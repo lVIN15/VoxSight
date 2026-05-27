@@ -1,9 +1,14 @@
 package com.cit.kaido.voxsight.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+enum class PlaybackState {
+    STOPPED, PLAYING, PAUSED
+}
 
 class PracticeViewModel : ViewModel() {
     private val _isMicrophoneEnabled = MutableStateFlow(false)
@@ -19,6 +24,16 @@ class PracticeViewModel : ViewModel() {
     private val _pitchAttempts = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
     val pitchAttempts: StateFlow<Map<Int, Boolean>> = _pitchAttempts.asStateFlow()
 
+    // ── Score & Playback State (Phase 4) ────────────────────────
+    private val _currentScore = MutableStateFlow<MusicXmlScore?>(null)
+    val currentScore: StateFlow<MusicXmlScore?> = _currentScore.asStateFlow()
+
+    private val _playbackProgress = MutableStateFlow(0f)
+    val playbackProgress: StateFlow<Float> = _playbackProgress.asStateFlow()
+
+    private val _playbackState = MutableStateFlow(PlaybackState.STOPPED)
+    val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
     fun setMicrophoneEnabled(enabled: Boolean) {
         _isMicrophoneEnabled.value = enabled
     }
@@ -29,6 +44,18 @@ class PracticeViewModel : ViewModel() {
 
     fun setShowPauseModal(show: Boolean) {
         _showPauseModal.value = show
+    }
+
+    fun setCurrentScore(score: MusicXmlScore?) {
+        _currentScore.value = score
+    }
+
+    fun setPlaybackProgress(progress: Float) {
+        _playbackProgress.value = progress.coerceIn(0f, 1f)
+    }
+
+    fun setPlaybackState(state: PlaybackState) {
+        _playbackState.value = state
     }
 
     fun recordPitchAttempt(noteIndex: Int, wasCorrect: Boolean) {

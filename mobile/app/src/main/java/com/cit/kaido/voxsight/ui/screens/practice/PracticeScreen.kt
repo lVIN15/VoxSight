@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,10 +93,11 @@ fun Module2PracticeScreen(
     var selectedPart by remember { mutableStateOf(VoicePart.Soprano) }
     var audioMuteEnabled by remember { mutableStateOf(true) }
     var visualFocusEnabled by remember { mutableStateOf(true) }
-    var isPlaying by remember { mutableStateOf(true) }
-    var progress by remember { mutableFloatStateOf(0.24f) }
-
-    val totalSeconds = resolvedScore.totalSeconds
+    var isPlaying by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var midiController by remember { mutableStateOf<MidiPlayerController?>(null) }
+    var totalSeconds by remember { mutableStateOf(resolvedScore.totalSeconds) }
+    var showDiagnostics by remember { mutableStateOf(false) }
     val currentSeconds = (totalSeconds * progress).roundToInt()
 
     val backgroundBrush = Brush.verticalGradient(
@@ -118,7 +120,8 @@ fun Module2PracticeScreen(
             PracticeTopBar(
                 title = resolvedScore.title, 
                 isMicEnabled = isMicEnabled,
-                onBackClicked = onBackClicked
+                onBackClicked = onBackClicked,
+                onDiagnosticsClicked = { showDiagnostics = !showDiagnostics }
             )
 
             VoicePartCard(
@@ -130,25 +133,88 @@ fun Module2PracticeScreen(
                 onVisualFocusChange = { visualFocusEnabled = it }
             )
 
-            ScoreCard(
-                selectedPart = selectedPart,
-                visualFocusEnabled = visualFocusEnabled,
-                playheadProgress = progress,
-                staffNotes = staffNotes
-            )
+            LaunchedEffect(selectedPart, audioMuteEnabled, midiController) {
+                if (audioMuteEnabled) {
+                    midiController?.mutePart(selectedPart.shortLabel.first().toString())
+                } else {
+                    midiController?.unmuteAllParts()
+                }
+            }
 
+            LaunchedEffect(selectedPart, visualFocusEnabled, midiController) {
+                if (visualFocusEnabled) {
+                    midiController?.setVisualFocus(selectedPart.shortLabel.first().toString())
+                } else {
+                    midiController?.clearVisualFocus()
+                }
+            }
+            // ── OSMD Score Rendering Area ─────────────────────────
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(vertical = 8.dp)
+            ) {
+                MidiPlaybackEngine(
+                    score = resolvedScore,
+                    tempo = 120,
+                    onReady = { controller ->
+                        midiController = controller
+                        if (audioMuteEnabled) {
+                            controller.mutePart(selectedPart.shortLabel.first().toString())
+                        }
+                        if (visualFocusEnabled) {
+                            controller.setVisualFocus(selectedPart.shortLabel.first().toString())
+                        }
+                    },
+                    onScoreLoaded = {
+                        totalSeconds = it
+                    },
+                    onProgress = { p -> progress = p },
+                    onPlaybackComplete = {
+                        isPlaying = false
+                        progress = 1f
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // ── Playback Controls ─────────────────────────────────
             PlaybackControlBar(
                 isPlaying = isPlaying,
-                onPlayPause = { 
+                onPlayPause = {
                     if (isPlaying) {
+                        midiController?.pause()
                         onPauseClicked()
+                    } else {
+                        midiController?.play()
                     }
-                    isPlaying = !isPlaying 
+                    isPlaying = !isPlaying
                 },
                 progress = progress,
                 onProgressChange = { progress = it },
                 currentTime = formatTime(currentSeconds),
                 totalTime = formatTime(totalSeconds)
+            )
+        }
+
+        if (showDiagnostics && midiController != null) {
+            val controller = midiController!!
+            DiagnosticsOverlay(
+                eventsCount = controller.eventsCount,
+                osmdNotesCount = controller.osmdNotesCount,
+                mappedNotesCount = controller.mappedNotesCount,
+                syncConfidence = controller.syncConfidence,
+                playbackState = controller.playbackState,
+                lastMidiEvent = controller.lastMidiEvent ?: "None",
+                mutedVoices = controller.mutedVoicesList,
+                onClose = { showDiagnostics = false },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(320.dp)
             )
         }
     }
@@ -172,7 +238,8 @@ private data class StaffNote(
 private fun PracticeTopBar(
     title: String, 
     isMicEnabled: Boolean,
-    onBackClicked: () -> Unit
+    onBackClicked: () -> Unit,
+    onDiagnosticsClicked: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -205,6 +272,16 @@ private fun PracticeTopBar(
             ),
             color = VoxTextPrimary,
             modifier = Modifier.weight(1f)
+        )
+
+        Text(
+            text = "DEV",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = VoxPurplePrimary,
+            modifier = Modifier
+                .clickable { onDiagnosticsClicked() }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .background(VoxPurplePrimary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
         )
 
         IconButton(onClick = { }) {
@@ -745,7 +822,9 @@ private fun sampleMusicXmlScore(title: String): MusicXmlScore {
         title = title,
         composer = "Unknown Composer",
         notes = notes,
-        totalSeconds = 180
+        parts = emptyList(),
+        totalSeconds = 180,
+        rawXml = ""
     )
 }
 
@@ -862,4 +941,109 @@ private fun mapPitchToLine(step: String, octave: Int): Int {
     val lineIndex = 4 - lineFromBottom
 
     return lineIndex.coerceIn(0, 4)
+}
+
+@Composable
+private fun DiagnosticsOverlay(
+    eventsCount: Int,
+    osmdNotesCount: Int,
+    mappedNotesCount: Int,
+    syncConfidence: Float,
+    playbackState: String,
+    lastMidiEvent: String,
+    mutedVoices: List<String>,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xEC1A1A2E), // Translucent VoxBackground
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, VoxPurpleAccent.copy(alpha = 0.5f)),
+        shadowElevation = 24.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Pipeline Diagnostics",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxPurpleAccent
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "Close",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = VoxTextSubtitle,
+                    modifier = Modifier.clickable { onClose() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            DiagnosticRow("Events Extracted", "$eventsCount")
+            DiagnosticRow("OSMD Notes Rendered", "$osmdNotesCount")
+            DiagnosticRow("Bipartite Matches", "$mappedNotesCount")
+            
+            val pct = (syncConfidence * 100).roundToInt()
+            val confColor = when {
+                pct >= 80 -> VoxAccentGreen
+                pct >= 50 -> Color(0xFFFFB300) // Amber
+                else -> Color(0xFFE53935) // Red
+            }
+            DiagnosticRow("Sync Confidence", "$pct%", confColor)
+            
+            DiagnosticRow("Playback State", playbackState)
+            DiagnosticRow("Muted Voices", if (mutedVoices.isEmpty()) "None" else mutedVoices.joinToString(", "))
+            DiagnosticRow("Coordinates Loaded", if (osmdNotesCount > 0) "YES (${osmdNotesCount} coordinates)" else "NO", if (osmdNotesCount > 0) VoxAccentGreen else Color(0xFFE53935))
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = "Last MIDI Event:",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = VoxTextSubtitle
+            )
+            Surface(
+                color = Color(0x33000000),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = lastMidiEvent,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    ),
+                    color = VoxTextSecondary,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String, valueColor: Color = VoxTextPrimary) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = VoxTextSecondary
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+            color = valueColor
+        )
+    }
 }

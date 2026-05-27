@@ -39,6 +39,14 @@
             android:theme="@style/Theme.AppCompat.Light.NoActionBar">
         </activity>
 
+        <activity
+            android:name=".PracticeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:hardwareAccelerated="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+        </activity>
+
         <!-- FileProvider for camera image capture (Scoped Storage) -->
         <provider
             android:name="androidx.core.content.FileProvider"

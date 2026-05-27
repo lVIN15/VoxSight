@@ -1,6 +1,8 @@
 package edu.cit.capstone.voxsight.controller;
 
+import edu.cit.capstone.voxsight.dto.OmrAnalysisResponse;
 import edu.cit.capstone.voxsight.dto.OmrResponse;
+import edu.cit.capstone.voxsight.service.SatbAnalysisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -24,8 +26,10 @@ public class OmrController {
     private final String uploadsDirPath;
     private final String outputsDirPath;
     private final String audiverisPath = "C:\\Program Files\\Audiveris\\Audiveris.exe";
+    private final SatbAnalysisService satbAnalysisService;
 
-    public OmrController() {
+    public OmrController(SatbAnalysisService satbAnalysisService) {
+        this.satbAnalysisService = satbAnalysisService;
         String userDir = System.getProperty("user.dir");
         this.uploadsDirPath = new File(userDir, "uploads").getAbsolutePath();
         this.outputsDirPath = new File(userDir, "outputs").getAbsolutePath();
@@ -60,6 +64,7 @@ public class OmrController {
         }
 
         // Run Audiveris
+        StringBuilder audiverisLog = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     audiverisPath,
@@ -73,11 +78,15 @@ public class OmrController {
             pb.redirectErrorStream(true); // Merge stdout and stderr
             Process process = pb.start();
 
-            // Read output logs in real-time
+            // Read output logs in real-time and capture for error analysis
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    if (line.contains("Exit forced. Failure")) {
+                        continue; // Misleading non-fatal warning on completion
+                    }
                     log.info("[Audiveris Log] {}", line);
+                    audiverisLog.append(line).append("\n");
                 }
             }
 
@@ -88,7 +97,7 @@ public class OmrController {
         } catch (Exception e) {
             log.error("Error executing Audiveris: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError("Audiveris execution failed: " + e.getMessage()));
+                    .body(OmrResponse.ofError("Something went wrong while processing your file. Please try again."));
         }
 
         // Search for output files
@@ -109,14 +118,152 @@ public class OmrController {
             } catch (IOException e) {
                 log.error("Failed to move output file: ", e);
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrResponse.ofError("Failed to manage output file: " + e.getMessage()));
+                        .body(OmrResponse.ofError("The file was converted but couldn't be saved. Please try again."));
             }
         } else {
-            log.error("[Error] Audiveris finished, but we couldn't find the output file for baseName: {}", baseName);
+            // Analyze Audiveris log for user-friendly error
+            String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
+            log.error("[Error] Audiveris finished but output not found for baseName: {}. Friendly error: {}", baseName, friendlyError);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError("Audiveris succeeded, but output file not found."));
+                    .body(OmrResponse.ofError(friendlyError));
         }
     }
+
+    /**
+     * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline.
+     *
+     * Architecture Contract (v3.7):
+     *   - Runs Audiveris to produce MusicXML
+     *   - Passes MusicXML to satb_analyzer.py via SatbAnalysisService
+     *   - Returns raw MusicXML + score_metadata + events[] (ORDER-FROZEN)
+     *   - NEVER modifies MusicXML content
+     */
+    @PostMapping("/analyze")
+    public ResponseEntity<OmrAnalysisResponse> analyze(@RequestParam("musicFile") MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(OmrAnalysisResponse.ofError("File is empty"));
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null) {
+            return ResponseEntity.badRequest().body(OmrAnalysisResponse.ofError("Filename is missing"));
+        }
+
+        log.info("[Analyze] Starting full pipeline for: {}", originalFilename);
+
+        // Step 1: Save uploaded file
+        String uniqueName = System.currentTimeMillis() + "-" + originalFilename.replaceAll("\\s+", "_");
+        File uploadedFile = new File(uploadsDirPath, uniqueName);
+        try {
+            file.transferTo(uploadedFile);
+        } catch (IOException e) {
+            log.error("Failed to save uploaded file: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError("Failed to save uploaded file"));
+        }
+
+        // Step 2: Run Audiveris
+        StringBuilder audiverisLog = new StringBuilder();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    audiverisPath, "-batch", "-export", "MusicXML",
+                    "-output", uploadsDirPath, uploadedFile.getAbsolutePath()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("Exit forced. Failure")) {
+                        continue; // Misleading non-fatal warning on completion
+                    }
+                    log.info("[Audiveris] {}", line);
+                    audiverisLog.append(line).append("\n");
+                }
+            }
+            process.waitFor();
+        } catch (Exception e) {
+            log.error("Error executing Audiveris: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError("Audiveris processing failed"));
+        }
+
+        // Step 3: Locate MusicXML output
+        String baseName = getBaseName(uniqueName);
+        File resultFile = locateOutputFile(baseName);
+
+        if (resultFile == null || !resultFile.exists()) {
+            String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError(friendlyError));
+        }
+
+        // Step 4: Move to outputs folder
+        String extension = getExtension(resultFile.getName());
+        File targetFile = new File(outputsDirPath, baseName + extension);
+        try {
+            Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            log.error("Failed to move output: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError("Failed to save converted file"));
+        }
+
+        // Step 5: Run SATB Analysis (music21 via Python)
+        try {
+            SatbAnalysisService.SatbAnalysisResult analysis = satbAnalysisService.analyze(targetFile);
+
+            log.info("[Analyze] Pipeline complete. Events: {}, Schema: {}",
+                    analysis.events().size(), analysis.schemaVersion());
+
+            return ResponseEntity.ok(OmrAnalysisResponse.ofSuccess(
+                    analysis.rawMusicXml(),
+                    analysis.scoreMetadata(),
+                    analysis.events(),
+                    analysis.schemaVersion()
+            ));
+
+        } catch (SatbAnalysisService.SatbAnalysisException e) {
+            log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
+            // Fallback: return success with MusicXML but no analysis
+            try {
+                String rawXml = extractXmlContent(targetFile);
+                return ResponseEntity.ok(OmrAnalysisResponse.ofSuccess(
+                        rawXml, java.util.Map.of(
+                            "structure_type", "UNCERTAIN",
+                            "satb_confidence", 0.0,
+                            "validation_passed", false
+                        ), java.util.List.of(), "1.0"
+                ));
+            } catch (IOException ioe) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
+            }
+        }
+    }
+
+    private String extractXmlContent(File file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        if (bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B) { // ZIP signature
+            try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new ByteArrayInputStream(bytes))) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    String name = entry.getName().toLowerCase();
+                    if (!entry.isDirectory() && (name.endsWith(".xml") || name.endsWith(".musicxml"))) {
+                        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                        byte[] data = new byte[1024];
+                        int count;
+                        while ((count = zis.read(data, 0, data.length)) != -1) {
+                            buffer.write(data, 0, count);
+                        }
+                        return new String(buffer.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                }
+            }
+        }
+        return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
 
     private File locateOutputFile(String baseName) {
         String[] possibleExtensions = {".mxl", ".musicxml", ".xml"};
@@ -147,5 +294,45 @@ public class OmrController {
     private String getExtension(String filename) {
         int dotIndex = filename.lastIndexOf('.');
         return (dotIndex == -1) ? "" : filename.substring(dotIndex);
+    }
+
+    /**
+     * Analyzes Audiveris log output and returns a user-friendly error message
+     * instead of raw technical details.
+     */
+    private String analyzeAudiverisLog(String logContent) {
+        if (logContent == null || logContent.isEmpty()) {
+            return "Something went wrong during conversion. Please try again with a different file.";
+        }
+
+        String lowerLog = logContent.toLowerCase();
+
+        // Low resolution / interline detection failure
+        if (lowerLog.contains("too low interline") || lowerLog.contains("interline value")) {
+            return "The image resolution is too low. Please use a clearer photo or a PDF (300+ DPI recommended).";
+        }
+
+        // Sheet flagged as invalid
+        if (lowerLog.contains("flagged as invalid")) {
+            return "We couldn't detect any sheet music staves in this image. Please make sure the image contains clear, printed sheet music.";
+        }
+
+        // Export failed after partial processing
+        if (lowerLog.contains("could not export") || lowerLog.contains("error in export")) {
+            return "The sheet music was partially read but couldn't be fully converted. Try uploading a higher quality image or a PDF.";
+        }
+
+        // No staves found
+        if (lowerLog.contains("no staves") || lowerLog.contains("no staff")) {
+            return "No music staves were found in this image. Please upload an image that clearly shows printed sheet music with staff lines.";
+        }
+
+        // Transcription did not complete
+        if (lowerLog.contains("transcription did not complete")) {
+            return "The sheet music conversion did not complete successfully. The image may be too blurry or contain non-standard notation.";
+        }
+
+        // Default fallback
+        return "We couldn't process this sheet music. Please try uploading a clearer image (at least 300 DPI) or a PDF file.";
     }
 }

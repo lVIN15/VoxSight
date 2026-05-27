@@ -61,15 +61,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import java.io.FileOutputStream
 import com.cit.kaido.voxsight.network.ApiClient
+import com.cit.kaido.voxsight.network.OmrResponse
+import com.cit.kaido.voxsight.network.OmrAnalysisResponse
 import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
@@ -86,7 +80,20 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSecondary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
+import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import retrofit2.HttpException
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.util.UUID
 
 /**
  * UploadScoreScreen — Module 1, Transaction 1.1
@@ -102,7 +109,7 @@ import java.io.File
  *  - ProcessingLoadingState.showLoadingDialog() / updateProgress()
  */
 @Composable
-fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
+fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
@@ -141,9 +148,9 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                 coroutineScope = coroutineScope,
                 onProgress = { progress -> processingProgress = progress },
                 onSuccess = { score ->
+                    isProcessing = false
                     lastParsedScore = score
                     allowMusicXmlBypass = true
-                    processingProgress = 1f
                     
                     recentScores.add(
                         0,
@@ -153,6 +160,9 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                             timeLabel = context.getString(R.string.recent_score_time_just_now)
                         )
                     )
+                    
+                    // Auto-navigate to select mode and practice screens
+                    onNavigateToPractice(score)
                 },
                 onError = { error ->
                     isProcessing = false
@@ -168,74 +178,40 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
     ) { uri: Uri? ->
         uri?.let {
             val fileName = getFileName(context, it)
-            val isMusicXml = isMusicXmlFile(fileName)
             processingFileName = fileName
             processingProgress = 0f
             isProcessing = true
-            allowMusicXmlBypass = isMusicXml
+            allowMusicXmlBypass = false
             selectedScore = null
 
-            if (isMusicXml) {
-                try {
-                    context.contentResolver.takePersistableUriPermission(
-                        it,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (_: SecurityException) {
-                    // Ignore if permission cannot be persisted.
-                }
-
-                val fallbackTitle = deriveTitleFromFileName(fileName)
-                val parsedScore = parseMusicXmlScore(context, it, fallbackTitle)
-
-                if (parsedScore != null) {
-                    lastParsedScore = parsedScore
-                    allowMusicXmlBypass = false
-
+            // Send any selected file (XML, Image, PDF) directly to /api/analyze OMR pipeline
+            onImageCaptured(
+                context = context,
+                imageUri = it,
+                coroutineScope = coroutineScope,
+                onProgress = { progress -> processingProgress = progress },
+                onSuccess = { score ->
+                    isProcessing = false
+                    lastParsedScore = score
+                    allowMusicXmlBypass = true
+                    
                     recentScores.add(
                         0,
                         RecentScoreItem(
-                            score = parsedScore,
+                            score = score,
                             fileType = context.getString(R.string.recent_score_type_musicxml),
                             timeLabel = context.getString(R.string.recent_score_time_just_now)
                         )
                     )
-                } else {
-                    allowMusicXmlBypass = false
-                    Toast.makeText(
-                        context,
-                        "Unable to read this MusicXML file.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    
+                    // Auto-navigate to select mode and practice screens
+                    onNavigateToPractice(score)
+                },
+                onError = { error ->
+                    isProcessing = false
+                    Toast.makeText(context, error, Toast.LENGTH_LONG).show()
                 }
-                isProcessing = false
-            } else {
-                // If it's an image, send to backend
-                onImageCaptured(
-                    context = context,
-                    imageUri = it,
-                    coroutineScope = coroutineScope,
-                    onProgress = { progress -> processingProgress = progress },
-                    onSuccess = { score ->
-                        lastParsedScore = score
-                        allowMusicXmlBypass = true
-                        processingProgress = 1f
-                        
-                        recentScores.add(
-                            0,
-                            RecentScoreItem(
-                                score = score,
-                                fileType = context.getString(R.string.recent_score_type_musicxml),
-                                timeLabel = context.getString(R.string.recent_score_time_just_now)
-                            )
-                        )
-                    },
-                    onError = { error ->
-                        isProcessing = false
-                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
-                    }
-                )
-            }
+            )
         }
     }
 
@@ -342,7 +318,7 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                     bypassEnabled = allowMusicXmlBypass,
                     onBypass = {
                         selectedScore = lastParsedScore
-                        onNavigateToPractice()
+                        selectedScore?.let { onNavigateToPractice(it) }
                     }
                 )
             }
@@ -353,7 +329,7 @@ fun UploadScoreScreen(onNavigateToPractice: () -> Unit = {}) {
                     scores = recentScores,
                     onScoreSelected = { item ->
                         selectedScore = item.score
-                        onNavigateToPractice()
+                        onNavigateToPractice(item.score)
                     }
                 )
             }
@@ -750,8 +726,12 @@ private fun onImageCaptured(
                 }
             }
 
+            // Extract actual file name and MIME type to support PDFs correctly
+            val originalFileName = getFileName(context, imageUri)
+            val mimeType = context.contentResolver.getType(imageUri) ?: "application/octet-stream"
+            
             // Copy URI content to a temp file so Retrofit can send it
-            val tempFile = File(context.cacheDir, "upload_image.jpg")
+            val tempFile = File(context.cacheDir, "upload_$originalFileName")
             withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(imageUri)?.use { input ->
                     FileOutputStream(tempFile).use { output ->
@@ -760,35 +740,50 @@ private fun onImageCaptured(
                 }
             }
 
-            // Upload via Retrofit
-            val requestFile = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
-            val body = MultipartBody.Part.createFormData("musicFile", tempFile.name, requestFile)
+            // Upload via Retrofit to /api/analyze (Milestone 1 Pipeline)
+            val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
+            val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
             
-            val response = ApiClient.omrService.convertScore(body)
+            val response = ApiClient.omrService.analyzeScore(body)
             
-            if (response.fileUrl != null) {
-                // Download the generated XML
-                val xmlResponse = ApiClient.omrService.downloadXml(response.fileUrl)
-                val xmlTempFile = File(context.cacheDir, "result.xml")
+            if (response.success && response.musicXml != null) {
+                // Save the received MusicXML into a temp file to parse it using the existing parser
+                val xmlTempFile = File(context.cacheDir, "result_${System.currentTimeMillis()}.xml")
                 withContext(Dispatchers.IO) {
                     FileOutputStream(xmlTempFile).use { output ->
-                        output.write(xmlResponse.bytes())
+                        output.write(response.musicXml.toByteArray(Charsets.UTF_8))
                     }
                 }
                 
-                // Parse the XML
-                val scoreTitle = deriveTitleFromFileName(response.fileName ?: "Uploaded Score")
+                // Parse the MusicXML
+                val scoreTitle = deriveTitleFromFileName(originalFileName)
                 val score = parseMusicXmlScore(context, Uri.fromFile(xmlTempFile), scoreTitle)
                 
                 if (score != null) {
+                    val eventsJson = Gson().toJson(response.events ?: emptyList<Any>())
+                    val metadataJson = Gson().toJson(response.scoreMetadata)
+                    val finalScore = score.copy(eventsJson = eventsJson, metadataJson = metadataJson)
                     onProgress(1f)
-                    onSuccess(score)
+                    onSuccess(finalScore)
                 } else {
                     onError("Failed to parse the generated MusicXML.")
                 }
             } else {
-                onError(response.message ?: "Conversion failed.")
+                onError(response.error ?: "Conversion/Analysis failed.")
             }
+        } catch (e: HttpException) {
+            e.printStackTrace()
+            var errorMessage = "Network error: ${e.code()}"
+            val errorBody = e.response()?.errorBody()?.string()
+            if (errorBody != null) {
+                try {
+                    val errorResponse = Gson().fromJson(errorBody, OmrAnalysisResponse::class.java)
+                    if (errorResponse.error != null) {
+                        errorMessage = errorResponse.error
+                    }
+                } catch (ignored: Exception) {}
+            }
+            onError(errorMessage)
         } catch (e: Exception) {
             e.printStackTrace()
             onError("Network error: ${e.localizedMessage}")
@@ -797,16 +792,14 @@ private fun onImageCaptured(
 }
 
 /**
- * Performs basic resolution and clarity validation on the captured image.
+ * Performs basic resolution validation on the captured image.
  * Maps to SDD: ImageCaptureService.validateQuality(image: File): Boolean
  *
  * @return true if the image meets minimum quality thresholds.
  */
 private fun validateImageQuality(imageUri: Uri): Boolean {
-    // TODO: Implement resolution/clarity checks per SDD spec
-    //       - Minimum resolution threshold
-    //       - Contrast / sharpness analysis
-    return true // Placeholder — accept all images for now
+    // TODO: Add contrast / sharpness analysis for even better validation
+    return true // Let the backend handle validation via Audiveris log analysis
 }
 
 /**

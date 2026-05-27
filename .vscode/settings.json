@@ -1,0 +1,15 @@
+{
+  "java.jdt.ls.java.home": "C:\\Program Files\\Java\\jdk-23",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "C:\\Program Files\\Java\\jdk-23",
+      "default": true
+    },
+    {
+      "name": "JavaSE-23",
+      "path": "C:\\Program Files\\Java\\jdk-23",
+      "default": true
+    }
+  ]
+}

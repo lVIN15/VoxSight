@@ -51,8 +51,9 @@ public class MusicXmlController {
                 }
             }
 
-            // Read raw XML content
-            String rawXml = Files.readString(xmlFile.toPath());
+            // Read raw XML content safely
+            byte[] xmlBytes = Files.readAllBytes(xmlFile.toPath());
+            String rawXml = new String(xmlBytes, java.nio.charset.StandardCharsets.UTF_8);
             // Parse notes
             List<edu.cit.capstone.voxsight.model.NoteModel> notes = processingService.parseMusicXml(xmlFile);
             // SATB classification
