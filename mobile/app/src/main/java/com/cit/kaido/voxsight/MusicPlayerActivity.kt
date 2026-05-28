@@ -56,7 +56,7 @@ class MusicPlayerActivity : AppCompatActivity() {
 
         // Read score ID and backend URL from intent extras
         val scoreId = intent.getStringExtra("SCORE_ID") ?: "sample"
-        val backendUrl = intent.getStringExtra("BACKEND_URL") ?: "http://10.71.181.36:8080"
+        val backendUrl = intent.getStringExtra("BACKEND_URL") ?: "http://192.168.1.4:8080"
 
         val retrofit = Retrofit.Builder()
             .baseUrl("$backendUrl/")

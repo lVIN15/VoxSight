@@ -139,6 +139,30 @@
         return 0;
     }
 
+    // Helper function to extract VexFlow SVG elements from an OSMD GraphicalNote
+    function getSvgElements(gNote) {
+        const svgs = [];
+        if (!gNote) return svgs;
+        
+        const vfnotes = gNote.vfnote;
+        if (!vfnotes) return svgs;
+        
+        // vfnote can be an array or a single object depending on OSMD version
+        const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
+        for (let i = 0; i < arr.length; i++) {
+            const vf = arr[i];
+            if (!vf) continue;
+            let el = null;
+            if (typeof vf.getSVGGElement === 'function') {
+                el = vf.getSVGGElement();
+            } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
+                el = vf.getAttribute('el');
+            }
+            if (el) svgs.push(el);
+        }
+        return svgs;
+    }
+
     // ─── State ──────────────────────────────────────────────────────
     let osmd = null;
     let highlightCtx = null;
@@ -204,6 +228,8 @@
         updateStatus('OSMD initialized');
     }
 
+    let currentTpq = 960;
+
     /**
      * Load and render MusicXML.
      * Called from Android via WebView.evaluateJavascript().
@@ -212,8 +238,10 @@
      * OSMD renders it as-is. No preprocessing.
      *
      * @param {string} musicXml - Raw MusicXML string
+     * @param {number} tpq - Ticks per quarter from backend
      */
-    async function loadScore(musicXml) {
+    async function loadScore(musicXml, tpq = 960) {
+        currentTpq = tpq;
         if (!osmd) initOSMD();
 
         try {
@@ -246,7 +274,7 @@
             updateStatus(`Score loaded: ${noteCoordinates.length} notes`);
 
             // Apply visual focus dimming
-            applyVisualFocusOpacity();
+            // (Removed redundant call - updateColorsAndRender is called by applySyncColors)
 
             // Notify Android that render is complete
             if (window.VoxSightBridge) {
@@ -268,10 +296,11 @@
     }
 
     let currentVisualFocus = null;
+    let colorMappingList = [];
 
     window.setVisualFocus = function(partLabel) {
         currentVisualFocus = partLabel;
-        applyVisualFocusOpacity();
+        updateColorsAndRender();
     };
 
     /**
@@ -279,114 +308,78 @@
      */
     window.clearVisualFocus = function() {
         currentVisualFocus = null;
-        applyVisualFocusOpacity();
+        updateColorsAndRender();
     };
 
     window.applySyncColors = function(colorsJson) {
         try {
-            const colorsList = JSON.parse(colorsJson);
+            colorMappingList = JSON.parse(colorsJson);
             if (!osmd) return;
-            
-            for (let i = 0; i < allGraphicalNotes.length; i++) {
-                let gNote = allGraphicalNotes[i];
-                let gId = gNote.__vx_id;
-                if (gId === undefined) continue;
-                
-                // Find EXACT match by ID to fix partial coloring in chords
-                const match = colorsList.find(c => c.id === gId);
-                if (match) {
-                    // 1. Color the notehead SVG path
-                    if (typeof gNote.getSVGGElement === 'function') {
-                        const svg = gNote.getSVGGElement();
-                        if (svg) {
-                            svg.setAttribute('fill', match.color);
-                            const paths = svg.getElementsByTagName('path');
-                            for (let p = 0; p < paths.length; p++) {
-                                paths[p].setAttribute('fill', match.color);
-                            }
-                        }
-                    }
-                    
-                    // 2. Color the stem (find the VoiceEntry containing this note)
-                    const parentVoiceEntry = gNote.parentVoiceEntry || gNote.ParentVoiceEntry;
-                    if (parentVoiceEntry && typeof parentVoiceEntry.getSVGGElement === 'function') {
-                        const vSvg = parentVoiceEntry.getSVGGElement();
-                        if (vSvg) {
-                            // Only color stem if it hasn't been colored yet (in case of chords)
-                            if (!vSvg.hasAttribute('data-stem-colored')) {
-                                const paths = vSvg.getElementsByTagName('path');
-                                for (let p = 0; p < paths.length; p++) {
-                                    paths[p].setAttribute('fill', match.color);
-                                    paths[p].setAttribute('stroke', match.color);
-                                }
-                                vSvg.setAttribute('data-stem-colored', 'true');
-                            }
-                        }
-                    }
-                    
-                    // 3. Store definitive label for visual focus dimming
-                    const srcNote = gNote.sourceNote || gNote.SourceNote;
-                    if (srcNote) {
-                        srcNote.CustomSatbLabel = match.part;
-                        // Tag the voice so rests can inherit it
-                        const voice = srcNote.voice || srcNote.Voice;
-                        if (voice) {
-                            voice.CustomSatbLabel = match.part;
-                        }
-                    }
-                }
-            }
-            // Now that all CustomSatbLabels are fully hydrated, apply focus if active
-            applyVisualFocusOpacity();
+            updateColorsAndRender();
         } catch(e) {
             console.error('[VoxSight] applySyncColors failed:', e);
         }
     };
 
     /**
-     * Applies Visual Focus dimming directly to the SVG elements after rendering.
-     * Non-focused parts are dimmed to 15% opacity.
+     * Applies Visual Focus dimming and Sync Colors directly using OSMD's native properties.
+     * This avoids brittle DOM manipulation and ensures 100% reliability.
      */
-    function applyVisualFocusOpacity() {
+    function updateColorsAndRender() {
         try {
             if (!osmd) return;
-            for (let i = 0; i < allGraphicalNotes.length; i++) {
-                let gNote = allGraphicalNotes[i];
+            
+            // Find ALL GraphicalNotes again because they might have been regenerated
+            let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet;
+            let tempGraphicalNotes = [];
+            findGraphicalNotes(root, new Set(), tempGraphicalNotes);
+            
+            for (let i = 0; i < tempGraphicalNotes.length; i++) {
+                let gNote = tempGraphicalNotes[i];
                 let srcNote = gNote.sourceNote || gNote.SourceNote;
                 if (!srcNote) continue;
+                
+                // Match using the definitive __vx_id placed on the SourceNote during first extraction
+                let gId = srcNote.__vx_id;
+                let baseColor = "#000000"; // Default
+                
+                if (colorMappingList.length > 0) {
+                    const match = colorMappingList.find(c => c.id === gId);
+                    if (match) {
+                        baseColor = match.color;
+                        srcNote.CustomSatbLabel = match.part;
+                        const voice = srcNote.voice || srcNote.Voice;
+                        if (voice) voice.CustomSatbLabel = match.part;
+                    }
+                }
                 
                 let partLabel = srcNote.CustomSatbLabel;
                 if (!partLabel) {
                     const voice = srcNote.voice || srcNote.Voice;
-                    if (voice && voice.CustomSatbLabel) {
-                        partLabel = voice.CustomSatbLabel;
-                    } else {
-                        partLabel = "S";
-                    }
+                    if (voice && voice.CustomSatbLabel) partLabel = voice.CustomSatbLabel;
+                    else partLabel = "S";
                 }
                 
                 const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
-                const opacity = isDimmed ? '0.15' : '1.0';
                 
-                if (typeof gNote.getSVGGElement === 'function') {
-                    const svgElement = gNote.getSVGGElement();
-                    if (svgElement) {
-                        svgElement.setAttribute('opacity', opacity);
-                        svgElement.style.opacity = opacity;
-                    }
-                }
-                
-                const parentVoiceEntry = gNote.parentVoiceEntry || gNote.ParentVoiceEntry;
-                if (parentVoiceEntry && typeof parentVoiceEntry.getSVGGElement === 'function') {
-                    const veSvg = parentVoiceEntry.getSVGGElement();
-                    if (veSvg) {
-                        veSvg.setAttribute('opacity', opacity);
-                        veSvg.style.opacity = opacity;
-                    }
+                if (isDimmed) {
+                    // Append '26' (15% opacity) to the hex color
+                    const dimColor = baseColor.length === 7 ? baseColor + "26" : "#00000026";
+                    srcNote.NoteheadColor = dimColor;
+                    if ('StemColor' in srcNote) srcNote.StemColor = dimColor;
+                } else {
+                    srcNote.NoteheadColor = baseColor;
+                    if ('StemColor' in srcNote) srcNote.StemColor = baseColor;
                 }
             }
+            
+            // Re-render internally using OSMD
+            window.__vx_is_internal_render = true;
+            osmd.setOptions({ coloringEnabled: true, colorStemsLikeNoteheads: true });
+            osmd.render();
+            window.__vx_is_internal_render = false;
         } catch (err) {
-            console.error('[VoxSight] applyVisualFocusOpacity failed:', err);
+            console.error('[VoxSight] updateColorsAndRender failed:', err);
         }
     }
 
@@ -472,7 +465,7 @@
                     const timestampReal = getFractionValue(timestamp);
                     const absTimestampReal = getFractionValue(absTimestamp);
                     
-                    tick = Math.round((timestampReal + absTimestampReal) * 960 * 4);
+                    tick = Math.round((timestampReal + absTimestampReal) * currentTpq * 4);
                 } catch(e) {}
 
                 let midiNote = 60;
@@ -497,9 +490,8 @@
                     id: i
                 });
                 
-                // Store calculated coordinates in the gNote itself for applySyncColors matching
-                gNote.__vx_x = x;
-                gNote.__vx_y = y;
+                // Store calculated coordinates and attach persistent ID to the source note
+                if (srcNote) srcNote.__vx_id = i;
                 gNote.__vx_id = i;
             }
         } catch (err) {
@@ -611,7 +603,7 @@
         resizeTimer = setTimeout(() => {
             resizeCanvas();
             const newHash = computeLayoutHash();
-            if (newHash !== layoutHash) {
+            if (newHash !== layoutHash && !window.__vx_is_internal_render) {
                 layoutHash = newHash;
                 extractNoteCoordinates();
                 updateStatus('Layout changed — re-extracted coordinates');

@@ -229,7 +229,7 @@ open class MidiPlayerController(
             .replace("</", "<\\/")
 
         webView.post {
-            webView.evaluateJavascript("loadScore('$escaped');", null)
+            webView.evaluateJavascript("loadScore('$escaped', $currentTpq);", null)
         }
         isRendered = true
     }

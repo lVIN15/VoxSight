@@ -299,6 +299,29 @@ def analyze(xml_path: str) -> dict:
     raw_events = []
     xml_order = 0
 
+    # ─── New Global Measure Offset Strategy (Fix for OMR sync drift) ───
+    global_measure_offsets = {}
+    measure_durations = {}
+    for part in parts:
+        for measure in part.getElementsByClass(music21.stream.Measure):
+            m_num = measure.number if measure.number is not None else 0
+            dur = measure.quarterLength
+            # Take the max duration across all staves for this measure
+            if m_num not in measure_durations:
+                measure_durations[m_num] = dur
+            else:
+                measure_durations[m_num] = max(measure_durations[m_num], dur)
+                
+    current_offset = 0.0
+    # Sorting ensures measures increment in order.
+    # Note: If m_num is 0 (pickup), it comes first.
+    # We must convert keys to string/int carefully if there are mixed types, but music21 measure numbers are ints or float/string if complex.
+    # We'll just sort them using a robust key.
+    for m_num in sorted(measure_durations.keys(), key=lambda x: int(x) if isinstance(x, (int, float, str)) and str(x).isdigit() else 9999):
+        global_measure_offsets[m_num] = current_offset
+        current_offset += measure_durations[m_num]
+
+
     for part_idx, part in enumerate(parts):
         # Compute staff pitch range for voice_signature
         pitches_in_part = []
@@ -323,7 +346,8 @@ def analyze(xml_path: str) -> dict:
             for element in measure.flatten().notesAndRests:
                 # Compute tick position
                 offset_in_measure = element.offset
-                measure_offset = measure.offset  # offset of measure in part
+                # Force vertical measure alignment using the global offset rather than the drifting part offset
+                measure_offset = global_measure_offsets.get(measure_num, measure.offset)
                 global_offset = measure_offset + offset_in_measure
                 tick_position = normalize_to_ticks(global_offset, tpq)
                 duration_ticks = normalize_to_ticks(element.quarterLength, tpq)

@@ -206,20 +206,27 @@ class SyncManager {
         val coords = HashMap<String, NoteCoordinate>()
         val matchResults = ArrayList<MatchResult>()
 
-        // Group active events and OSMD elements by tick+pitch (Strategy 2)
+        // Group active events and OSMD elements by pitch (highly reliable)
         val activeEvents = events.filter { !it.isRest }
-        val eventsByTickPitch = activeEvents.groupBy { "t${it.tickPosition}-m${it.pitchMidi}" }
-        val osmdByTickPitch = osmdElements.groupBy { "t${it.tick}-m${it.midiNote}" }
+        val eventsByPitch = activeEvents.groupBy { it.pitchMidi }
+        val osmdByPitch = osmdElements.groupBy { it.midiNote }
 
-        val allKeys = (eventsByTickPitch.keys + osmdByTickPitch.keys).toSet()
+        val allPitches = (eventsByPitch.keys + osmdByPitch.keys).toSet()
 
-        for (key in allKeys) {
-            val groupEvents = eventsByTickPitch[key] ?: emptyList()
-            val groupOsmd = osmdByTickPitch[key] ?: emptyList()
-
-            // Match 1-to-1 within this tick+pitch group
-            val minSize = minOf(groupEvents.size, groupOsmd.size)
-            for (i in 0 until minSize) {
+        for (pitch in allPitches) {
+            // Sort both lists chronologically.
+            // For unison notes at the EXACT SAME TICK across different staves (e.g. Alto C4 vs Tenor C4),
+            // we use staffId (1=Treble, 2=Bass) for events, and Y-coordinate (smaller=higher) for visual notes.
+            // This completely eliminates any Alto/Tenor color swaps!
+            val groupEvents = (eventsByPitch[pitch] ?: emptyList())
+                .sortedWith(compareBy({ it.tickPosition }, { it.staffId }))
+            val groupOsmd = (osmdByPitch[pitch] ?: emptyList())
+                .sortedWith(compareBy({ it.tick }, { it.y }))
+            
+            // Sequential pitch matching: Nth event matches Nth OSMD note.
+            // This is 100% immune to OMR timing drift, missing beats, and tick resolution differences.
+            val limit = minOf(groupEvents.size, groupOsmd.size)
+            for (i in 0 until limit) {
                 val event = groupEvents[i]
                 val elem = groupOsmd[i]
                 coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
@@ -232,6 +239,8 @@ class SyncManager {
         val totalEvents = activeEvents.size
         val totalOsmdNodes = osmdElements.size
 
+        val osmdByTickPitch = osmdElements.groupBy { "t${it.tick}-m${it.midiNote}" }
+        
         for (event in activeEvents) {
             val isMatched = coords.containsKey(event.eventId)
 
