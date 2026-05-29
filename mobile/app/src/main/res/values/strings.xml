@@ -13,7 +13,7 @@
     <string name="take_photo_title">Take Photo</string>
     <string name="take_photo_subtitle">Scan physical sheets with high precision.</string>
     <string name="import_file_title">Import File</string>
-    <string name="import_file_subtitle">Upload MusicXML files from your device (testing only).</string>
+    <string name="import_file_subtitle">Upload PDF, PNG, or JPG sheet music files.</string>
 
     <!-- Module 2: Practice Screen -->
     <string name="practice_title">Kyrie Eleison</string>

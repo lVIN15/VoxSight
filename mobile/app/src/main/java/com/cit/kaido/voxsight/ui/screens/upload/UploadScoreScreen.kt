@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ripple
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +66,8 @@ import com.cit.kaido.voxsight.network.ApiClient
 import com.cit.kaido.voxsight.network.OmrResponse
 import com.cit.kaido.voxsight.network.OmrAnalysisResponse
 import com.cit.kaido.voxsight.R
+import com.cit.kaido.voxsight.storage.LocalScoreManager
+import com.cit.kaido.voxsight.storage.LocalScoreMetadata
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore
@@ -129,6 +132,28 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
 
     val coroutineScope = rememberCoroutineScope()
 
+    // ── Load cached scores on launch ─────────────────────────────
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        ApiClient.init(context)
+        val saved = LocalScoreManager.loadSavedScores(context)
+        recentScores.clear()
+        recentScores.addAll(
+            saved.map { meta ->
+                RecentScoreItem(
+                    id = meta.id,
+                    title = meta.title,
+                    composer = meta.composer,
+                    fileType = context.getString(R.string.recent_score_type_musicxml),
+                    timeLabel = formatTimeLabel(context, meta.timestamp),
+                    metadata = meta
+                )
+            }
+        )
+    }
+
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var tempUrlString by remember { mutableStateOf("") }
+
     /** Camera capture result — maps to ImageCaptureService.captureImage() */
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -152,14 +177,20 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                     lastParsedScore = score
                     allowMusicXmlBypass = true
                     
-                    recentScores.add(
-                        0,
-                        RecentScoreItem(
-                            score = score,
-                            fileType = context.getString(R.string.recent_score_type_musicxml),
-                            timeLabel = context.getString(R.string.recent_score_time_just_now)
+                    coroutineScope.launch {
+                        val meta = LocalScoreManager.saveScore(context, score)
+                        recentScores.add(
+                            0,
+                            RecentScoreItem(
+                                id = meta.id,
+                                title = meta.title,
+                                composer = meta.composer,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = context.getString(R.string.recent_score_time_just_now),
+                                metadata = meta
+                            )
                         )
-                    )
+                    }
                     
                     // Auto-navigate to select mode and practice screens
                     onNavigateToPractice(score)
@@ -195,14 +226,20 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                     lastParsedScore = score
                     allowMusicXmlBypass = true
                     
-                    recentScores.add(
-                        0,
-                        RecentScoreItem(
-                            score = score,
-                            fileType = context.getString(R.string.recent_score_type_musicxml),
-                            timeLabel = context.getString(R.string.recent_score_time_just_now)
+                    coroutineScope.launch {
+                        val meta = LocalScoreManager.saveScore(context, score)
+                        recentScores.add(
+                            0,
+                            RecentScoreItem(
+                                id = meta.id,
+                                title = meta.title,
+                                composer = meta.composer,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = context.getString(R.string.recent_score_time_just_now),
+                                metadata = meta
+                            )
                         )
-                    )
+                    }
                     
                     // Auto-navigate to select mode and practice screens
                     onNavigateToPractice(score)
@@ -242,8 +279,13 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            // ===== Top Bar: Logo + Profile Avatar =====
-            TopBar()
+            // ===== Top Bar: Logo + Settings + Profile Avatar =====
+            TopBar(
+                onSettingsClick = {
+                    tempUrlString = ApiClient.getBaseUrl(context)
+                    showSettingsDialog = true
+                }
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -328,12 +370,70 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                 RecentScoresSection(
                     scores = recentScores,
                     onScoreSelected = { item ->
-                        selectedScore = item.score
-                        onNavigateToPractice(item.score)
+                        coroutineScope.launch {
+                            val fullScore = withContext(Dispatchers.IO) {
+                                LocalScoreManager.loadFullScore(context, item.metadata)
+                            }
+                            if (fullScore != null) {
+                                onNavigateToPractice(fullScore)
+                            } else {
+                                Toast.makeText(context, "Failed to load score.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 )
             }
         }
+
+    if (showSettingsDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Text(
+                    text = "Server Configuration",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = VoxTextPrimary
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Set the backend server URL (e.g., http://192.168.1.3:8080):",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = VoxTextSubtitle
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = tempUrlString,
+                        onValueChange = { tempUrlString = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = VoxTextPrimary,
+                            unfocusedTextColor = VoxTextPrimary,
+                            focusedBorderColor = VoxPurplePrimary,
+                            unfocusedBorderColor = VoxCardStroke
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        ApiClient.updateBaseUrl(context, tempUrlString)
+                        showSettingsDialog = false
+                    }
+                ) {
+                    Text("SAVE", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("CANCEL", color = VoxTextSubtitle)
+                }
+            }
+        )
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -341,10 +441,10 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Top bar with VoxSight logo and profile avatar.
+ * Top bar with VoxSight logo, settings icon, and profile avatar.
  */
 @Composable
-private fun TopBar() {
+private fun TopBar(onSettingsClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -374,6 +474,25 @@ private fun TopBar() {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f)
         )
+
+        // Settings Button
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(VoxPurpleIconBg)
+                .clickable { onSettingsClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector = Icons.Outlined.Settings,
+                contentDescription = "Server Settings",
+                tint = VoxPurplePrimary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
 
         // Profile Avatar
         Box(
@@ -638,12 +757,12 @@ private fun RecentScoreRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = item.score.title,
+                    text = item.title,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
                     color = VoxTextPrimary
                 )
                 Text(
-                    text = item.score.composer,
+                    text = item.composer,
                     style = MaterialTheme.typography.bodyMedium,
                     color = VoxTextSubtitle
                 )
@@ -826,8 +945,24 @@ private fun deriveTitleFromFileName(fileName: String): String {
     return trimmed.replace('_', ' ').replace('-', ' ').trim()
 }
 
+private fun formatTimeLabel(context: Context, timestamp: Long): String {
+    val diff = System.currentTimeMillis() - timestamp
+    return when {
+        diff < 60_000 -> context.getString(R.string.recent_score_time_just_now)
+        diff < 3600_000 -> "${diff / 60_000}m ago"
+        diff < 86400_000 -> "${diff / 3600_000}h ago"
+        else -> {
+            val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(timestamp))
+        }
+    }
+}
+
 private data class RecentScoreItem(
-    val score: MusicXmlScore,
+    val id: String,
+    val title: String,
+    val composer: String,
     val fileType: String,
-    val timeLabel: String
+    val timeLabel: String,
+    val metadata: LocalScoreMetadata
 )
