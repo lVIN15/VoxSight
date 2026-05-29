@@ -124,9 +124,7 @@ open class MidiPlayerController(
 
     init {
         playbackEngine.setListener(this)
-        playbackEngine.suspendUntilPitchMatched = { events ->
-            onWaitPitchCallback(events)
-        }
+
         playbackEngine.initialize()
         
         syncManager.setListener(this)
@@ -278,7 +276,7 @@ open class MidiPlayerController(
     }
 
     fun seek(progressFraction: Float) {
-        // Seek is not natively supported yet in NativePlaybackEngine.
+        playbackEngine.seek(progressFraction)
     }
 
     /**

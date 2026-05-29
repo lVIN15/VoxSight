@@ -7,6 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import com.cit.kaido.voxsight.ui.navigation.AppNavigation
 import com.cit.kaido.voxsight.ui.theme.VoxSightTheme
 
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -14,7 +18,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VoxSightTheme {
-                AppNavigation()
+                Box(
+                    modifier = Modifier.safeDrawingPadding()
+                ) {
+                    AppNavigation()
+                }
             }
         }
     }

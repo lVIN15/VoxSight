@@ -272,6 +272,49 @@ class NativePlaybackEngine(private val context: Context) {
         listener?.onPlaybackStopped()
     }
 
+    fun seek(progressFraction: Float) {
+        val clamped = progressFraction.coerceIn(0f, 1f)
+        val targetTick = if (playbackQueue.isNotEmpty()) {
+            (playbackQueue.last().tickPosition * clamped).toInt()
+        } else {
+            0
+        }
+        
+        // Find the index of the first event that is at or after the target tick
+        var newIdx = 0
+        for (i in playbackQueue.indices) {
+            if (playbackQueue[i].tickPosition >= targetTick) {
+                newIdx = i
+                break
+            }
+        }
+        
+        // Turn off all currently active notes to prevent hanging notes
+        emergencyAllNotesOff()
+        
+        // Update the playhead
+        currentEventIndex.set(newIdx)
+        
+        // Update current tempo if we seek past tempo changes
+        var latestBpm = 120f
+        for (mark in tempoEvents) {
+            if (mark.tick <= targetTick) {
+                latestBpm = mark.bpm
+            } else {
+                break
+            }
+        }
+        currentBPM = latestBpm
+
+        // Restart the dispatcher loop if playing so it picks up the new index
+        if (state == PlaybackState.PLAYING) {
+            dispatcherJob?.cancel()
+            dispatcherJob = dispatcherScope.launch {
+                runDispatcherLoop()
+            }
+        }
+    }
+
     // ─── Track Controls ────────────────────────────────────────────────
     fun muteTrack(trackId: String, muted: Boolean) {
         mutedTracks[trackId] = muted

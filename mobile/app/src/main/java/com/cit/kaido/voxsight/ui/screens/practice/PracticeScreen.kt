@@ -115,6 +115,7 @@ fun Module2PracticeScreen(
     var progress by remember { mutableFloatStateOf(0f) }
     
     var simulatedProgress by remember { mutableFloatStateOf(0f) }
+    var isDraggingSlider by remember { mutableStateOf(false) }
     
     val animatedProgress by animateFloatAsState(
         targetValue = simulatedProgress,
@@ -129,17 +130,23 @@ fun Module2PracticeScreen(
 
     // Smooth continuous timer interpolation
     LaunchedEffect(isPlaying, progress) {
-        simulatedProgress = progress
+        if (!isDraggingSlider) {
+            simulatedProgress = progress
+        }
         if (isPlaying && totalSeconds > 0) {
             var lastTime = System.nanoTime()
             while (isActive) {
                 delay(16) // ~60 FPS
-                val now = System.nanoTime()
-                val deltaMs = (now - lastTime) / 1_000_000f
-                lastTime = now
-                
-                simulatedProgress += (deltaMs / 1000f) / totalSeconds
-                if (simulatedProgress > 1f) simulatedProgress = 1f
+                if (!isDraggingSlider) {
+                    val now = System.nanoTime()
+                    val deltaMs = (now - lastTime) / 1_000_000f
+                    lastTime = now
+                    
+                    simulatedProgress += (deltaMs / 1000f) / totalSeconds
+                    if (simulatedProgress > 1f) simulatedProgress = 1f
+                } else {
+                    lastTime = System.nanoTime()
+                }
             }
         }
     }
@@ -262,8 +269,15 @@ fun Module2PracticeScreen(
                     }
                     isPlaying = !isPlaying
                 },
-                progress = animatedProgress,
-                onProgressChange = { progress = it },
+                progress = if (isDraggingSlider) progress else animatedProgress,
+                onProgressChange = { 
+                    isDraggingSlider = true
+                    progress = it 
+                },
+                onProgressChangeFinished = {
+                    isDraggingSlider = false
+                    midiController?.seek(progress)
+                },
                 currentTime = formatTime(currentSeconds),
                 totalTime = formatTime(totalSeconds)
             )
@@ -886,6 +900,7 @@ private fun PlaybackControlBar(
     onPlayPause: () -> Unit,
     progress: Float,
     onProgressChange: (Float) -> Unit,
+    onProgressChangeFinished: () -> Unit = {},
     currentTime: String,
     totalTime: String
 ) {
@@ -913,6 +928,7 @@ private fun PlaybackControlBar(
         Slider(
             value = progress,
             onValueChange = onProgressChange,
+            onValueChangeFinished = onProgressChangeFinished,
             colors = SliderDefaults.colors(
                 thumbColor = VoxPurplePrimary,
                 activeTrackColor = VoxPurplePrimary,
