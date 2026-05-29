@@ -35,6 +35,9 @@ class PracticeViewModel : ViewModel() {
     private val _pitchAttempts = MutableStateFlow<List<PitchAttempt>>(emptyList())
     val pitchAttempts: StateFlow<List<PitchAttempt>> = _pitchAttempts.asStateFlow()
 
+    private val _pitchUiState = MutableStateFlow<com.cit.kaido.voxsight.pitch.PitchUiState>(com.cit.kaido.voxsight.pitch.PitchUiState.Idle)
+    val pitchUiState: StateFlow<com.cit.kaido.voxsight.pitch.PitchUiState> = _pitchUiState.asStateFlow()
+
     // ── Score & Playback State ────────────────────────
     private val _currentScore = MutableStateFlow<MusicXmlScore?>(null)
     val currentScore: StateFlow<MusicXmlScore?> = _currentScore.asStateFlow()
@@ -48,7 +51,8 @@ class PracticeViewModel : ViewModel() {
     data class ActivePitchTarget(
         val eventId: String,
         val targetHz: Float,
-        val satbVoice: com.cit.kaido.voxsight.model.SATBVoice
+        val satbVoice: com.cit.kaido.voxsight.model.SATBVoice,
+        val noteName: String = ""
     )
 
     private val _activeTargets = MutableStateFlow<List<ActivePitchTarget>>(emptyList())
@@ -100,8 +104,29 @@ class PracticeViewModel : ViewModel() {
                     } else {
                         stableMatchFrames = 0
                     }
+                    // PitchUiState update
+                    if (hz <= 0f) {
+                        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+                    } else {
+                        val firstTarget = targets.first() // Use first active target for UI indicator
+                        val deviation = PitchComparator.calculateCentDeviation(hz, firstTarget.targetHz)
+                        val result = com.cit.kaido.voxsight.pitch.FeedbackResult(
+                            isMatch = PitchComparator.isMatch(deviation),
+                            deviationCents = deviation
+                        )
+                        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Active(
+                            result = result,
+                            targetNoteName = firstTarget.noteName
+                        )
+                    }
+
                 } else {
                     stableMatchFrames = 0
+                    _pitchUiState.value = if (_isMicrophoneEnabled.value) {
+                        com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+                    } else {
+                        com.cit.kaido.voxsight.pitch.PitchUiState.Idle
+                    }
                 }
             }
         }
@@ -111,11 +136,13 @@ class PracticeViewModel : ViewModel() {
         _pitchAttempts.value = emptyList()
         if (_isMicrophoneEnabled.value) {
             pitchEngine.start()
+            _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
         }
     }
 
     fun endPitchSession() {
         pitchEngine.stop()
+        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
     }
 
     fun setPitchTargets(targets: List<ActivePitchTarget>) {
@@ -148,6 +175,11 @@ class PracticeViewModel : ViewModel() {
         _isMicrophoneEnabled.value = enabled
         if (!enabled) {
             pitchEngine.stop()
+            _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
+        } else {
+            if (_playbackState.value == PlaybackState.PLAYING) {
+                 _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+            }
         }
     }
 
