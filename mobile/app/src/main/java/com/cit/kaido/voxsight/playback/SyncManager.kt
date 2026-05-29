@@ -221,7 +221,7 @@ class SyncManager {
             val groupEvents = (eventsByPitch[pitch] ?: emptyList())
                 .sortedWith(compareBy({ it.tickPosition }, { it.staffId }))
             val groupOsmd = (osmdByPitch[pitch] ?: emptyList())
-                .sortedWith(compareBy({ it.tick }, { it.y }))
+                .sortedWith(compareBy({ it.id }, { it.y }))
             
             // Sequential pitch matching: Nth event matches Nth OSMD note.
             // This is 100% immune to OMR timing drift, missing beats, and tick resolution differences.

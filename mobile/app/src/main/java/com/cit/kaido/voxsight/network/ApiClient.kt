@@ -6,8 +6,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    // 192.168.1.4 is the laptop's IP address on the Wi-Fi network
-    private const val BASE_URL = "http://192.168.254.61:8080/"
+    // 10.91.14.27 is the laptop's IP address on the Wi-Fi network
+    private const val BASE_URL = "http://10.91.14.27:8080/"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(900, TimeUnit.SECONDS) // Audiveris takes time
