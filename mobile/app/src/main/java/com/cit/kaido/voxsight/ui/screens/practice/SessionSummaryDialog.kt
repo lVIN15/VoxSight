@@ -14,10 +14,23 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 
+data class ProblematicNote(
+    val noteName: String,
+    val averageDeviation: Float,
+    val isSharp: Boolean
+)
+
+data class VocalHighlight(
+    val highestNote: String,
+    val lowestNote: String
+)
+
 data class SessionSummary(
     val totalNotesAttempted: Int,
     val correctNotes: Int,
-    val averageDeviationCents: Float
+    val averageDeviationCents: Float,
+    val problematicNotes: List<ProblematicNote> = emptyList(),
+    val vocalHighlight: VocalHighlight? = null
 ) {
     val accuracyPercentage: Float
         get() = if (totalNotesAttempted > 0) {

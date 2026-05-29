@@ -213,11 +213,11 @@ fun AppNavigation() {
         }
 
         composable("summary") {
-            // Provide the accuracy from the view model
-            val accuracy = practiceViewModel.calculateAccuracy()
+            // Provide the full summary from the view model
+            val summary = practiceViewModel.getSessionSummary()
             
-            PracticeSummaryScreen(
-                accuracy = accuracy,
+            com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen(
+                summary = summary,
                 onBackToLibrary = {
                     navController.popBackStack("upload", inclusive = false)
                 }
