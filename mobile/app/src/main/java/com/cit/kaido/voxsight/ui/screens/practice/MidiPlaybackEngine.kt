@@ -28,10 +28,13 @@ import kotlin.math.roundToInt
 fun MidiPlaybackEngine(
     score: MusicXmlScore?,
     tempo: Int = 120,
+    pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList(),
     onReady: (MidiPlayerController) -> Unit,
     onScoreLoaded: (Int) -> Unit = {},
     onProgress: (Float) -> Unit = {},
     onPlaybackComplete: () -> Unit = {},
+    onNoteOn: (MusicalEvent) -> Unit = {},
+    onWaitPitch: suspend (List<MusicalEvent>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -41,12 +44,22 @@ fun MidiPlaybackEngine(
         MidiPlayerController(context)
     }
 
+    controller.pitchAttempts = pitchAttempts
+
     // Update callbacks when they change
-    DisposableEffect(onProgress, onPlaybackComplete, onScoreLoaded) {
+    DisposableEffect(onProgress, onPlaybackComplete, onScoreLoaded, onNoteOn, onWaitPitch) {
         controller.onProgressCallback = onProgress
         controller.onCompleteCallback = onPlaybackComplete
         controller.onScoreLoadedCallback = onScoreLoaded
+        controller.onNoteOnCallback = onNoteOn
+        controller.onWaitPitchCallback = onWaitPitch
         onDispose { }
+    }
+
+    // Refresh highlights dynamically when pitchAttempts change
+    LaunchedEffect(pitchAttempts) {
+        controller.pitchAttempts = pitchAttempts
+        controller.refreshHighlights()
     }
 
     // Lifecycle cleanup
@@ -85,6 +98,8 @@ open class MidiPlayerController(
     var onProgressCallback: (Float) -> Unit = {}
     var onCompleteCallback: () -> Unit = {}
     var onScoreLoadedCallback: (Int) -> Unit = {}
+    var onNoteOnCallback: (MusicalEvent) -> Unit = {}
+    var onWaitPitchCallback: suspend (List<MusicalEvent>) -> Unit = {}
     
     // ─── Diagnostics State (Compose Reactive) ─────────────────────────
     var eventsCount by mutableStateOf(0)
@@ -94,6 +109,7 @@ open class MidiPlayerController(
     var playbackState by mutableStateOf("IDLE")
     var lastMidiEvent by mutableStateOf<String?>(null)
     var mutedVoicesList by mutableStateOf(listOf<String>())
+    var pitchAttempts by mutableStateOf(listOf<com.cit.kaido.voxsight.pitch.PitchAttempt>())
     
     private var eventStream: EventStream = EventStream.empty()
     private var isRendered = false
@@ -108,6 +124,9 @@ open class MidiPlayerController(
 
     init {
         playbackEngine.setListener(this)
+        playbackEngine.suspendUntilPitchMatched = { events ->
+            onWaitPitchCallback(events)
+        }
         playbackEngine.initialize()
         
         syncManager.setListener(this)
@@ -332,6 +351,7 @@ open class MidiPlayerController(
 
     override fun onNoteOn(event: MusicalEvent) {
         lastMidiEvent = "ON: pitch=${event.pitchMidi} (${event.pitchName}) voice=${event.satbVoice}"
+        onNoteOnCallback(event)
         // Compute proper duration using current tempo and ticksPerQuarter
         val bpm = playbackEngine.getCurrentBPM().coerceAtLeast(1f)
         val tpq = currentTpq.coerceAtLeast(1)
@@ -347,10 +367,24 @@ open class MidiPlayerController(
 
     override fun onPlaybackError(error: String) {}
 
-    // ─── SyncListener Implementation ───────────────────────────────────
+    private var lastHighlights: List<SyncManager.NoteHighlightData> = emptyList()
+    private var lastRenderedHighlightsJson: String? = null
+    private var overlayVersion = 0
+
     override fun onHighlightNotes(highlights: List<SyncManager.NoteHighlightData>) {
+        lastHighlights = highlights
+        renderHighlights()
+    }
+
+    fun refreshHighlights() {
+        if (lastHighlights.isNotEmpty()) {
+            renderHighlights()
+        }
+    }
+
+    private fun renderHighlights() {
         // Inject colors based on SATB part mapping
-        val coloredNotes = highlights.mapNotNull { highlight ->
+        val coloredNotes = lastHighlights.mapNotNull { highlight ->
             val event = eventStream.find { it.eventId == highlight.eventId }
             val part = event?.satbVoice?.firstOrNull()?.toString()?.uppercase() ?: "S"
             
@@ -359,12 +393,18 @@ open class MidiPlayerController(
                 return@mapNotNull null // Skip drawing this highlight
             }
             
-            val hexColor = when (part) {
+            var hexColor = when (part) {
                 "S" -> "#E91E63" // Pink
                 "A" -> "#9C27B0" // Purple
                 "T" -> "#2196F3" // Blue
                 "B" -> "#4CAF50" // Green
                 else -> "#6366f1" // Indigo fallback
+            }
+
+            // Apply Pitch Tracking feedback colors
+            val attempt = pitchAttempts.findLast { it.eventId == event?.eventId }
+            if (attempt != null) {
+                hexColor = if (attempt.isMatch) "#00E676" else "#E53935" // Bright Green for Match, Red for Miss
             }
             
             mapOf(
@@ -377,9 +417,22 @@ open class MidiPlayerController(
             )
         }
         
-        val json = gson.toJson(coloredNotes)
-        webView.post {
-            webView.evaluateJavascript("highlightNotes('$json');", null)
+        val notesJson = gson.toJson(coloredNotes)
+        
+        // Prevent redundant JS bridge calls if colors haven't actually changed
+        if (notesJson != lastRenderedHighlightsJson) {
+            lastRenderedHighlightsJson = notesJson
+            
+            overlayVersion++
+            val payload = mapOf(
+                "version" to overlayVersion,
+                "notes" to coloredNotes
+            )
+            val json = gson.toJson(payload)
+            
+            webView.post {
+                webView.evaluateJavascript("window.updatePitchOverlay($json);", null)
+            }
         }
     }
 

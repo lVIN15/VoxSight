@@ -42,8 +42,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -82,8 +96,12 @@ fun Module2PracticeScreen(
     score: MusicXmlScore? = null,
     fallbackTitle: String = stringResource(R.string.practice_title),
     isMicEnabled: Boolean = false,
+    pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList(),
     onPauseClicked: () -> Unit = {},
-    onBackClicked: () -> Unit = {}
+    onBackClicked: () -> Unit = {},
+    onNoteOn: (com.cit.kaido.voxsight.model.MusicalEvent) -> Unit = {},
+    onWaitPitch: suspend (List<com.cit.kaido.voxsight.model.MusicalEvent>) -> Unit = {},
+    onPlaybackComplete: () -> Unit = {}
 ) {
     val resolvedScore = score ?: sampleMusicXmlScore(fallbackTitle)
     val staffNotes = remember(resolvedScore) {
@@ -91,14 +109,40 @@ fun Module2PracticeScreen(
     }
 
     var selectedPart by remember { mutableStateOf(VoicePart.Soprano) }
-    var audioMuteEnabled by remember { mutableStateOf(true) }
-    var visualFocusEnabled by remember { mutableStateOf(true) }
+    var audioMuteEnabled by remember { mutableStateOf(false) }
+    var visualFocusEnabled by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    
+    var simulatedProgress by remember { mutableFloatStateOf(0f) }
+    
+    val animatedProgress by animateFloatAsState(
+        targetValue = simulatedProgress,
+        animationSpec = tween(durationMillis = 50, easing = LinearEasing),
+        label = "smoothProgress"
+    )
+    
     var midiController by remember { mutableStateOf<MidiPlayerController?>(null) }
     var totalSeconds by remember { mutableStateOf(resolvedScore.totalSeconds) }
     var showDiagnostics by remember { mutableStateOf(false) }
-    val currentSeconds = (totalSeconds * progress).roundToInt()
+    val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
+
+    // Smooth continuous timer interpolation
+    LaunchedEffect(isPlaying, progress) {
+        simulatedProgress = progress
+        if (isPlaying && totalSeconds > 0) {
+            var lastTime = System.nanoTime()
+            while (isActive) {
+                delay(16) // ~60 FPS
+                val now = System.nanoTime()
+                val deltaMs = (now - lastTime) / 1_000_000f
+                lastTime = now
+                
+                simulatedProgress += (deltaMs / 1000f) / totalSeconds
+                if (simulatedProgress > 1f) simulatedProgress = 1f
+            }
+        }
+    }
 
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
@@ -124,13 +168,16 @@ fun Module2PracticeScreen(
                 onDiagnosticsClicked = { showDiagnostics = !showDiagnostics }
             )
 
+            val isSelectorEnabled = audioMuteEnabled || visualFocusEnabled
+
             VoicePartCard(
                 selectedPart = selectedPart,
                 onPartSelected = { selectedPart = it },
                 audioMuteEnabled = audioMuteEnabled,
                 onAudioMuteChange = { audioMuteEnabled = it },
                 visualFocusEnabled = visualFocusEnabled,
-                onVisualFocusChange = { visualFocusEnabled = it }
+                onVisualFocusChange = { visualFocusEnabled = it },
+                isSelectorEnabled = isSelectorEnabled
             )
 
             LaunchedEffect(selectedPart, audioMuteEnabled, midiController) {
@@ -161,6 +208,7 @@ fun Module2PracticeScreen(
                 MidiPlaybackEngine(
                     score = resolvedScore,
                     tempo = 120,
+                    pitchAttempts = pitchAttempts,
                     onReady = { controller ->
                         midiController = controller
                         if (audioMuteEnabled) {
@@ -177,6 +225,26 @@ fun Module2PracticeScreen(
                     onPlaybackComplete = {
                         isPlaying = false
                         progress = 1f
+                        onPlaybackComplete()
+                    },
+                    onNoteOn = { event ->
+                        if (isMicEnabled) {
+                            val partLetter = selectedPart.shortLabel.first().toString().uppercase()
+                            if (event.satbVoice.firstOrNull()?.toString()?.uppercase() == partLetter) {
+                                onNoteOn(event)
+                            }
+                        }
+                    },
+                    onWaitPitch = { events ->
+                        if (isMicEnabled) {
+                            val partLetter = selectedPart.shortLabel.first().toString().uppercase()
+                            val targetEvents = events.filter { 
+                                it.satbVoice.firstOrNull()?.toString()?.uppercase() == partLetter 
+                            }
+                            if (targetEvents.isNotEmpty()) {
+                                onWaitPitch(targetEvents)
+                            }
+                        }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -194,7 +262,7 @@ fun Module2PracticeScreen(
                     }
                     isPlaying = !isPlaying
                 },
-                progress = progress,
+                progress = animatedProgress,
                 onProgressChange = { progress = it },
                 currentTime = formatTime(currentSeconds),
                 totalTime = formatTime(totalSeconds)
@@ -241,6 +309,10 @@ private fun PracticeTopBar(
     onBackClicked: () -> Unit,
     onDiagnosticsClicked: () -> Unit
 ) {
+    var showTitlePopup by remember { mutableStateOf(false) }
+    var showDropdownMenu by remember { mutableStateOf(false) }
+    var showLegendDialog by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -264,15 +336,49 @@ private fun PracticeTopBar(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.SemiBold
-            ),
-            color = VoxTextPrimary,
-            modifier = Modifier.weight(1f)
-        )
+        // Title with Truncation and Long Press
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            showTitlePopup = true
+                            tryAwaitRelease()
+                            showTitlePopup = false
+                        }
+                    )
+                }
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = VoxTextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (showTitlePopup) {
+                Popup(alignment = Alignment.TopCenter) {
+                    Surface(
+                        color = VoxCardBackground,
+                        shape = RoundedCornerShape(8.dp),
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = VoxTextPrimary,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         Text(
             text = "DEV",
@@ -284,12 +390,71 @@ private fun PracticeTopBar(
                 .background(VoxPurplePrimary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
         )
 
-        IconButton(onClick = { }) {
-            Icon(
-                imageVector = Icons.Outlined.MoreVert,
-                contentDescription = stringResource(R.string.cd_more_options)
-            )
+        // Options Menu
+        Box {
+            IconButton(onClick = { showDropdownMenu = true }) {
+                Icon(
+                    imageVector = Icons.Outlined.MoreVert,
+                    contentDescription = stringResource(R.string.cd_more_options)
+                )
+            }
+            DropdownMenu(
+                expanded = showDropdownMenu,
+                onDismissRequest = { showDropdownMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("SATB Color Legend") },
+                    onClick = {
+                        showDropdownMenu = false
+                        showLegendDialog = true
+                    }
+                )
+            }
         }
+    }
+
+    if (showLegendDialog) {
+        AlertDialog(
+            onDismissRequest = { showLegendDialog = false },
+            title = {
+                Text(
+                    text = "SATB Color Legend",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Use this guide to identify your vocal part on the sheet music:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VoxTextSecondary
+                    )
+                    LegendItem("Soprano", Color(0xFFE91E63)) // Pink
+                    LegendItem("Alto", Color(0xFF9C27B0))    // Purple
+                    LegendItem("Tenor", Color(0xFF2196F3))   // Blue
+                    LegendItem("Bass", Color(0xFF4CAF50))    // Green
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLegendDialog = false }) {
+                    Text("Got it")
+                }
+            },
+            containerColor = Color.White
+        )
+    }
+}
+
+@Composable
+private fun LegendItem(part: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(color, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = part, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -300,7 +465,8 @@ private fun VoicePartCard(
     audioMuteEnabled: Boolean,
     onAudioMuteChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
-    onVisualFocusChange: (Boolean) -> Unit
+    onVisualFocusChange: (Boolean) -> Unit,
+    isSelectorEnabled: Boolean
 ) {
     Surface(
         color = VoxCardBackground,
@@ -323,7 +489,8 @@ private fun VoicePartCard(
 
             PartSelectorUI(
                 selectedPart = selectedPart,
-                onPartSelected = onPartSelected
+                onPartSelected = onPartSelected,
+                enabled = isSelectorEnabled
             )
 
             Row(
@@ -352,10 +519,11 @@ private fun VoicePartCard(
 @Composable
 private fun PartSelectorUI(
     selectedPart: VoicePart,
-    onPartSelected: (VoicePart) -> Unit
+    onPartSelected: (VoicePart) -> Unit,
+    enabled: Boolean
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         VoicePart.values().forEach { part ->
@@ -364,7 +532,7 @@ private fun PartSelectorUI(
                 modifier = Modifier
                     .weight(1f)
                     .height(34.dp)
-                    .clickable { onPartSelected(part) },
+                    .clickable(enabled = enabled) { onPartSelected(part) },
                 color = if (isSelected) VoxPurplePrimary else Color.White,
                 shape = RoundedCornerShape(999.dp),
                 border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)

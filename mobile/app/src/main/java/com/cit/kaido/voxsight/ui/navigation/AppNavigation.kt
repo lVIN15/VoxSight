@@ -3,6 +3,7 @@ package com.cit.kaido.voxsight.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -76,15 +77,47 @@ fun AppNavigation() {
         }
 
         dialog("select_mode") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var permissionGranted by androidx.compose.runtime.remember { 
+                androidx.compose.runtime.mutableStateOf(
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        context, 
+                        android.Manifest.permission.RECORD_AUDIO
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) 
+            }
+            
+            val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                permissionGranted = isGranted
+                if (isGranted) {
+                    practiceViewModel.setMicrophoneEnabled(true)
+                    navController.popBackStack()
+                    navController.navigate("practice")
+                } else {
+                    android.widget.Toast.makeText(context, "Microphone permission required for Pitch Tracking", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+
             SelectPracticeModeModal(
                 onDismiss = {
                     navController.popBackStack()
                 },
                 onModeSelected = { micEnabled ->
-                    practiceViewModel.setMicrophoneEnabled(micEnabled)
-                    // Pop the modal and navigate to practice
-                    navController.popBackStack()
-                    navController.navigate("practice")
+                    if (micEnabled) {
+                        if (permissionGranted) {
+                            practiceViewModel.setMicrophoneEnabled(true)
+                            navController.popBackStack()
+                            navController.navigate("practice")
+                        } else {
+                            permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    } else {
+                        practiceViewModel.setMicrophoneEnabled(false)
+                        navController.popBackStack()
+                        navController.navigate("practice")
+                    }
                 }
             )
         }
@@ -93,6 +126,21 @@ fun AppNavigation() {
             val showPauseModal by practiceViewModel.showPauseModal.collectAsState()
             val isMicEnabled by practiceViewModel.isMicrophoneEnabled.collectAsState()
             val currentScore by practiceViewModel.currentScore.collectAsState()
+            val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
+
+            androidx.compose.runtime.LaunchedEffect(isMicEnabled) {
+                if (isMicEnabled) {
+                    practiceViewModel.startPitchSession()
+                } else {
+                    practiceViewModel.endPitchSession()
+                }
+            }
+
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose {
+                    practiceViewModel.endPitchSession()
+                }
+            }
 
             // In a real implementation, we would intercept the native back press or a pause button.
             // For now, Module2PracticeScreen would ideally have an onPause callback.
@@ -100,6 +148,7 @@ fun AppNavigation() {
             Module2PracticeScreen(
                 score = currentScore,
                 isMicEnabled = isMicEnabled,
+                pitchAttempts = pitchAttempts,
                 onPauseClicked = {
                     if (isMicEnabled) {
                         practiceViewModel.setShowPauseModal(true)
@@ -107,6 +156,31 @@ fun AppNavigation() {
                 },
                 onBackClicked = {
                     navController.popBackStack()
+                },
+                onNoteOn = { event ->
+                    // Just a callback, no longer need to set target here as onWaitPitch handles it
+                },
+                onWaitPitch = { events ->
+                    if (isMicEnabled && events.isNotEmpty()) {
+                        val targets = events.map { event ->
+                            val targetHz = com.cit.kaido.voxsight.pitch.PitchComparator.calculateTargetFrequency(event.pitchName)
+                            com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel.ActivePitchTarget(
+                                eventId = event.eventId,
+                                targetHz = targetHz,
+                                satbVoice = event.satbEnum
+                            )
+                        }
+                        practiceViewModel.setPitchTargets(targets)
+                        practiceViewModel.waitForPitchConfirmation(events.first().eventId)
+                    }
+                },
+                onPlaybackComplete = {
+                    if (isMicEnabled) {
+                        practiceViewModel.endPitchSession()
+                        navController.navigate("summary") {
+                            popUpTo("upload") { inclusive = false }
+                        }
+                    }
                 }
             )
 

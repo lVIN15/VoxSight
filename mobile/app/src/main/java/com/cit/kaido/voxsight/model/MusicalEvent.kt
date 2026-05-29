@@ -2,6 +2,22 @@ package com.cit.kaido.voxsight.model
 
 import com.google.gson.annotations.SerializedName
 
+enum class SATBVoice {
+    SOPRANO, ALTO, TENOR, BASS, UNKNOWN;
+
+    companion object {
+        fun fromString(value: String?): SATBVoice {
+            if (value == null) return UNKNOWN
+            val upper = value.uppercase()
+            if (upper.startsWith("S")) return SOPRANO
+            if (upper.startsWith("A")) return ALTO
+            if (upper.startsWith("T")) return TENOR
+            if (upper.startsWith("B")) return BASS
+            return UNKNOWN
+        }
+    }
+}
+
 /**
  * Normalized musical event from the SATB analysis pipeline.
  *
@@ -32,7 +48,10 @@ data class MusicalEvent(
     @SerializedName("satb_voice") val satbVoice: String = "UNKNOWN",
     @SerializedName("satb_confidence") val satbConfidence: Float = 0f,
     @SerializedName("schema_version") val schemaVersion: String = "1.0"
-)
+) {
+    val satbEnum: SATBVoice
+        get() = SATBVoice.fromString(satbVoice)
+}
 
 /**
  * Debug-only identity info for each event (Fix #29).

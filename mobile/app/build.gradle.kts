@@ -62,6 +62,9 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.google.code.gson:gson:2.10")
 
+    // TarsosDSP
+    implementation("com.github.st-h:TarsosDSP:2.4.1")
+
     // Coroutines for background tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 

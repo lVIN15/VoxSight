@@ -1,16 +1,28 @@
 package com.cit.kaido.voxsight.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.cit.kaido.voxsight.pitch.PitchAttempt
+import com.cit.kaido.voxsight.pitch.PitchComparator
+import com.cit.kaido.voxsight.pitch.PitchDetectionEngine
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
+import com.cit.kaido.voxsight.ui.screens.practice.SessionSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlinx.coroutines.launch
 
 enum class PlaybackState {
     STOPPED, PLAYING, PAUSED
 }
 
 class PracticeViewModel : ViewModel() {
+    val pitchEngine = PitchDetectionEngine()
+
     private val _isMicrophoneEnabled = MutableStateFlow(false)
     val isMicrophoneEnabled: StateFlow<Boolean> = _isMicrophoneEnabled.asStateFlow()
 
@@ -20,11 +32,10 @@ class PracticeViewModel : ViewModel() {
     private val _showPauseModal = MutableStateFlow(false)
     val showPauseModal: StateFlow<Boolean> = _showPauseModal.asStateFlow()
 
-    // Map<Int, Boolean> (Note Index -> WasCorrect)
-    private val _pitchAttempts = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
-    val pitchAttempts: StateFlow<Map<Int, Boolean>> = _pitchAttempts.asStateFlow()
+    private val _pitchAttempts = MutableStateFlow<List<PitchAttempt>>(emptyList())
+    val pitchAttempts: StateFlow<List<PitchAttempt>> = _pitchAttempts.asStateFlow()
 
-    // ── Score & Playback State (Phase 4) ────────────────────────
+    // ── Score & Playback State ────────────────────────
     private val _currentScore = MutableStateFlow<MusicXmlScore?>(null)
     val currentScore: StateFlow<MusicXmlScore?> = _currentScore.asStateFlow()
 
@@ -34,8 +45,110 @@ class PracticeViewModel : ViewModel() {
     private val _playbackState = MutableStateFlow(PlaybackState.STOPPED)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    data class ActivePitchTarget(
+        val eventId: String,
+        val targetHz: Float,
+        val satbVoice: com.cit.kaido.voxsight.model.SATBVoice
+    )
+
+    private val _activeTargets = MutableStateFlow<List<ActivePitchTarget>>(emptyList())
+    val activeTargets: StateFlow<List<ActivePitchTarget>> = _activeTargets.asStateFlow()
+
+    private var stableMatchFrames = 0
+    private var confirmationContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Unit>>()
+
+    init {
+        viewModelScope.launch {
+            pitchEngine.detectedPitchHz.collect { hz ->
+                val targets = _activeTargets.value
+                if (targets.isNotEmpty()) {
+                    var anyMatch = false
+                    
+                    // Evaluate against all active targets
+                    for (target in targets) {
+                        val deviation = if (hz > 0f) PitchComparator.calculateCentDeviation(hz, target.targetHz) else 9999f
+                        val isMatch = if (hz > 0f) PitchComparator.isMatch(deviation) else false
+                        
+                        if (isMatch) anyMatch = true
+                        
+                        val attempt = PitchAttempt(
+                            eventId = target.eventId,
+                            targetHz = target.targetHz,
+                            detectedHz = hz,
+                            deviationCents = deviation,
+                            isMatch = isMatch,
+                            timestampMs = System.currentTimeMillis()
+                        )
+                        
+                        val currentList = _pitchAttempts.value.toMutableList()
+                        currentList.add(attempt)
+                        _pitchAttempts.value = currentList
+                    }
+                    
+                    // Persistence Window Logic (Stable frames)
+                    if (anyMatch) {
+                        stableMatchFrames++
+                        if (stableMatchFrames >= 8) {
+                            // Target achieved! Resume suspended coroutines for these targets
+                            val achievedIds = targets.map { it.eventId }
+                            achievedIds.forEach { eventId ->
+                                confirmationContinuations.remove(eventId)?.resume(Unit)
+                            }
+                            // Clear targets since they are completed
+                            _activeTargets.value = emptyList()
+                        }
+                    } else {
+                        stableMatchFrames = 0
+                    }
+                } else {
+                    stableMatchFrames = 0
+                }
+            }
+        }
+    }
+
+    fun startPitchSession() {
+        _pitchAttempts.value = emptyList()
+        if (_isMicrophoneEnabled.value) {
+            pitchEngine.start()
+        }
+    }
+
+    fun endPitchSession() {
+        pitchEngine.stop()
+    }
+
+    fun setPitchTargets(targets: List<ActivePitchTarget>) {
+        _activeTargets.value = targets
+        stableMatchFrames = 0
+    }
+
+    suspend fun waitForPitchConfirmation(eventId: String) {
+        // If we are not recording, or the event isn't an active target, return immediately
+        if (!_isMicrophoneEnabled.value) return
+        
+        // Timeout safeguard to prevent indefinite freezing (e.g. 5 seconds)
+        try {
+            kotlinx.coroutines.withTimeout(5000) {
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    confirmationContinuations[eventId] = continuation
+                    continuation.invokeOnCancellation {
+                        confirmationContinuations.remove(eventId)
+                    }
+                }
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            // Target not achieved in time, proceed anyway so app doesn't break
+            confirmationContinuations.remove(eventId)
+            _activeTargets.value = emptyList()
+        }
+    }
+
     fun setMicrophoneEnabled(enabled: Boolean) {
         _isMicrophoneEnabled.value = enabled
+        if (!enabled) {
+            pitchEngine.stop()
+        }
     }
 
     fun setPlaying(playing: Boolean) {
@@ -58,16 +171,37 @@ class PracticeViewModel : ViewModel() {
         _playbackState.value = state
     }
 
-    fun recordPitchAttempt(noteIndex: Int, wasCorrect: Boolean) {
-        val currentMap = _pitchAttempts.value.toMutableMap()
-        currentMap[noteIndex] = wasCorrect
-        _pitchAttempts.value = currentMap
+    fun getSessionSummary(): SessionSummary {
+        val attempts = _pitchAttempts.value
+        val uniqueNoteAttempts = attempts.groupBy { it.eventId }
+        
+        // Count a note as correct if ANY attempt for that note was correct
+        val correctNotes = uniqueNoteAttempts.count { entry -> 
+            entry.value.any { it.isMatch }
+        }
+        
+        val count = uniqueNoteAttempts.size
+        
+        // Calculate average deviation using the best attempt for each note
+        val bestAttempts = uniqueNoteAttempts.map { entry ->
+            entry.value.minByOrNull { kotlin.math.abs(it.deviationCents) } ?: entry.value.first()
+        }
+        
+        val avgDev = if (bestAttempts.isNotEmpty()) {
+            bestAttempts.map { kotlin.math.abs(it.deviationCents) }.average().toFloat()
+        } else {
+            0f
+        }
+        
+        return SessionSummary(count, correctNotes, avgDev)
     }
 
     fun calculateAccuracy(): Int {
-        val attempts = _pitchAttempts.value
-        if (attempts.isEmpty()) return 0
-        val correctCount = attempts.values.count { it }
-        return ((correctCount.toFloat() / attempts.size) * 100).toInt()
+        return getSessionSummary().accuracyPercentage.toInt()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        pitchEngine.stop()
     }
 }
