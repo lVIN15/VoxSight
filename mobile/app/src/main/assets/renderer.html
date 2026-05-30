@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <title>VoxSight Sheet Music</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            overflow-x: auto;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #score-container {
+            position: relative;
+            width: 100%;
+            min-height: 100vh;
+            background: #ffffff;
+            padding: 12px 16px;
+        }
+
+        /* OSMD renders into this div */
+        #osmd-render {
+            width: 100%;
+            min-height: 200px;
+        }
+
+        /* Canvas overlay for playback highlighting */
+        #highlight-canvas {
+            position: absolute;
+            top: 12px;
+            left: 16px;
+            width: calc(100% - 32px);
+            height: calc(100% - 24px);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Status bar */
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(8px);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #status-text {
+            font-size: 12px;
+            color: #a0a0a0;
+            flex: 1;
+        }
+
+        #sync-confidence {
+            font-size: 11px;
+            color: #4ade80;
+        }
+
+        /* Loading state */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(26, 26, 46, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.hidden { display: none; }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Score container with canvas overlay -->
+    <div id="score-container">
+        <div id="osmd-render"></div>
+        <canvas id="highlight-canvas"></canvas>
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar">
+        <span id="status-text">Ready</span>
+        <span id="sync-confidence"></span>
+    </div>
+
+    <!-- OSMD Library (Local offline support) -->
+    <script src="opensheetmusicdisplay.min.js"></script>
+    <script src="Tone.min.js"></script>
+
+    <script>
+    /**
+     * VoxSight OSMD Renderer v1.0
+     * ============================
+     * Architecture Contract (v3.7):
+     *   - Read-only renderer: NEVER modifies MusicXML
+     *   - Canvas overlay for note highlighting (no DOM mutation on OSMD SVG)
+     *   - layout_hash gating: coordinates are versioned
+     *   - Bipartite matching: extracts note positions for SyncManager
+     *   - No audio code — playback is handled natively
+     */
+
+    // Helper function to safely get the float value of an OSMD Fraction
+    function getFractionValue(fraction) {
+        if (!fraction) return 0;
+        if (typeof fraction.RealValue === 'number') return fraction.RealValue;
+        if (typeof fraction.realValue === 'number') return fraction.realValue;
+        if (fraction.numerator !== undefined && fraction.denominator !== undefined) {
+            return fraction.numerator / fraction.denominator;
+        }
+        return 0;
+    }
+
+    // Helper function to extract VexFlow SVG elements from an OSMD GraphicalNote
+    function getSvgElements(gNote) {
+        const svgs = [];
+        if (!gNote) return svgs;
+        
+        const vfnotes = gNote.vfnote;
+        if (!vfnotes) return svgs;
+        
+        // vfnote can be an array or a single object depending on OSMD version
+        const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
+        for (let i = 0; i < arr.length; i++) {
+            const vf = arr[i];
+            if (!vf) continue;
+            let el = null;
+            if (typeof vf.getSVGGElement === 'function') {
+                el = vf.getSVGGElement();
+            } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
+                el = vf.getAttribute('el');
+            }
+            if (el) svgs.push(el);
+        }
+        return svgs;
+    }
+
+    // ─── State ──────────────────────────────────────────────────────
+    let osmd = null;
+    let highlightCtx = null;
+    let layoutHash = null;
+    let noteCoordinates = [];  // Extracted from OSMD after render
+    let allGraphicalNotes = []; // Cached references to bypass minification issues
+
+    function findGraphicalNotes(obj, visited = new Set(), results = []) {
+        if (!obj || typeof obj !== 'object') return results;
+        if (visited.has(obj)) return results;
+        visited.add(obj);
+
+        const srcNote = obj.sourceNote || obj.SourceNote;
+        const bbox = obj.positionAndShape || obj.PositionAndShape;
+        
+        if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
+            results.push(obj);
+            return results;
+        }
+
+        if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) {
+                findGraphicalNotes(obj[i], visited, results);
+            }
+        } else {
+            if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
+            for (let key of Object.keys(obj)) {
+                findGraphicalNotes(obj[key], visited, results);
+            }
+        }
+        return results;
+    }
+
+    // ─── DOM References ─────────────────────────────────────────────
+    const renderDiv = document.getElementById('osmd-render');
+    const canvas = document.getElementById('highlight-canvas');
+    const statusText = document.getElementById('status-text');
+    const syncConfidence = document.getElementById('sync-confidence');
+    const loadingOverlay = document.getElementById('loading-overlay');
+
+    // ─── Initialize OSMD ────────────────────────────────────────────
+    function initOSMD() {
+        osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
+            backend: 'svg',
+            autoResize: false,
+            newSystemFromXML: true,
+            newPageFromXML: true,
+            drawTitle: true,
+            drawComposer: true,
+            drawPartNames: true,
+            drawMeasureNumbers: true,
+            drawLyrics: true,
+            drawSlurs: true,
+            drawCredits: true,
+            drawFingerings: true,
+            drawingParameters: 'default',
+            coloringEnabled: true,
+            colorStemsLikeNoteheads: true
+            // Read-only. No editing, no cursor manipulation.
+        });
+
+        highlightCtx = canvas.getContext('2d');
+        updateStatus('OSMD initialized');
+    }
+
+    let currentTpq = 960;
+
+    /**
+     * Load and render MusicXML.
+     * Called from Android via WebView.evaluateJavascript().
+     *
+     * Architecture Contract: musicXml is the RAW, UNTOUCHED string.
+     * OSMD renders it as-is. No preprocessing.
+     *
+     * @param {string} musicXml - Raw MusicXML string
+     * @param {number} tpq - Ticks per quarter from backend
+     */
+    async function loadScore(musicXml, tpq = 960) {
+        currentTpq = tpq;
+        if (!osmd) initOSMD();
+
+        try {
+            updateStatus('Loading score...');
+            loadingOverlay.classList.remove('hidden');
+
+            await osmd.load(musicXml);
+            
+            // Set to fully zoomed-out view by default
+            if ('zoom' in osmd) {
+                osmd.zoom = 0.4;
+            } else if ('Zoom' in osmd) {
+                osmd.Zoom = 0.4;
+            } else {
+                osmd.zoom = 0.4;
+            }
+            
+            osmd.render();
+
+            // Resize canvas to match rendered score
+            resizeCanvas();
+
+            // Extract note coordinates for SyncManager
+            extractNoteCoordinates();
+
+            // Compute layout hash
+            layoutHash = computeLayoutHash();
+
+            loadingOverlay.classList.add('hidden');
+            updateStatus(`Score loaded: ${noteCoordinates.length} notes`);
+
+            // Apply visual focus dimming
+            // (Removed redundant call - updateColorsAndRender is called by applySyncColors)
+
+            // Notify Android that render is complete
+            if (window.VoxSightBridge) {
+                window.VoxSightBridge.onRenderComplete(
+                    layoutHash,
+                    JSON.stringify(noteCoordinates)
+                );
+            }
+
+        } catch (err) {
+            console.error('OSMD load error:', err);
+            updateStatus('Error: ' + err.message);
+            loadingOverlay.classList.add('hidden');
+
+            if (window.VoxSightBridge) {
+                window.VoxSightBridge.onRenderError(err.message);
+            }
+        }
+    }
+
+    let currentVisualFocus = null;
+    let colorMappingList = [];
+
+    window.setVisualFocus = function(partLabel) {
+        currentVisualFocus = partLabel;
+        updateColorsAndRender();
+    };
+
+    /**
+     * API for Android to clear the visual focus.
+     */
+    window.clearVisualFocus = function() {
+        currentVisualFocus = null;
+        updateColorsAndRender();
+    };
+
+    window.applySyncColors = function(colorsJson) {
+        try {
+            colorMappingList = JSON.parse(colorsJson);
+            if (!osmd) return;
+            updateColorsAndRender();
+        } catch(e) {
+            console.error('[VoxSight] applySyncColors failed:', e);
+        }
+    };
+
+    /**
+     * Applies Visual Focus dimming and Sync Colors directly using OSMD's native properties.
+     * This avoids brittle DOM manipulation and ensures 100% reliability.
+     */
+    function updateColorsAndRender() {
+        try {
+            if (!osmd) return;
+            
+            // Find ALL GraphicalNotes again because they might have been regenerated
+            let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet;
+            let tempGraphicalNotes = [];
+            findGraphicalNotes(root, new Set(), tempGraphicalNotes);
+            
+            for (let i = 0; i < tempGraphicalNotes.length; i++) {
+                let gNote = tempGraphicalNotes[i];
+                let srcNote = gNote.sourceNote || gNote.SourceNote;
+                if (!srcNote) continue;
+                
+                // Match using the definitive __vx_id placed on the SourceNote during first extraction
+                let gId = srcNote.__vx_id;
+                let baseColor = "#000000"; // Default
+                
+                if (colorMappingList.length > 0) {
+                    const match = colorMappingList.find(c => c.id === gId);
+                    if (match) {
+                        baseColor = match.color;
+                        srcNote.CustomSatbLabel = match.part;
+                        const voice = srcNote.voice || srcNote.Voice;
+                        if (voice) voice.CustomSatbLabel = match.part;
+                    }
+                }
+                
+                let partLabel = srcNote.CustomSatbLabel;
+                if (!partLabel) {
+                    const voice = srcNote.voice || srcNote.Voice;
+                    if (voice && voice.CustomSatbLabel) partLabel = voice.CustomSatbLabel;
+                    else partLabel = "S";
+                }
+                
+                const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
+                
+                if (isDimmed) {
+                    // Append '26' (15% opacity) to the hex color
+                    const dimColor = baseColor.length === 7 ? baseColor + "26" : "#00000026";
+                    srcNote.NoteheadColor = dimColor;
+                    if ('StemColor' in srcNote) srcNote.StemColor = dimColor;
+                } else {
+                    srcNote.NoteheadColor = baseColor;
+                    if ('StemColor' in srcNote) srcNote.StemColor = baseColor;
+                }
+            }
+            
+            // Re-render internally using OSMD
+            window.__vx_is_internal_render = true;
+            osmd.setOptions({ coloringEnabled: true, colorStemsLikeNoteheads: true });
+            osmd.render();
+            window.__vx_is_internal_render = false;
+        } catch (err) {
+            console.error('[VoxSight] updateColorsAndRender failed:', err);
+        }
+    }
+
+    /**
+     * Resize the canvas overlay to match the OSMD render area.
+     */
+    function resizeCanvas() {
+        const osmdDiv = document.getElementById('osmd-render');
+        canvas.width = osmdDiv.offsetWidth;
+        canvas.height = osmdDiv.offsetHeight;
+    }
+
+    /**
+     * Compute layout hash based on current render dimensions.
+     * If this changes, SyncManager must re-extract coordinates.
+     */
+    function computeLayoutHash() {
+        const w = renderDiv.offsetWidth;
+        const h = renderDiv.offsetHeight;
+        const zoom = window.devicePixelRatio || 1;
+        const raw = `osmd_render_w${w}_h${h}_z${zoom}`;
+        // Simple hash
+        let hash = 0;
+        for (let i = 0; i < raw.length; i++) {
+            hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+            hash |= 0;
+        }
+        return 'lh_' + Math.abs(hash).toString(16).padStart(8, '0');
+    }
+
+    /**
+     * Extract note coordinates from the rendered OSMD SVG.
+     * These are sent to SyncManager for playback-to-visual correlation.
+     *
+     * Strategy: Walk the OSMD GraphicSheet to get note bounding boxes.
+     */
+    function extractNoteCoordinates() {
+        noteCoordinates = [];
+        allGraphicalNotes = [];
+
+        try {
+            if (!osmd) {
+                updateStatus('Extraction error: osmd is null');
+                return;
+            }
+            
+            let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
+            findGraphicalNotes(root, new Set(), allGraphicalNotes);
+
+            let unitToPx = 10;
+            if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
+            else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
+            else if (osmd && osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
+            else if (osmd && osmd.Rules && osmd.Rules.unitInPixels) unitToPx = osmd.Rules.unitInPixels;
+
+            let zoom = osmd.zoom || osmd.Zoom || 1.0;
+
+            for (let i = 0; i < allGraphicalNotes.length; i++) {
+                let gNote = allGraphicalNotes[i];
+                let srcNote = gNote.sourceNote || gNote.SourceNote;
+                
+                const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
+                if (isRestNote) continue;
+
+                let bbox = gNote.positionAndShape || gNote.PositionAndShape;
+                let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
+                let size = bbox.size || bbox.Size;
+                
+                if (!absPos || !size) continue;
+
+                // Fallback internal coordinates
+                let x = absPos.x * unitToPx * zoom;
+                let y = absPos.y * unitToPx * zoom;
+                let w = (size.width || size.Width || 1.5) * unitToPx * zoom;
+                let h = (size.height || size.Height || 2) * unitToPx * zoom;
+
+                // Priority: Real DOM Bounding Box
+                // This guarantees pixel-perfect alignment for the Canvas Overlay
+                let domElements = getSvgElements(gNote);
+                if (domElements.length > 0 && domElements[0]) {
+                    try {
+                        let rect = domElements[0].getBoundingClientRect();
+                        let canvasRect = canvas.getBoundingClientRect();
+                        x = rect.left - canvasRect.left;
+                        y = rect.top - canvasRect.top;
+                        w = rect.width;
+                        h = rect.height;
+                    } catch (e) {
+                        // ignore and use fallback
+                    }
+                }
+
+                let tick = 0;
+                try {
+                    const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
+                    const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
+                    const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
+                    const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
+                    
+                    const timestampReal = getFractionValue(timestamp);
+                    const absTimestampReal = getFractionValue(absTimestamp);
+                    
+                    tick = Math.round((timestampReal + absTimestampReal) * currentTpq * 4);
+                } catch(e) {}
+
+                let midiNote = 60;
+                try {
+                    const pitch = srcNote.pitch || srcNote.Pitch;
+                    if (pitch) {
+                        midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
+                    } else if (srcNote.halfTone !== undefined) {
+                        midiNote = srcNote.halfTone + 12;
+                    } else if (srcNote.HalfTone !== undefined) {
+                        midiNote = srcNote.HalfTone + 12;
+                    }
+                } catch(e) {}
+
+                noteCoordinates.push({
+                    tick: tick,
+                    midiNote: midiNote,
+                    x: x,
+                    y: y,
+                    width: w,
+                    height: h,
+                    id: i
+                });
+                
+                // Store calculated coordinates and attach persistent ID to the source note
+                if (srcNote) srcNote.__vx_id = i;
+                gNote.__vx_id = i;
+            }
+        } catch (err) {
+            console.error('Error extracting coordinates:', err);
+            updateStatus('Extraction error: ' + err.message);
+        }
+
+        console.log(`Extracted ${noteCoordinates.length} note coordinates`);
+    }
+
+    // ─── Tone.js Audio Synth (Fallback) ─────────────────────────────
+    let synth = null;
+    let synthStarted = false;
+
+    async function initSynth() {
+        if (!synth) {
+            await Tone.start();
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "triangle" },
+                envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
+            }).toDestination();
+            synth.volume.value = -10;
+            synthStarted = true;
+        }
+    }
+
+    function playNote(midiNote, durationMs, velocity) {
+        if (!synth) initSynth();
+        if (synthStarted) {
+            const freq = Tone.Frequency(midiNote, "midi").toFrequency();
+            const vel = velocity / 127.0;
+            const dur = durationMs / 1000.0;
+            synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
+        }
+    }
+
+    // ─── Highlight API (called from Android via WebView) ────────────
+    window.currentPitchOverlay = { version: 0, notes: [] };
+    let overlayRafId = null;
+
+    window.updatePitchOverlay = function(payload) {
+        const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+        // Ignore stale frames
+        if (data.version <= window.currentPitchOverlay.version) {
+            return;
+        }
+
+        window.currentPitchOverlay = data;
+
+        if (overlayRafId !== null) {
+            cancelAnimationFrame(overlayRafId);
+        }
+        overlayRafId = requestAnimationFrame(renderPitchOverlay);
+    };
+
+    /**
+     * Render the pitch feedback overlay from state.
+     * Uses canvas overlay — never mutates the OSMD SVG DOM.
+     */
+    function renderPitchOverlay() {
+        if (!highlightCtx) return;
+
+        // Clear previous highlights
+        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+        try {
+            const notes = window.currentPitchOverlay.notes;
+            for (const note of notes) {
+                const { x, y, width, height, color } = note;
+                let r = 99, g = 102, b = 241; // Default
+                if (color) {
+                    const hex = color.replace('#', '');
+                    if (hex.length === 6) {
+                        r = parseInt(hex.substring(0, 2), 16);
+                        g = parseInt(hex.substring(2, 4), 16);
+                        b = parseInt(hex.substring(4, 6), 16);
+                    }
+                }
+
+                // Draw elegant elliptical highlight aura behind the notehead
+                highlightCtx.save();
+                highlightCtx.beginPath();
+                
+                // Draw a soft glowing ellipse roughly the size of the note
+                const cx = x + width / 2;
+                const cy = y + height / 2;
+                const rx = width / 1.5;
+                const ry = height / 1.5;
+                
+                highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+                
+                // Set up soft drop shadow
+                highlightCtx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+                highlightCtx.shadowBlur = 15;
+                
+                // Soft translucent fill for the aura
+                highlightCtx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
+                highlightCtx.fill();
+                
+                // Soft border ring for definition
+                highlightCtx.shadowBlur = 0;
+                highlightCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.6)`;
+                highlightCtx.lineWidth = 1.5;
+                highlightCtx.stroke();
+                
+                highlightCtx.restore();
+            }
+        } catch (e) {
+            console.error("Failed to render pitch overlay:", e);
+        }
+    }
+
+    /**
+     * Clear all highlights.
+     */
+    function clearHighlights() {
+        if (!highlightCtx) return;
+        window.currentPitchOverlay = { version: window.currentPitchOverlay.version + 1, notes: [] };
+        if (overlayRafId !== null) {
+            cancelAnimationFrame(overlayRafId);
+        }
+        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    /**
+     * Update sync confidence display.
+     */
+    function updateSyncConfidence(confidence) {
+        const pct = Math.round(confidence * 100);
+        syncConfidence.textContent = `Sync: ${pct}%`;
+        syncConfidence.style.color = pct >= 80 ? '#4ade80' :
+                                      pct >= 50 ? '#facc15' : '#f87171';
+    }
+
+    // ─── Utilities ──────────────────────────────────────────────────
+    function updateStatus(msg) {
+        statusText.textContent = msg;
+        console.log('[VoxSight]', msg);
+    }
+
+    // Handle window resize — invalidate layout
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            resizeCanvas();
+            const newHash = computeLayoutHash();
+            if (newHash !== layoutHash && !window.__vx_is_internal_render) {
+                layoutHash = newHash;
+                extractNoteCoordinates();
+                updateStatus('Layout changed — re-extracted coordinates');
+
+                if (window.VoxSightBridge) {
+                    window.VoxSightBridge.onLayoutChanged(
+                        layoutHash,
+                        JSON.stringify(noteCoordinates)
+                    );
+                }
+            }
+        }, 300);
+    });
+
+    // Initialize on load
+    initOSMD();
+    </script>
+</body>
+</html>

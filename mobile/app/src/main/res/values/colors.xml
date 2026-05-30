@@ -2,4 +2,27 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- VoxSight Brand Colors -->
+    <color name="vox_purple_primary">#5B2D8E</color>
+    <color name="vox_purple_dark">#3E1A63</color>
+    <color name="vox_purple_light">#E8DFF0</color>
+    <color name="vox_purple_icon_bg">#EDE5F4</color>
+    <color name="vox_purple_accent">#7C3AED</color>
+
+    <!-- Surface & Background -->
+    <color name="vox_background">#FAFAFA</color>
+    <color name="vox_card_background">#F5F0FA</color>
+    <color name="vox_card_stroke">#E0D4ED</color>
+
+    <!-- Text -->
+    <color name="vox_text_primary">#1A1A2E</color>
+    <color name="vox_text_secondary">#6B6B80</color>
+    <color name="vox_text_subtitle">#8E8E9E</color>
+
+    <!-- Processing Card -->
+    <color name="vox_processing_bg">#F8F5FC</color>
+    <color name="vox_progress_track">#E0D4ED</color>
+    <color name="vox_progress_indicator">#5B2D8E</color>
+    <color name="vox_progress_text">#5B2D8E</color>
 </resources>

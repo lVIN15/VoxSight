@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoxSight - Score Renderer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        #score {
+            width: max-content;
+            min-width: 100%;
+            min-height: 100%;
+            background: transparent;
+            padding: 8px 12px;
+        }
+
+        /* Hide OSMD title/subtitle if any slip through */
+        #score .osmd-title,
+        #score .osmd-subtitle {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Score Display Area - ONLY the score div, no wrappers/controls -->
+    <div id="score"></div>
+
+    <!-- Libraries -->
+    <script src="opensheetmusicdisplay.min.js"></script>
+    <script src="Tone.min.js"></script>
+
+    <script>
+        // ============================================
+        // GLOBALS
+        // ============================================
+
+        let osmd = null;
+        let synth = null;
+        let currentTempo = 120;
+        let allNotes = [];
+        let isPlaying = false;
+        let tonePart = null;
+        let mutedParts = { 'S': false, 'A': false, 'T': false, 'B': false };
+
+        // ============================================
+        // MUTE / VISUAL FOCUS API (called from Kotlin)
+        // ============================================
+
+        window.mutePart = function(part) {
+            console.log('mutePart called (isolating part):', part);
+            ['S', 'A', 'T', 'B'].forEach(p => {
+                mutedParts[p] = (p !== part);
+            });
+        };
+
+        window.unmuteAllParts = function() {
+            ['S', 'A', 'T', 'B'].forEach(p => {
+                mutedParts[p] = false;
+            });
+        };
+
+        window.setVisualFocus = function(part) {
+            if (!osmd || !osmd.sheet) return;
+            try {
+                const partIndices = { 'S': 0, 'A': 1, 'T': 2, 'B': 3 };
+                const focusIndex = partIndices[part];
+                if (focusIndex === undefined) return;
+
+                osmd.sheet.Instruments.forEach((inst, idx) => {
+                    inst.Visible = (idx === focusIndex);
+                });
+                osmd.render();
+                adjustScoreWidth();
+            } catch (e) {
+                console.warn('setVisualFocus error:', e.message);
+            }
+        };
+
+        window.clearVisualFocus = function() {
+            if (!osmd || !osmd.sheet) return;
+            try {
+                osmd.sheet.Instruments.forEach(inst => {
+                    inst.Visible = true;
+                });
+                osmd.render();
+                adjustScoreWidth();
+            } catch (e) {
+                console.warn('clearVisualFocus error:', e.message);
+            }
+        };
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        function init() {
+            console.log('=== VoxSight Score Renderer Initializing ===');
+
+            // Initialize Tone.js synth
+            try {
+                synth = new Tone.PolySynth(Tone.Synth, {
+                    maxPolyphony: 4,
+                    oscillator: { type: 'triangle' },
+                    envelope: { attack: 0.02, decay: 0.08, sustain: 0.2, release: 0.2 }
+                }).toDestination();
+                synth.volume.value = -8;
+                console.log('✓ Tone.js synth initialized');
+            } catch (e) {
+                console.error('✗ Synth init failed:', e);
+                return;
+            }
+
+            // Initialize OSMD
+            try {
+                if (typeof opensheetmusicdisplay !== 'undefined') {
+                    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('score', {
+                        autoResize: false,
+                        drawTitle: false,
+                        drawSubtitle: false,
+                        drawComposer: false,
+                        drawPartNames: true,
+                        drawPartAbbreviations: true,
+                        drawFingerings: false,
+                        drawCredits: false,
+                        backend: "svg"
+                    });
+                    // Horizontal single-line rendering
+                    osmd.EngravingRules.RenderSingleHorizontalStaffline = true;
+                    console.log('✓ OSMD initialized (horizontal mode)');
+                } else {
+                    console.warn('⚠ OSMD not available');
+                }
+            } catch (e) {
+                console.warn('⚠ OSMD init warning:', e.message);
+            }
+
+            console.log('=== Initialization Complete ===');
+        }
+
+        // ============================================
+        // HELPER: Adjust score container to actual SVG width
+        // ============================================
+
+        function adjustScoreWidth() {
+            const svg = document.querySelector('#score svg');
+            if (svg) {
+                const w = svg.getAttribute('width') || svg.getBoundingClientRect().width;
+                if (w) {
+                    document.getElementById('score').style.width = parseFloat(w) + 'px';
+                }
+            }
+        }
+
+        // ============================================
+        // SCORE LOADING (Android WebView Entry Point)
+        // ============================================
+
+        async function processScoreData(data) {
+            console.log('=== processScoreData() called ===');
+
+            if (!data) {
+                console.error('No data received');
+                return;
+            }
+
+            currentTempo = data.tempo || 120;
+
+            try {
+                // Step 1: Render MusicXML with OSMD (visual sheet music)
+                if (osmd && data.musicxml) {
+                    try {
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(data.musicxml, "text/xml");
+
+                        // Inject SATB colors into MusicXML note elements
+                        const partColors = {
+                            "1": "#E91E63", // Soprano - Pink
+                            "2": "#9C27B0", // Alto - Purple
+                            "3": "#2196F3", // Tenor - Blue
+                            "4": "#4CAF50"  // Bass - Green
+                        };
+
+                        const notes = xmlDoc.getElementsByTagName("note");
+                        for (let i = 0; i < notes.length; i++) {
+                            const voiceNode = notes[i].getElementsByTagName("voice")[0];
+                            if (voiceNode) {
+                                const voice = voiceNode.textContent;
+                                if (partColors[voice]) {
+                                    notes[i].setAttribute("color", partColors[voice]);
+                                }
+                            }
+                        }
+
+                        const serializer = new XMLSerializer();
+                        const modifiedXml = serializer.serializeToString(xmlDoc);
+
+                        // Force wide container to prevent OSMD line wrapping
+                        document.getElementById('score').style.width = '10000px';
+
+                        await osmd.load(modifiedXml);
+                        osmd.render();
+                        console.log('✓ OSMD rendered horizontally with SATB colors');
+
+                        // Trim container to actual content width
+                        adjustScoreWidth();
+                    } catch (e) {
+                        console.warn('⚠ OSMD render skipped:', e.message);
+                    }
+                }
+
+                // Step 2: Prepare notes from backend SATB data (for audio playback)
+                if (data.satb) {
+                    prepareNotes(data.satb);
+                    console.log('✓ Notes prepared:', allNotes.length);
+                } else {
+                    console.warn('⚠ No SATB data in response');
+                }
+
+                console.log('=== processScoreData() Complete ===');
+
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        // ============================================
+        // PREPARE NOTES FROM SATB DATA (for Tone.js playback)
+        // ============================================
+
+        function prepareNotes(satbData) {
+            allNotes = [];
+            const secondsPerBeat = 60 / currentTempo;
+
+            ['S', 'A', 'T', 'B'].forEach(part => {
+                const notes = satbData[part] || [];
+                let partNotes = [];
+                notes.forEach(note => {
+                    if (note.pitch && note.time !== undefined) {
+                        const startSeconds = (note.time || 0) * secondsPerBeat;
+                        const durationSeconds = (note.durationBeats || 0.5) * secondsPerBeat;
+
+                        partNotes.push({
+                            pitch: String(note.pitch).trim(),
+                            startTime: startSeconds,
+                            duration: Math.max(durationSeconds, 0.05),
+                            part: part
+                        });
+                    }
+                });
+
+                // Post-Processing: Remove exact duplicates
+                partNotes = partNotes.filter((note, index, self) =>
+                    index === self.findIndex((n) => (
+                        n.pitch === note.pitch && Math.abs(n.startTime - note.startTime) < 0.01
+                    ))
+                );
+
+                // Post-Processing: Prevent overlapping notes of same pitch
+                partNotes.sort((a, b) => a.startTime - b.startTime);
+                for (let i = 0; i < partNotes.length - 1; i++) {
+                    for (let j = i + 1; j < partNotes.length; j++) {
+                        if (partNotes[i].pitch === partNotes[j].pitch &&
+                            partNotes[i].startTime + partNotes[i].duration > partNotes[j].startTime) {
+                            partNotes[i].duration = partNotes[j].startTime - partNotes[i].startTime;
+                        }
+                    }
+                }
+
+                allNotes.push(...partNotes);
+            });
+
+            allNotes.sort((a, b) => a.startTime - b.startTime);
+            console.log('Prepared', allNotes.length, 'notes after cleanup');
+
+            if (tonePart) {
+                tonePart.dispose();
+                tonePart = null;
+            }
+        }
+
+        // ============================================
+        // PLAYBACK CONTROLS (called from Kotlin via evaluateJavascript)
+        // ============================================
+
+        async function play() {
+            if (allNotes.length === 0) {
+                console.warn('No notes loaded');
+                return;
+            }
+
+            if (Tone.Transport.state === 'started') {
+                return;
+            }
+
+            try {
+                await Tone.start();
+
+                Tone.Transport.bpm.value = currentTempo;
+
+                if (!tonePart) {
+                    const toneEvents = allNotes.map(n => [n.startTime, { pitch: n.pitch, duration: n.duration, part: n.part }]);
+                    tonePart = new Tone.Part((time, value) => {
+                        if (!mutedParts[value.part]) {
+                            synth.triggerAttackRelease(value.pitch, value.duration, time);
+                        }
+                    }, toneEvents);
+                }
+
+                if (Tone.Transport.state === 'paused') {
+                    Tone.Transport.start();
+                } else {
+                    Tone.Transport.stop();
+                    Tone.Transport.seconds = 0;
+                    if (tonePart) tonePart.start(0);
+                    Tone.Transport.start("+0.05");
+                }
+
+                isPlaying = true;
+                console.log('▶ Play started');
+
+            } catch (e) {
+                console.error('Play error:', e);
+                isPlaying = false;
+            }
+        }
+
+        function pause() {
+            if (Tone.Transport.state !== 'started') return;
+            Tone.Transport.pause();
+            if (synth) synth.releaseAll();
+            isPlaying = false;
+            console.log('⏸ Paused');
+        }
+
+        function stop() {
+            Tone.Transport.stop();
+            Tone.Transport.seconds = 0;
+            if (tonePart) tonePart.stop(0);
+            if (synth) synth.releaseAll();
+            isPlaying = false;
+            console.log('⏹ Stopped');
+        }
+
+        window.seekTo = function(progressFraction) {
+            if (synth) synth.releaseAll();
+            const lastNote = allNotes[allNotes.length - 1];
+            const totalDuration = lastNote ? (lastNote.startTime + lastNote.duration) : 0;
+            if (totalDuration > 0) {
+                Tone.Transport.seconds = progressFraction * totalDuration;
+            }
+        };
+
+        // ============================================
+        // PAGE LOAD
+        // ============================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+
+            window.loadScore = function (data) {
+                stop();
+                processScoreData(data);
+            };
+
+            console.log('✓ Score renderer ready');
+        });
+    </script>
+</body>
+
+</html>

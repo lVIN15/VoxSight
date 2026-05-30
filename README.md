@@ -1,6 +1,6 @@
 # VoxSight
 
-Watashi ga # KITA!
+Naze tte? Watashi ga # KITA!
 VoxSight is a a mobile application designed to optimize independent sight-reading practice for amateur choir members. 
 
 ## Setting up for FastAPI

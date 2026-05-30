@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoxSight MIDI Player</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, hsl(210, 30%, 15%), hsl(230, 30%, 10%));
+            color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #scoreContainer {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin: 10px;
+            min-height: 240px;
+        }
+
+        #score {
+            width: 100%;
+        }
+
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        button {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: hsl(200, 70%, 45%);
+            color: #fff;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: hsl(200, 70%, 55%);
+        }
+
+        button.active {
+            background: hsl(120, 70%, 45%);
+        }
+
+        #status {
+            padding: 5px 10px;
+            font-size: 0.85rem;
+            color: #aaa;
+            text-align: center;
+        }
+    </style>
+    <!-- OpenSheetMusicDisplay -->
+    <script src="opensheetmusicdisplay.min.js"></script>
+    <!-- Tone.js for synth playback -->
+    <script src="Tone.min.js"></script>
+</head>
+
+<body>
+    <div id="scoreContainer">
+        <div id="score"></div>
+    </div>
+    <div id="controls">
+        <button id="playBtn">Play</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="stopBtn">Stop</button>
+        <button id="tempoUpBtn">Tempo +</button>
+        <button id="tempoDownBtn">Tempo -</button>
+    </div>
+    <div id="status">Ready</div>
+
+    <script>
+        let osmd;
+        let verovio;
+        let noteEvents = [];
+        let isPlaying = false;
+        let currentTempo = 120;
+        let synth;
+        let playbackTimeout;
+
+        function init() {
+            console.log('Initializing MIDI Player');
+
+            if (typeof opensheetmusicdisplay === 'undefined') {
+                document.getElementById('score').innerHTML = '<p style="color: orange; padding: 20px;">OpenSheetMusicDisplay not loaded</p>';
+                return;
+            }
+
+            osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('score', { autoResize: true, drawTitle: false });
+            console.log('OSMD initialized');
+
+            // Initialize Tone.js synth for playback
+            try {
+                synth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: {
+                        type: 'sine',  // Sine produces cleaner, more musical tones
+                        partials: [1, 2, 3]  // Adds harmonics for richness
+                    },
+                    envelope: {
+                        attack: 0.008,    // Quick attack for clarity
+                        decay: 0.1,       // Smooth decay
+                        sustain: 0.4,     // Sustained tone
+                        release: 0.3      // Smooth release
+                    }
+                }).toDestination();
+
+                // Add some reverb for musicality
+                const reverb = new Tone.Reverb({
+                    decay: 1.5
+                }).connect(Tone.Destination);
+                synth.connect(reverb);
+
+                console.log('Tone.js synth initialized');
+                document.getElementById('status').textContent = 'Ready';
+            } catch (e) {
+                console.error('Synth init error:', e);
+            }
+        }
+
+        function resizeScoreContainer() {
+            const controls = document.getElementById('controls');
+            const scoreContainer = document.getElementById('scoreContainer');
+            if (!controls || !scoreContainer) return;
+            const controlsHeight = controls.getBoundingClientRect().height || 0;
+            const available = window.innerHeight - controlsHeight - 40;
+            scoreContainer.style.height = Math.max(available, 240) + 'px';
+        }
+
+        // Parse MusicXML and extract note events
+        function parseMusicXMLtoNotes(xmlString) {
+            console.log('Parsing MusicXML to notes');
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, 'application/xml');
+
+            const notes = [];
+            let currentTime = 0;
+
+            // Get divisions (ticks per quarter note)
+            const divisionsNode = xmlDoc.querySelector('divisions');
+            const divisions = divisionsNode ? parseInt(divisionsNode.textContent) : 1;
+
+            // Get tempo
+            const soundNode = xmlDoc.querySelector('sound[tempo]');
+            if (soundNode) {
+                currentTempo = parseInt(soundNode.getAttribute('tempo')) || 120;
+            }
+
+            console.log('Divisions:', divisions, 'Tempo:', currentTempo);
+
+            // Extract notes from all parts
+            const partNodes = xmlDoc.querySelectorAll('part');
+            partNodes.forEach(part => {
+                let partTime = 0;
+                part.querySelectorAll('note').forEach(noteNode => {
+                    // Get duration
+                    const durNode = noteNode.querySelector('duration');
+                    const duration = durNode ? parseInt(durNode.textContent) : divisions;
+                    const durationBeats = duration / divisions;
+
+                    // Skip rests
+                    if (noteNode.querySelector('rest')) {
+                        partTime += durationBeats;
+                        return;
+                    }
+
+                    // Get pitch
+                    const pitchNode = noteNode.querySelector('pitch');
+                    if (!pitchNode) return;
+
+                    const step = pitchNode.querySelector('step')?.textContent || 'C';
+                    const octave = pitchNode.querySelector('octave')?.textContent || '4';
+                    const alter = pitchNode.querySelector('alter')?.textContent || '0';
+
+                    let pitch = step;
+                    if (alter === '1') pitch += '#';
+                    else if (alter === '-1') pitch += 'b';
+                    pitch += octave;
+
+                    // Convert beat time to seconds
+                    const secondsPerBeat = 60 / currentTempo;
+                    const startSeconds = partTime * secondsPerBeat;
+                    const durationSeconds = durationBeats * secondsPerBeat;
+
+                    notes.push({
+                        pitch,
+                        duration: durationSeconds,
+                        startTime: startSeconds,
+                        velocity: 0.8
+                    });
+
+                    // Check if this is a chord (doesn't advance time)
+                    if (!noteNode.querySelector('chord')) {
+                        partTime += durationBeats;
+                    }
+                });
+            });
+
+            console.log('Parsed notes:', notes.length);
+            return notes;
+        }
+
+        async function loadScore(data) {
+            console.log('loadScore called');
+
+            if (!data || !data.musicxml) {
+                document.getElementById('score').innerHTML = '<p style="color: red; padding: 20px;">Error: No MusicXML data</p>';
+                return;
+            }
+
+            // Render score with OSMD
+            if (osmd) {
+                resizeScoreContainer();
+                try {
+                    await osmd.load(data.musicxml);
+                    requestAnimationFrame(() => {
+                        osmd.render();
+                        if (typeof osmd.resize === 'function') {
+                            osmd.resize();
+                        }
+                    });
+                    console.log('Score rendered');
+                } catch (e) {
+                    console.error('OSMD render error:', e);
+                }
+            }
+
+            // Parse MusicXML to note events
+            try {
+                noteEvents = parseMusicXMLtoNotes(data.musicxml);
+                document.getElementById('status').textContent = `Score loaded: ${noteEvents.length} notes. Press Play.`;
+                console.log('Ready for playback');
+            } catch (e) {
+                console.error('Parse error:', e);
+                document.getElementById('status').textContent = 'Error parsing score';
+            }
+        }
+
+        async function play() {
+            if (noteEvents.length === 0) {
+                console.warn('No notes loaded');
+                document.getElementById('status').textContent = 'No score loaded';
+                return;
+            }
+
+            if (isPlaying) {
+                console.log('Already playing');
+                return;
+            }
+
+            console.log('Starting playback of', noteEvents.length, 'notes at', currentTempo, 'BPM');
+
+            try {
+                // Start Tone.js audio context
+                await Tone.start();
+                console.log('AudioContext started');
+
+                isPlaying = true;
+                document.getElementById('playBtn').classList.add('active');
+                document.getElementById('status').textContent = `Playing (${currentTempo} BPM)`;
+
+                // Schedule all notes to play
+                const startTime = Tone.now();
+                let notesPlayed = 0;
+                const playedPitches = [];
+
+                noteEvents.forEach((note, index) => {
+                    // Schedule note to play at the correct time
+                    setTimeout(() => {
+                        if (!isPlaying) return;
+
+                        try {
+                            // Ensure duration is a valid number
+                            let duration = note.duration;
+                            if (!duration || duration <= 0) {
+                                duration = 0.5;  // Fallback to half second
+                            }
+
+                            // Clamp duration to reasonable range
+                            duration = Math.min(Math.max(duration, 0.05), 10);
+
+                            synth.triggerAttackRelease(note.pitch, duration, Tone.now());
+                            notesPlayed++;
+                            playedPitches.push(note.pitch);
+
+                            if (notesPlayed <= 5 || notesPlayed % 100 === 0) {
+                                console.log(`Note ${notesPlayed}/${noteEvents.length}: ${note.pitch} (${duration.toFixed(2)}s)`);
+                            }
+                        } catch (e) {
+                            console.error('Note play error:', e, 'pitch:', note.pitch);
+                        }
+                    }, note.startTime * 1000);
+                });
+
+                // Monitor for end of playback
+                const maxDuration = Math.max(...noteEvents.map(n => n.startTime + n.duration)) * 1000;
+                setTimeout(() => {
+                    if (isPlaying) {
+                        isPlaying = false;
+                        document.getElementById('playBtn').classList.remove('active');
+                        const uniquePitches = new Set(playedPitches).size;
+                        document.getElementById('status').textContent = `Finished: ${notesPlayed} notes, ${uniquePitches} unique pitches`;
+                        console.log(`All ${notesPlayed} notes played (${uniquePitches} unique pitches)`);
+                    }
+                }, maxDuration + 500);
+
+            } catch (e) {
+                console.error('Playback error:', e);
+                document.getElementById('status').textContent = 'Playback error: ' + e.message;
+                isPlaying = false;
+            }
+        }
+
+        function pause() {
+            if (!isPlaying) return;
+            isPlaying = false;
+            synth.triggerRelease();
+            document.getElementById('playBtn').classList.remove('active');
+            document.getElementById('status').textContent = 'Paused';
+            console.log('Playback paused');
+        }
+
+        function stop() {
+            if (playbackTimeout) clearTimeout(playbackTimeout);
+            isPlaying = false;
+            synth.triggerRelease();
+            document.getElementById('playBtn').classList.remove('active');
+            document.getElementById('status').textContent = 'Stopped';
+            console.log('Playback stopped');
+        }
+
+        function changeTempo(delta) {
+            currentTempo = Math.max(40, Math.min(300, currentTempo + delta));
+            document.getElementById('status').textContent = `Tempo: ${currentTempo} BPM`;
+
+            // Re-parse notes with new tempo
+            if (noteEvents.length > 0) {
+                // Recalculate timing (this is simplified; in production you'd store original beats)
+                console.log('Tempo changed to:', currentTempo);
+            }
+        }
+
+        // UI event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+            resizeScoreContainer();
+
+            window.addEventListener('resize', () => {
+                resizeScoreContainer();
+                if (osmd && typeof osmd.resize === 'function') {
+                    osmd.resize();
+                }
+            });
+
+            document.getElementById('playBtn').addEventListener('click', play);
+            document.getElementById('pauseBtn').addEventListener('click', pause);
+            document.getElementById('stopBtn').addEventListener('click', stop);
+            document.getElementById('tempoUpBtn').addEventListener('click', () => changeTempo(10));
+            document.getElementById('tempoDownBtn').addEventListener('click', () => changeTempo(-10));
+        });
+
+        // Expose loadScore for Android WebView
+        window.loadScore = loadScore;
+        console.log('MIDI Player ready');
+    </script>
+</body>
+</html>
