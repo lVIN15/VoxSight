@@ -17,7 +17,12 @@ import com.cit.kaido.voxsight.ui.screens.practice.PauseMenuModal
 import com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen
 import com.cit.kaido.voxsight.ui.screens.practice.SelectPracticeModeModal
 import com.cit.kaido.voxsight.ui.screens.upload.UploadScoreScreen
+import com.cit.kaido.voxsight.ui.screens.upload.ScoreReviewScreen
+import com.cit.kaido.voxsight.ui.screens.upload.regenerateEventsJsonFromScore
 import com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavigation() {
@@ -72,6 +77,67 @@ fun AppNavigation() {
                 onNavigateToPractice = { score ->
                     practiceViewModel.setCurrentScore(score)
                     navController.navigate("select_mode")
+                },
+                onNavigateToReview = { musicXml, title ->
+                    practiceViewModel.pendingMusicXml = musicXml
+                    practiceViewModel.pendingScoreTitle = title
+                    navController.navigate("review")
+                }
+            )
+        }
+
+        composable("review") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            
+            ScoreReviewScreen(
+                musicXml = practiceViewModel.pendingMusicXml,
+                onConfirm = { modifiedXml ->
+                    coroutineScope.launch {
+                        // Save XML to a temporary file
+                        val xmlTempFile = java.io.File(context.cacheDir, "edited_${System.currentTimeMillis()}.xml")
+                        withContext(Dispatchers.IO) {
+                            java.io.FileOutputStream(xmlTempFile).use { output ->
+                                output.write(modifiedXml.toByteArray(Charsets.UTF_8))
+                            }
+                        }
+                        
+                        // Parse local XML into score structure
+                        val parsedScore = com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore(
+                            context,
+                            android.net.Uri.fromFile(xmlTempFile),
+                            practiceViewModel.pendingScoreTitle
+                        )
+                        
+                        if (parsedScore != null) {
+                            // Generate playback events locally
+                            val eventsJson = withContext(Dispatchers.Default) {
+                                regenerateEventsJsonFromScore(parsedScore)
+                            }
+                            
+                            val finalScore = parsedScore.copy(
+                                eventsJson = eventsJson,
+                                metadataJson = "{}"
+                            )
+                            
+                            // Save to cache
+                            withContext(Dispatchers.IO) {
+                                com.cit.kaido.voxsight.storage.LocalScoreManager.saveScore(context, finalScore)
+                            }
+                            
+                            // Redirect to Mode Gatekeeper
+                            practiceViewModel.setCurrentScore(finalScore)
+                            navController.navigate("select_mode") {
+                                popUpTo("upload") { inclusive = false }
+                            }
+                        } else {
+                            android.widget.Toast.makeText(context, "Failed to parse modified score", android.widget.Toast.LENGTH_SHORT).show()
+                            navController.popBackStack()
+                        }
+                    }
+                },
+                onCancel = {
+                    navController.popBackStack()
                 }
             )
         }

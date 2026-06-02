@@ -23,6 +23,9 @@ enum class PlaybackState {
 class PracticeViewModel : ViewModel() {
     val pitchEngine = PitchDetectionEngine()
 
+    var pendingMusicXml: String = ""
+    var pendingScoreTitle: String = ""
+
     private val _isMicrophoneEnabled = MutableStateFlow(false)
     val isMicrophoneEnabled: StateFlow<Boolean> = _isMicrophoneEnabled.asStateFlow()
 
