@@ -193,6 +193,7 @@ fun AppNavigation() {
             val isMicEnabled by practiceViewModel.isMicrophoneEnabled.collectAsState()
             val currentScore by practiceViewModel.currentScore.collectAsState()
             val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
+            val pitchUiState by practiceViewModel.pitchUiState.collectAsState()
 
             androidx.compose.runtime.LaunchedEffect(isMicEnabled) {
                 if (isMicEnabled) {
@@ -215,6 +216,7 @@ fun AppNavigation() {
                 score = currentScore,
                 isMicEnabled = isMicEnabled,
                 pitchAttempts = pitchAttempts,
+                pitchUiState = pitchUiState,
                 onPauseClicked = {
                     if (isMicEnabled) {
                         practiceViewModel.setShowPauseModal(true)
@@ -224,7 +226,16 @@ fun AppNavigation() {
                     navController.popBackStack()
                 },
                 onNoteOn = { event ->
-                    // Just a callback, no longer need to set target here as onWaitPitch handles it
+                    if (isMicEnabled) {
+                        val targetHz = com.cit.kaido.voxsight.pitch.PitchComparator.calculateTargetFrequency(event.pitchName)
+                        val target = com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel.ActivePitchTarget(
+                            eventId = event.eventId,
+                            targetHz = targetHz,
+                            satbVoice = event.satbEnum,
+                            noteName = event.pitchName
+                        )
+                        practiceViewModel.setPitchTargets(listOf(target))
+                    }
                 },
                 onWaitPitch = { events ->
                     if (isMicEnabled && events.isNotEmpty()) {
@@ -233,7 +244,8 @@ fun AppNavigation() {
                             com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel.ActivePitchTarget(
                                 eventId = event.eventId,
                                 targetHz = targetHz,
-                                satbVoice = event.satbEnum
+                                satbVoice = event.satbEnum,
+                                noteName = event.pitchName
                             )
                         }
                         practiceViewModel.setPitchTargets(targets)
@@ -267,11 +279,11 @@ fun AppNavigation() {
         }
 
         composable("summary") {
-            // Provide the accuracy from the view model
-            val accuracy = practiceViewModel.calculateAccuracy()
+            // Provide the full summary from the view model
+            val summary = practiceViewModel.getSessionSummary()
             
-            PracticeSummaryScreen(
-                accuracy = accuracy,
+            com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen(
+                summary = summary,
                 onBackToLibrary = {
                     navController.popBackStack("upload", inclusive = false)
                 }

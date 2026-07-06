@@ -97,6 +97,7 @@ fun Module2PracticeScreen(
     fallbackTitle: String = stringResource(R.string.practice_title),
     isMicEnabled: Boolean = false,
     pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList(),
+    pitchUiState: com.cit.kaido.voxsight.pitch.PitchUiState = com.cit.kaido.voxsight.pitch.PitchUiState.Idle,
     onPauseClicked: () -> Unit = {},
     onBackClicked: () -> Unit = {},
     onNoteOn: (com.cit.kaido.voxsight.model.MusicalEvent) -> Unit = {},
@@ -255,6 +256,10 @@ fun Module2PracticeScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+
+            if (isMicEnabled) {
+                PitchFeedbackIndicator(state = pitchUiState)
             }
 
             // ── Playback Controls ─────────────────────────────────

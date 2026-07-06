@@ -49,9 +49,10 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 
 @Composable
 fun PracticeSummaryScreen(
-    accuracy: Int,
+    summary: SessionSummary,
     onBackToLibrary: () -> Unit
 ) {
+    val accuracy = summary.accuracyPercentage.toInt()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -158,39 +159,57 @@ fun PracticeSummaryScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Measures to Review
+            // Analytics Section
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
             ) {
-                Text(
-                    text = "Measures to Review",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp
-                    ),
-                    color = Color(0xFF191C20)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Measure 12 (Flat)
-                MeasureReviewCard(
-                    measureName = "Measure 12",
-                    issueType = "FLAT",
-                    isSharp = false
-                )
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Vocal Highlights Section
+                if (summary.vocalHighlight != null) {
+                    Text(
+                        text = "Vocal Range Highlights",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        ),
+                        color = Color(0xFF191C20)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    VocalHighlightCard(summary.vocalHighlight)
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
 
-                // Measure 24 (Sharp)
-                MeasureReviewCard(
-                    measureName = "Measure 24",
-                    issueType = "SHARP",
-                    isSharp = true
-                )
+                // Problematic Notes Section
+                if (summary.problematicNotes.isNotEmpty()) {
+                    Text(
+                        text = "Top Areas to Improve",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        ),
+                        color = Color(0xFF191C20)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    summary.problematicNotes.forEach { note ->
+                        MeasureReviewCard(
+                            measureName = "Note ${note.noteName}",
+                            issueType = if (note.isSharp) "SHARP" else "FLAT",
+                            isSharp = note.isSharp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                } else if (summary.totalNotesAttempted > 0) {
+                    Text(
+                        text = "Amazing Job! No significant pitch errors detected.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF4CAF50)
+                    )
+                }
             }
         }
 
@@ -228,6 +247,49 @@ fun PracticeSummaryScreen(
                         style = MaterialTheme.typography.labelLarge.copy(fontSize = 18.sp),
                         color = Color.White
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VocalHighlightCard(highlight: VocalHighlight) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)),
+        color = Color.White,
+        shadowElevation = 2.dp
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(90.dp)
+                    .background(Color(0xFF4CAF50)) // Green indicator
+            )
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Vocal Range Exhibited",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp),
+                    color = Color(0xFF4CAF50)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Lowest Hit", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(highlight.lowestNote, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Highest Hit", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(highlight.highestNote, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    }
                 }
             }
         }

@@ -14,7 +14,21 @@ object PitchComparator {
      */
     fun calculateCentDeviation(detectedHz: Float, targetHz: Float): Float {
         if (targetHz <= 0f || detectedHz <= 0f) return 0f
-        return 1200f * log2(detectedHz / targetHz)
+        // Calculate raw deviation
+        val rawDeviation = 1200f * log2(detectedHz / targetHz)
+        
+        // Octave Normalisation (Folding)
+        // Maps the deviation into the range [-600, +600] cents.
+        // This ensures that singing the correct pitch class in a different octave
+        // (e.g., a male singing C3 when the sheet music says C4) is treated as a match.
+        var foldedDeviation = rawDeviation % 1200f
+        if (foldedDeviation > 600f) {
+            foldedDeviation -= 1200f
+        } else if (foldedDeviation <= -600f) {
+            foldedDeviation += 1200f
+        }
+        
+        return foldedDeviation
     }
 
     /**

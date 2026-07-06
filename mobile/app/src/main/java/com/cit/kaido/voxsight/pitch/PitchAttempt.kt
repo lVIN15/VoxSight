@@ -6,5 +6,6 @@ data class PitchAttempt(
     val detectedHz: Float,       // What the user actually sang
     val deviationCents: Float,   // How far off
     val isMatch: Boolean,        // Within ±10 cents?
-    val timestampMs: Long        // When this attempt was recorded
+    val timestampMs: Long,       // When this attempt was recorded
+    val noteName: String = ""    // Human readable note (e.g. C4)
 )

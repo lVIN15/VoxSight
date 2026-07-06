@@ -179,7 +179,26 @@ fun UploadScoreScreen(
                 onProgress = { progress -> processingProgress = progress },
                 onSuccess = { musicXml, title ->
                     isProcessing = false
-                    onNavigateToReview(musicXml, title)
+                    lastParsedScore = score
+                    allowMusicXmlBypass = true
+                    
+                    coroutineScope.launch {
+                        val meta = LocalScoreManager.saveScore(context, score)
+                        recentScores.add(
+                            0,
+                            RecentScoreItem(
+                                id = meta.id,
+                                title = meta.title,
+                                composer = meta.composer,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = context.getString(R.string.recent_score_time_just_now),
+                                metadata = meta
+                            )
+                        )
+                    }
+                    
+                    // Auto-navigate to select mode and practice screens
+                    onNavigateToPractice(score)
                 },
                 onError = { error ->
                     isProcessing = false
@@ -209,7 +228,26 @@ fun UploadScoreScreen(
                 onProgress = { progress -> processingProgress = progress },
                 onSuccess = { musicXml, title ->
                     isProcessing = false
-                    onNavigateToReview(musicXml, title)
+                    lastParsedScore = score
+                    allowMusicXmlBypass = true
+                    
+                    coroutineScope.launch {
+                        val meta = LocalScoreManager.saveScore(context, score)
+                        recentScores.add(
+                            0,
+                            RecentScoreItem(
+                                id = meta.id,
+                                title = meta.title,
+                                composer = meta.composer,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = context.getString(R.string.recent_score_time_just_now),
+                                metadata = meta
+                            )
+                        )
+                    }
+                    
+                    // Auto-navigate to select mode and practice screens
+                    onNavigateToPractice(score)
                 },
                 onError = { error ->
                     isProcessing = false

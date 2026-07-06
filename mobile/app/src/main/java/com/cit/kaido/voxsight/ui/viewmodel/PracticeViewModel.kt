@@ -38,6 +38,9 @@ class PracticeViewModel : ViewModel() {
     private val _pitchAttempts = MutableStateFlow<List<PitchAttempt>>(emptyList())
     val pitchAttempts: StateFlow<List<PitchAttempt>> = _pitchAttempts.asStateFlow()
 
+    private val _pitchUiState = MutableStateFlow<com.cit.kaido.voxsight.pitch.PitchUiState>(com.cit.kaido.voxsight.pitch.PitchUiState.Idle)
+    val pitchUiState: StateFlow<com.cit.kaido.voxsight.pitch.PitchUiState> = _pitchUiState.asStateFlow()
+
     // ── Score & Playback State ────────────────────────
     private val _currentScore = MutableStateFlow<MusicXmlScore?>(null)
     val currentScore: StateFlow<MusicXmlScore?> = _currentScore.asStateFlow()
@@ -51,7 +54,8 @@ class PracticeViewModel : ViewModel() {
     data class ActivePitchTarget(
         val eventId: String,
         val targetHz: Float,
-        val satbVoice: com.cit.kaido.voxsight.model.SATBVoice
+        val satbVoice: com.cit.kaido.voxsight.model.SATBVoice,
+        val noteName: String = ""
     )
 
     private val _activeTargets = MutableStateFlow<List<ActivePitchTarget>>(emptyList())
@@ -80,7 +84,8 @@ class PracticeViewModel : ViewModel() {
                             detectedHz = hz,
                             deviationCents = deviation,
                             isMatch = isMatch,
-                            timestampMs = System.currentTimeMillis()
+                            timestampMs = System.currentTimeMillis(),
+                            noteName = target.noteName
                         )
                         
                         val currentList = _pitchAttempts.value.toMutableList()
@@ -103,8 +108,29 @@ class PracticeViewModel : ViewModel() {
                     } else {
                         stableMatchFrames = 0
                     }
+                    // PitchUiState update
+                    if (hz <= 0f) {
+                        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+                    } else {
+                        val firstTarget = targets.first() // Use first active target for UI indicator
+                        val deviation = PitchComparator.calculateCentDeviation(hz, firstTarget.targetHz)
+                        val result = com.cit.kaido.voxsight.pitch.FeedbackResult(
+                            isMatch = PitchComparator.isMatch(deviation),
+                            deviationCents = deviation
+                        )
+                        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Active(
+                            result = result,
+                            targetNoteName = firstTarget.noteName
+                        )
+                    }
+
                 } else {
                     stableMatchFrames = 0
+                    _pitchUiState.value = if (_isMicrophoneEnabled.value) {
+                        com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+                    } else {
+                        com.cit.kaido.voxsight.pitch.PitchUiState.Idle
+                    }
                 }
             }
         }
@@ -114,11 +140,13 @@ class PracticeViewModel : ViewModel() {
         _pitchAttempts.value = emptyList()
         if (_isMicrophoneEnabled.value) {
             pitchEngine.start()
+            _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
         }
     }
 
     fun endPitchSession() {
         pitchEngine.stop()
+        _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
     }
 
     fun setPitchTargets(targets: List<ActivePitchTarget>) {
@@ -151,6 +179,11 @@ class PracticeViewModel : ViewModel() {
         _isMicrophoneEnabled.value = enabled
         if (!enabled) {
             pitchEngine.stop()
+            _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
+        } else {
+            if (_playbackState.value == PlaybackState.PLAYING) {
+                 _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+            }
         }
     }
 
@@ -174,29 +207,58 @@ class PracticeViewModel : ViewModel() {
         _playbackState.value = state
     }
 
-    fun getSessionSummary(): SessionSummary {
+    fun getSessionSummary(): com.cit.kaido.voxsight.ui.screens.practice.SessionSummary {
         val attempts = _pitchAttempts.value
         val uniqueNoteAttempts = attempts.groupBy { it.eventId }
-        
-        // Count a note as correct if ANY attempt for that note was correct
-        val correctNotes = uniqueNoteAttempts.count { entry -> 
-            entry.value.any { it.isMatch }
-        }
-        
         val count = uniqueNoteAttempts.size
         
-        // Calculate average deviation using the best attempt for each note
-        val bestAttempts = uniqueNoteAttempts.map { entry ->
-            entry.value.minByOrNull { kotlin.math.abs(it.deviationCents) } ?: entry.value.first()
+        // Count as correct if any attempt for that eventId was a match
+        val correctNotes = uniqueNoteAttempts.values.count { noteAttempts ->
+            noteAttempts.any { it.isMatch }
         }
-        
+
+        // Get the best attempt per event to calculate average deviation
+        val bestAttempts = uniqueNoteAttempts.values.mapNotNull { noteAttempts ->
+            noteAttempts.minByOrNull { kotlin.math.abs(it.deviationCents) }
+        }
         val avgDev = if (bestAttempts.isNotEmpty()) {
             bestAttempts.map { kotlin.math.abs(it.deviationCents) }.average().toFloat()
         } else {
             0f
         }
-        
-        return SessionSummary(count, correctNotes, avgDev)
+
+        // Calculate Problematic Notes
+        // Group all attempts by noteName, filter out empty ones
+        val attemptsByNote = attempts.filter { it.noteName.isNotBlank() }.groupBy { it.noteName }
+        val problematicNotes = attemptsByNote.mapNotNull { (noteName, noteAttempts) ->
+            // Only consider it problematic if the overall average deviation is high (> 30 cents maybe)
+            val avgNoteDev = noteAttempts.map { it.deviationCents }.average().toFloat()
+            if (kotlin.math.abs(avgNoteDev) > 20f) {
+                com.cit.kaido.voxsight.ui.screens.practice.ProblematicNote(
+                    noteName = noteName,
+                    averageDeviation = avgNoteDev,
+                    isSharp = avgNoteDev > 0
+                )
+            } else null
+        }.sortedByDescending { kotlin.math.abs(it.averageDeviation) }.take(3)
+
+        // Calculate Vocal Highlights
+        val successfulAttempts = attempts.filter { it.isMatch && it.noteName.isNotBlank() }
+        val vocalHighlight = if (successfulAttempts.isNotEmpty()) {
+            val highest = successfulAttempts.maxByOrNull { it.targetHz }?.noteName ?: ""
+            val lowest = successfulAttempts.minByOrNull { it.targetHz }?.noteName ?: ""
+            if (highest != lowest) {
+                com.cit.kaido.voxsight.ui.screens.practice.VocalHighlight(highest, lowest)
+            } else null
+        } else null
+
+        return com.cit.kaido.voxsight.ui.screens.practice.SessionSummary(
+            totalNotesAttempted = count,
+            correctNotes = correctNotes,
+            averageDeviationCents = avgDev,
+            problematicNotes = problematicNotes,
+            vocalHighlight = vocalHighlight
+        )
     }
 
     fun calculateAccuracy(): Int {
