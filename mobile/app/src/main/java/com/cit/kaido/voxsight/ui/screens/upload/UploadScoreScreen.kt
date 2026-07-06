@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.MusicNote
@@ -112,7 +113,10 @@ import java.util.UUID
  *  - ProcessingLoadingState.showLoadingDialog() / updateProgress()
  */
 @Composable
-fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
+fun UploadScoreScreen(
+    onNavigateToPractice: (MusicXmlScore) -> Unit = {},
+    onNavigateToReview: (musicXml: String, title: String) -> Unit = { _, _ -> }
+) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
@@ -124,6 +128,7 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     val recentScores = remember { mutableStateListOf<RecentScoreItem>() }
+    var scoreToDelete by remember { mutableStateOf<RecentScoreItem?>(null) }
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -172,7 +177,7 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
                 onProgress = { progress -> processingProgress = progress },
-                onSuccess = { score ->
+                onSuccess = { musicXml, title ->
                     isProcessing = false
                     lastParsedScore = score
                     allowMusicXmlBypass = true
@@ -221,7 +226,7 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                 imageUri = it,
                 coroutineScope = coroutineScope,
                 onProgress = { progress -> processingProgress = progress },
-                onSuccess = { score ->
+                onSuccess = { musicXml, title ->
                     isProcessing = false
                     lastParsedScore = score
                     allowMusicXmlBypass = true
@@ -380,6 +385,9 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
                                 Toast.makeText(context, "Failed to load score.", Toast.LENGTH_SHORT).show()
                             }
                         }
+                    },
+                    onDeleteScore = { item ->
+                        scoreToDelete = item
                     }
                 )
             }
@@ -429,6 +437,48 @@ fun UploadScoreScreen(onNavigateToPractice: (MusicXmlScore) -> Unit = {}) {
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("CANCEL", color = VoxTextSubtitle)
+                }
+            }
+        )
+    }
+
+    if (scoreToDelete != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { scoreToDelete = null },
+            title = {
+                Text(
+                    text = "Delete Score?",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = VoxTextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete '${scoreToDelete?.title}'? This action cannot be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VoxTextSubtitle
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val item = scoreToDelete
+                        if (item != null) {
+                            coroutineScope.launch {
+                                LocalScoreManager.deleteScore(context, item.id)
+                                recentScores.remove(item)
+                                Toast.makeText(context, "Deleted ${item.title}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        scoreToDelete = null
+                    }
+                ) {
+                    Text("DELETE", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { scoreToDelete = null }) {
                     Text("CANCEL", color = VoxTextSubtitle)
                 }
             }
@@ -682,7 +732,8 @@ private fun ProcessingCard(
 @Composable
 private fun RecentScoresSection(
     scores: List<RecentScoreItem>,
-    onScoreSelected: (RecentScoreItem) -> Unit
+    onScoreSelected: (RecentScoreItem) -> Unit,
+    onDeleteScore: (RecentScoreItem) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -706,7 +757,11 @@ private fun RecentScoresSection(
         }
 
         scores.forEach { item ->
-            RecentScoreRow(item = item, onClick = { onScoreSelected(item) })
+            RecentScoreRow(
+                item = item,
+                onClick = { onScoreSelected(item) },
+                onDeleteClick = { onDeleteScore(item) }
+            )
         }
     }
 }
@@ -714,7 +769,8 @@ private fun RecentScoresSection(
 @Composable
 private fun RecentScoreRow(
     item: RecentScoreItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -789,6 +845,21 @@ private fun RecentScoreRow(
                     color = VoxTextSubtitle
                 )
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            androidx.compose.material3.IconButton(
+                onClick = {
+                    onDeleteClick()
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Outlined.DeleteOutline,
+                    contentDescription = "Delete Score",
+                    tint = Color(0xFFE57373)
+                )
+            }
         }
     }
 }
@@ -825,7 +896,7 @@ private fun onImageCaptured(
     imageUri: Uri,
     coroutineScope: kotlinx.coroutines.CoroutineScope,
     onProgress: (Float) -> Unit,
-    onSuccess: (MusicXmlScore) -> Unit,
+    onSuccess: (musicXml: String, title: String) -> Unit,
     onError: (String) -> Unit
 ) {
     if (!validateImageQuality(imageUri)) {
@@ -866,27 +937,9 @@ private fun onImageCaptured(
             val response = ApiClient.omrService.analyzeScore(body)
             
             if (response.success && response.musicXml != null) {
-                // Save the received MusicXML into a temp file to parse it using the existing parser
-                val xmlTempFile = File(context.cacheDir, "result_${System.currentTimeMillis()}.xml")
-                withContext(Dispatchers.IO) {
-                    FileOutputStream(xmlTempFile).use { output ->
-                        output.write(response.musicXml.toByteArray(Charsets.UTF_8))
-                    }
-                }
-                
-                // Parse the MusicXML
                 val scoreTitle = deriveTitleFromFileName(originalFileName)
-                val score = parseMusicXmlScore(context, Uri.fromFile(xmlTempFile), scoreTitle)
-                
-                if (score != null) {
-                    val eventsJson = Gson().toJson(response.events ?: emptyList<Any>())
-                    val metadataJson = Gson().toJson(response.scoreMetadata)
-                    val finalScore = score.copy(eventsJson = eventsJson, metadataJson = metadataJson)
-                    onProgress(1f)
-                    onSuccess(finalScore)
-                } else {
-                    onError("Failed to parse the generated MusicXML.")
-                }
+                onProgress(1f)
+                onSuccess(response.musicXml, scoreTitle)
             } else {
                 onError(response.error ?: "Conversion/Analysis failed.")
             }

@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <title>VoxSight OMR Editor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a; /* Sleek dark slate */
+            color: #f1f5f9;
+            overflow-x: auto;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #score-container {
+            position: relative;
+            width: 100%;
+            min-height: 100vh;
+            background: #ffffff; /* Sheet music itself rendered on white canvas */
+            padding: 16px;
+        }
+
+        #osmd-render {
+            width: 100%;
+            min-height: 200px;
+        }
+
+        /* Canvas overlay for selected note highlighting */
+        #highlight-canvas {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            width: calc(100% - 32px);
+            height: calc(100% - 32px);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Status bar */
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(8px);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 100;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #status-text {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        #editor-hint {
+            font-size: 11px;
+            color: #38bdf8;
+            font-weight: 500;
+        }
+
+        /* Loading state */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.hidden { display: none; }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #38bdf8;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Score container with canvas overlay -->
+    <div id="score-container">
+        <div id="osmd-render"></div>
+        <canvas id="highlight-canvas"></canvas>
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar">
+        <span id="status-text">Ready</span>
+        <span id="editor-hint">Tap notes to edit</span>
+    </div>
+
+    <!-- Libraries (Local offline support) -->
+    <script src="opensheetmusicdisplay.min.js"></script>
+
+    <script>
+    let osmd = null;
+    let highlightCtx = null;
+    let noteCoordinates = [];
+    let allGraphicalNotes = [];
+    let xmlDoc = null;
+    let selectedNoteId = null;
+    let currentTpq = 960;
+
+    const renderDiv = document.getElementById('osmd-render');
+    const canvas = document.getElementById('highlight-canvas');
+    const statusText = document.getElementById('status-text');
+    const loadingOverlay = document.getElementById('loading-overlay');
+
+    function initOSMD() {
+        osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
+            backend: 'svg',
+            autoResize: false,
+            newSystemFromXML: true,
+            newPageFromXML: true,
+            drawTitle: true,
+            drawComposer: true,
+            drawPartNames: true,
+            drawMeasureNumbers: true,
+            drawLyrics: true,
+            drawSlurs: true,
+            drawCredits: true,
+            drawFingerings: true,
+            drawingParameters: 'default',
+            coloringEnabled: true,
+            colorStemsLikeNoteheads: true
+        });
+
+        highlightCtx = canvas.getContext('2d');
+        updateStatus('Editor Ready');
+    }
+
+    // Helper to extract SVG elements from a GraphicalNote
+    function getSvgElements(gNote) {
+        const svgs = [];
+        if (!gNote) return svgs;
+        
+        const vfnotes = gNote.vfnote;
+        if (!vfnotes) return svgs;
+        
+        const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
+        for (let i = 0; i < arr.length; i++) {
+            const vf = arr[i];
+            if (!vf) continue;
+            let el = null;
+            if (typeof vf.getSVGGElement === 'function') {
+                el = vf.getSVGGElement();
+            } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
+                el = vf.getAttribute('el');
+            }
+            if (el) svgs.push(el);
+        }
+        return svgs;
+    }
+
+    function findGraphicalNotes(obj, visited = new Set(), results = []) {
+        if (!obj || typeof obj !== 'object') return results;
+        if (visited.has(obj)) return results;
+        visited.add(obj);
+
+        const srcNote = obj.sourceNote || obj.SourceNote;
+        const bbox = obj.positionAndShape || obj.PositionAndShape;
+        
+        if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
+            results.push(obj);
+            return results;
+        }
+
+        if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) {
+                findGraphicalNotes(obj[i], visited, results);
+            }
+        } else {
+            if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
+            for (let key of Object.keys(obj)) {
+                findGraphicalNotes(obj[key], visited, results);
+            }
+        }
+        return results;
+    }
+
+    function getFractionValue(fraction) {
+        if (!fraction) return 0;
+        if (typeof fraction.RealValue === 'number') return fraction.RealValue;
+        if (typeof fraction.realValue === 'number') return fraction.realValue;
+        if (fraction.numerator !== undefined && fraction.denominator !== undefined) {
+            return fraction.numerator / fraction.denominator;
+        }
+        return 0;
+    }
+
+    /**
+     * Load, parse XML and render.
+     */
+    async function loadScore(musicXml, tpq = 960) {
+        currentTpq = tpq;
+        if (!osmd) initOSMD();
+
+        try {
+            loadingOverlay.classList.remove('hidden');
+            
+            // Parse XML Document locally for mutations
+            xmlDoc = new DOMParser().parseFromString(musicXml, 'text/xml');
+
+            await osmd.load(musicXml);
+            osmd.zoom = 0.55;
+            osmd.render();
+
+            resizeCanvas();
+            extractNoteCoordinates();
+            setupNoteClickListeners();
+
+            loadingOverlay.classList.add('hidden');
+            updateStatus(`Score loaded successfully`);
+
+            // Restore selection highlight if previously selected
+            if (selectedNoteId !== null) {
+                const coord = noteCoordinates.find(n => n.id === selectedNoteId);
+                if (coord) {
+                    drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
+                } else {
+                    selectedNoteId = null;
+                    clearHighlights();
+                }
+            } else {
+                clearHighlights();
+            }
+
+        } catch (err) {
+            console.error('OSMD load error:', err);
+            updateStatus('Error: ' + err.message);
+            loadingOverlay.classList.add('hidden');
+        }
+    }
+
+    function resizeCanvas() {
+        const osmdDiv = document.getElementById('osmd-render');
+        canvas.width = osmdDiv.offsetWidth;
+        canvas.height = osmdDiv.offsetHeight;
+    }
+
+    function extractNoteCoordinates() {
+        noteCoordinates = [];
+        allGraphicalNotes = [];
+
+        let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
+        findGraphicalNotes(root, new Set(), allGraphicalNotes);
+
+        let unitToPx = 10;
+        if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
+        let zoom = osmd.zoom || 1.0;
+
+        for (let i = 0; i < allGraphicalNotes.length; i++) {
+            let gNote = allGraphicalNotes[i];
+            let srcNote = gNote.sourceNote || gNote.SourceNote;
+            
+            const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
+            if (isRestNote) continue;
+
+            let bbox = gNote.positionAndShape || gNote.PositionAndShape;
+            let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
+            let size = bbox.size || bbox.Size;
+            
+            if (!absPos || !size) continue;
+
+            let x = absPos.x * unitToPx * zoom;
+            let y = absPos.y * unitToPx * zoom;
+            let w = (size.width || 1.5) * unitToPx * zoom;
+            let h = (size.height || 2) * unitToPx * zoom;
+
+            let domElements = getSvgElements(gNote);
+            if (domElements.length > 0 && domElements[0]) {
+                try {
+                    let rect = domElements[0].getBoundingClientRect();
+                    let canvasRect = canvas.getBoundingClientRect();
+                    x = rect.left - canvasRect.left;
+                    y = rect.top - canvasRect.top;
+                    w = rect.width;
+                    h = rect.height;
+                } catch (e) {}
+            }
+
+            let tick = 0;
+            try {
+                const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
+                const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
+                const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
+                const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
+                tick = Math.round((getFractionValue(timestamp) + getFractionValue(absTimestamp)) * currentTpq * 4);
+            } catch(e) {}
+
+            let midiNote = 60;
+            try {
+                const pitch = srcNote.pitch || srcNote.Pitch;
+                if (pitch) {
+                    midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
+                }
+            } catch(e) {}
+
+            noteCoordinates.push({
+                tick: tick,
+                midiNote: midiNote,
+                x: x,
+                y: y,
+                width: w,
+                height: h,
+                id: i
+            });
+            
+            srcNote.__vx_id = i;
+            gNote.__vx_id = i;
+        }
+    }
+
+    function setupNoteClickListeners() {
+        for (let i = 0; i < allGraphicalNotes.length; i++) {
+            const gNote = allGraphicalNotes[i];
+            const srcNote = gNote.sourceNote || gNote.SourceNote;
+            const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
+            if (isRestNote) continue;
+
+            const domElements = getSvgElements(gNote);
+            domElements.forEach(el => {
+                el.style.cursor = 'pointer';
+                el.onclick = (event) => {
+                    event.stopPropagation();
+                    selectNote(gNote.__vx_id);
+                };
+            });
+        }
+    }
+
+    function selectNote(noteId) {
+        selectedNoteId = noteId;
+        const coord = noteCoordinates.find(n => n.id === noteId);
+        if (!coord) return;
+        
+        drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
+        
+        const gNote = allGraphicalNotes.find(n => n.__vx_id === noteId);
+        if (!gNote) return;
+        const srcNote = gNote.sourceNote || gNote.SourceNote;
+        
+        let pitchStep = "C";
+        let alterVal = 0;
+        let octaveVal = 4;
+        if (srcNote.pitch || srcNote.Pitch) {
+            const pitch = srcNote.pitch || srcNote.Pitch;
+            pitchStep = pitch.step || pitch.Step || "C";
+            alterVal = pitch.alter !== undefined ? pitch.alter : (pitch.Alter || 0);
+            octaveVal = pitch.octave !== undefined ? pitch.octave : (pitch.Octave || 4);
+        }
+        
+        let durationType = srcNote.type || srcNote.Type || "quarter";
+        let voiceVal = srcNote.voice || srcNote.Voice;
+        let voiceId = voiceVal ? (voiceVal.value || voiceVal.Value || 1) : 1;
+        
+        let measureNum = 1;
+        try {
+            const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
+            const pm = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
+            measureNum = pm ? (pm.measureNumber || pm.MeasureNumber || 1) : 1;
+        } catch(e) {}
+        
+        if (window.VoxSightBridge) {
+            window.VoxSightBridge.onNoteSelected(
+                noteId,
+                pitchStep,
+                alterVal,
+                octaveVal,
+                durationType,
+                voiceId,
+                measureNum
+            );
+        }
+    }
+
+    function drawSelectionHighlight(x, y, w, h) {
+        if (!highlightCtx) return;
+        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        highlightCtx.save();
+        highlightCtx.beginPath();
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const rx = w * 1.5;
+        const ry = h * 1.5;
+        
+        highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+        highlightCtx.fillStyle = "rgba(56, 189, 248, 0.25)"; /* Modern Sky Blue glow */
+        highlightCtx.fill();
+        highlightCtx.strokeStyle = "#38bdf8";
+        highlightCtx.lineWidth = 2;
+        highlightCtx.stroke();
+        highlightCtx.restore();
+    }
+
+    function clearHighlights() {
+        if (highlightCtx) {
+            highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+
+    // Locate the exact XML note element mapping to the graphical note index
+    function getXmlNoteElement(noteId) {
+        if (!xmlDoc) return null;
+        const notes = Array.from(xmlDoc.getElementsByTagName('note')).filter(note => {
+            return note.getElementsByTagName('rest').length === 0;
+        });
+        return notes[noteId] || null;
+    }
+
+    // ─── API endpoints called from Android via evaluateJavascript ───
+
+    window.updateNoteVoice = function(noteId, newVoice) {
+        const noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) return;
+
+        let voiceEl = noteEl.getElementsByTagName('voice')[0];
+        if (!voiceEl) {
+            voiceEl = xmlDoc.createElement('voice');
+            noteEl.appendChild(voiceEl);
+        }
+        voiceEl.textContent = newVoice.toString();
+        
+        reloadScore();
+    };
+
+    window.updateNotePitch = function(noteId, step, alter, octave) {
+        const noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) return;
+
+        let pitchEl = noteEl.getElementsByTagName('pitch')[0];
+        if (!pitchEl) {
+            pitchEl = xmlDoc.createElement('pitch');
+            noteEl.appendChild(pitchEl);
+        }
+
+        let stepEl = pitchEl.getElementsByTagName('step')[0];
+        if (!stepEl) {
+            stepEl = xmlDoc.createElement('step');
+            pitchEl.appendChild(stepEl);
+        }
+        stepEl.textContent = step;
+
+        let octaveEl = pitchEl.getElementsByTagName('octave')[0];
+        if (!octaveEl) {
+            octaveEl = xmlDoc.createElement('octave');
+            pitchEl.appendChild(octaveEl);
+        }
+        octaveEl.textContent = octave.toString();
+
+        let alterEl = pitchEl.getElementsByTagName('alter')[0];
+        if (alter !== 0) {
+            if (!alterEl) {
+                alterEl = xmlDoc.createElement('alter');
+                pitchEl.appendChild(alterEl);
+            }
+            alterEl.textContent = alter.toString();
+        } else if (alterEl) {
+            pitchEl.removeChild(alterEl);
+        }
+
+        reloadScore();
+    };
+
+    window.updateNoteDuration = function(noteId, typeName) {
+        const noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) return;
+
+        // Retrieve the document divisions value
+        let divisions = 1;
+        const divs = xmlDoc.getElementsByTagName('divisions');
+        if (divs.length > 0) {
+            divisions = parseInt(divs[0].textContent) || 1;
+        }
+
+        let multiplier = 1.0;
+        switch (typeName.toLowerCase()) {
+            case "whole": multiplier = 4.0; break;
+            case "half": multiplier = 2.0; break;
+            case "quarter": multiplier = 1.0; break;
+            case "eighth": multiplier = 0.5; break;
+            case "16th": multiplier = 0.25; break;
+        }
+
+        const newDuration = Math.round(divisions * multiplier);
+        
+        let durationEl = noteEl.getElementsByTagName('duration')[0];
+        if (!durationEl) {
+            durationEl = xmlDoc.createElement('duration');
+            noteEl.appendChild(durationEl);
+        }
+        durationEl.textContent = newDuration.toString();
+
+        let typeEl = noteEl.getElementsByTagName('type')[0];
+        if (!typeEl) {
+            typeEl = xmlDoc.createElement('type');
+            noteEl.appendChild(typeEl);
+        }
+        typeEl.textContent = typeName.toLowerCase();
+
+        reloadScore();
+    };
+
+    window.deleteNote = function(noteId) {
+        const noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) return;
+
+        if (noteEl.parentNode) {
+            noteEl.parentNode.removeChild(noteEl);
+        }
+        selectedNoteId = null;
+        reloadScore();
+    };
+
+    function reloadScore() {
+        const serializer = new XMLSerializer();
+        const modifiedXml = serializer.serializeToString(xmlDoc);
+        loadScore(modifiedXml, currentTpq);
+    }
+
+    window.getModifiedXml = function() {
+        if (!xmlDoc) return "";
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(xmlDoc);
+    };
+
+    function updateStatus(msg) {
+        statusText.textContent = msg;
+    }
+
+    // Handle resize
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            resizeCanvas();
+            extractNoteCoordinates();
+            setupNoteClickListeners();
+            if (selectedNoteId !== null) {
+                const coord = noteCoordinates.find(n => n.id === selectedNoteId);
+                if (coord) drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
+            }
+        }, 300);
+    });
+
+    initOSMD();
+    </script>
+</body>
+</html>

@@ -136,7 +136,7 @@ class PracticeActivity : AppCompatActivity(),
         val passedEventsJson = intent.getStringExtra(EXTRA_EVENTS_JSON)
         val fileUri = intent.getStringExtra(EXTRA_FILE_URI)
         val fileName = intent.getStringExtra(EXTRA_FILE_NAME)
-        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: "http://192.168.1.4:8080"
+        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: "http://192.168.1.3:8080"
 
         if (passedMusicXml != null && passedEventsJson != null) {
             // Data already available (passed from OmrScreen after /api/analyze)
