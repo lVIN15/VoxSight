@@ -115,7 +115,8 @@ import java.util.UUID
 @Composable
 fun UploadScoreScreen(
     onNavigateToPractice: (MusicXmlScore) -> Unit = {},
-    onNavigateToReview: (musicXml: String, title: String) -> Unit = { _, _ -> }
+    onNavigateToReview: (musicXml: String, title: String) -> Unit = { _, _ -> },
+    onNavigateToProfile: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -253,7 +254,8 @@ fun UploadScoreScreen(
                 onSettingsClick = {
                     tempUrlString = ApiClient.getBaseUrl(context)
                     showSettingsDialog = true
-                }
+                },
+                onProfileClick = onNavigateToProfile
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -458,7 +460,7 @@ fun UploadScoreScreen(
  * Top bar with VoxSight logo, settings icon, and profile avatar.
  */
 @Composable
-private fun TopBar(onSettingsClick: () -> Unit) {
+private fun TopBar(onSettingsClick: () -> Unit, onProfileClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -513,7 +515,8 @@ private fun TopBar(onSettingsClick: () -> Unit) {
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(VoxPurpleIconBg),
+                .background(VoxPurpleIconBg)
+                .clickable { onProfileClick() },
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.material3.Icon(

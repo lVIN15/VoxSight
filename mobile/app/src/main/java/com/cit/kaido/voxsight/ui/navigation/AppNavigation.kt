@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import com.cit.kaido.voxsight.ui.screens.auth.LandingScreen
 import com.cit.kaido.voxsight.ui.screens.auth.LoginScreen
 import com.cit.kaido.voxsight.ui.screens.auth.RegistrationScreen
+import com.cit.kaido.voxsight.ui.screens.profile.ProfileScreen
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.PauseMenuModal
 import com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen
@@ -23,6 +24,7 @@ import com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.postgrest.postgrest
 
 @Composable
 fun AppNavigation() {
@@ -39,6 +41,9 @@ fun AppNavigation() {
         }
 
         composable("login") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
             LoginScreen(
                 onBackClicked = { navController.popBackStack() },
                 onGetStartedClicked = { 
@@ -46,16 +51,53 @@ fun AppNavigation() {
                         popUpTo("landing")
                     }
                 },
-                onSignInClicked = { _, _ ->
-                    // Bypass to main app
-                    navController.navigate("upload") {
-                        popUpTo("landing") { inclusive = true }
+                onSignInClicked = { email, password ->
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            // Hash the password the same way we did in Registration
+                            val md = java.security.MessageDigest.getInstance("SHA-256")
+                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
+                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
+                            
+                            val client = com.cit.kaido.voxsight.network.Supabase.client
+                            
+                            // Query the custom User table
+                            val users = client.postgrest["User"].select {
+                                filter {
+                                    eq("email", email)
+                                    eq("password_hash", hashString)
+                                }
+                            }.decodeList<com.cit.kaido.voxsight.model.User>()
+                            
+                            if (users.isNotEmpty()) {
+                                val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+                                prefs.edit().putString("logged_in_username", users.first().username).apply()
+
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Welcome back, ${users.first().username}!", android.widget.Toast.LENGTH_SHORT).show()
+                                    navController.navigate("upload") {
+                                        popUpTo("landing") { inclusive = true }
+                                    }
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Invalid email or password", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "Login Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                 }
             )
         }
 
         composable("register") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
             RegistrationScreen(
                 onBackClicked = { navController.popBackStack() },
                 onSignInClicked = { 
@@ -63,10 +105,37 @@ fun AppNavigation() {
                         popUpTo("landing")
                     }
                 },
-                onSignUpClicked = { _, _, _ ->
-                    // Bypass to main app
-                    navController.navigate("upload") {
-                        popUpTo("landing") { inclusive = true }
+                onSignUpClicked = { name, email, password ->
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            // Simple SHA-256 hash for demonstration (NOT recommended for production)
+                            val md = java.security.MessageDigest.getInstance("SHA-256")
+                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
+                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
+
+                            val newUser = com.cit.kaido.voxsight.model.User(
+                                username = name,
+                                email = email,
+                                passwordHash = hashString
+                            )
+                            
+                            val client = com.cit.kaido.voxsight.network.Supabase.client
+                            client.postgrest["User"].insert(newUser)
+                            
+                            val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+                            prefs.edit().putString("logged_in_username", name).apply()
+                            
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "Registration Successful!", android.widget.Toast.LENGTH_SHORT).show()
+                                navController.navigate("upload") {
+                                    popUpTo("landing") { inclusive = true }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                 }
             )
@@ -82,6 +151,27 @@ fun AppNavigation() {
                     practiceViewModel.pendingMusicXml = musicXml
                     practiceViewModel.pendingScoreTitle = title
                     navController.navigate("review")
+                },
+                onNavigateToProfile = {
+                    navController.navigate("profile")
+                }
+            )
+        }
+
+        composable("profile") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+            val username = prefs.getString("logged_in_username", "Guest User") ?: "Guest User"
+
+            ProfileScreen(
+                username = username,
+                onBackClicked = { navController.popBackStack() },
+                onLogoutClicked = {
+                    prefs.edit().remove("logged_in_username").apply()
+                    // Navigate back to landing and clear the backstack
+                    navController.navigate("landing") {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
