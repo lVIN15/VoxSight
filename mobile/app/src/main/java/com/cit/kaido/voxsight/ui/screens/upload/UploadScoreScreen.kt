@@ -62,7 +62,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.cit.kaido.voxsight.network.ApiClient
 import com.cit.kaido.voxsight.network.OmrResponse
 import com.cit.kaido.voxsight.network.OmrAnalysisResponse
@@ -138,23 +142,37 @@ fun UploadScoreScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
-    // ── Load cached scores on launch ─────────────────────────────
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        ApiClient.init(context)
-        val saved = LocalScoreManager.loadSavedScores(context)
-        recentScores.clear()
-        recentScores.addAll(
-            saved.map { meta ->
-                RecentScoreItem(
-                    id = meta.id,
-                    title = meta.title,
-                    composer = meta.composer,
-                    fileType = context.getString(R.string.recent_score_type_musicxml),
-                    timeLabel = formatTimeLabel(context, meta.timestamp),
-                    metadata = meta
-                )
+    // ── Reload scores every time the screen is resumed ────────────
+    // DisposableEffect + LifecycleEventObserver: triggers on ON_RESUME so the list
+    // always refreshes when the user navigates back from the review screen,
+    // preventing stale in-memory state and duplicate entries.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                ApiClient.init(context)
+                coroutineScope.launch {
+                    val saved = LocalScoreManager.loadSavedScores(context)
+                    recentScores.clear()
+                    recentScores.addAll(
+                        saved.map { meta ->
+                            RecentScoreItem(
+                                id = meta.id,
+                                title = meta.title,
+                                composer = meta.composer,
+                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                timeLabel = formatTimeLabel(context, meta.timestamp),
+                                metadata = meta
+                            )
+                        }
+                    )
+                }
             }
-        )
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -372,7 +390,7 @@ fun UploadScoreScreen(
             text = {
                 Column {
                     Text(
-                        text = "Set the backend server URL (e.g., http://192.168.1.3:8080):",
+                        text = "Set the backend server URL (e.g., http://10.149.87.27:8080):",
                         style = MaterialTheme.typography.bodyMedium,
                         color = VoxTextSubtitle
                     )
@@ -394,7 +412,7 @@ fun UploadScoreScreen(
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = {
-                        ApiClient.updateBaseUrl(context, tempUrlString)
+                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { "http://10.202.26.27:8080" })
                         showSettingsDialog = false
                     }
                 ) {

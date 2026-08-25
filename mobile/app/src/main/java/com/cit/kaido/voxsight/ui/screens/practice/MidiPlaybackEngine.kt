@@ -177,58 +177,69 @@ open class MidiPlayerController(
     fun loadScore(score: MusicXmlScore) {
         currentScoreXml = score.rawXml
         
-        // Parse events
-        if (score.eventsJson != null) {
-            val eventType = object : TypeToken<List<MusicalEvent>>() {}.type
-            val events: List<MusicalEvent> = gson.fromJson(score.eventsJson, eventType)
-            eventStream = EventStream.freeze(events)
-            eventsCount = events.size
-            
-            // We'll calculate actual total seconds after extracting tempo metadata
-            
-            // Parse metadata
-            val tempoMarks = mutableListOf<NativePlaybackEngine.TempoMark>()
-            var calculatedTpq = 960
-            if (score.metadataJson != null) {
-                try {
-                    val metadata = gson.fromJson(score.metadataJson, ScoreMetadata::class.java)
-                    calculatedTpq = metadata.ticksPerQuarter
-                    metadata.tempoEvents.forEach { t ->
-                        tempoMarks.add(NativePlaybackEngine.TempoMark(t.tick, t.bpm))
-                    }
-                } catch (e: Exception) {
-                    try {
-                        val rawMap = gson.fromJson(score.metadataJson, Map::class.java) as Map<*, *>
-                        calculatedTpq = (rawMap["ticks_per_quarter"] as? Number)?.toInt() ?: 960
-                        val tempoList = rawMap["tempo_events"] as? List<*>
-                        tempoList?.forEach { item ->
-                            val t = item as? Map<*, *>
-                            if (t != null) {
-                                val tick = (t["tick"] as? Number)?.toInt() ?: 0
-                                val bpm = (t["bpm"] as? Number)?.toFloat() ?: 120f
-                                tempoMarks.add(NativePlaybackEngine.TempoMark(tick, bpm))
-                            }
-                        }
-                    } catch (err: Exception) {}
-                }
-            }
-            if (tempoMarks.isEmpty()) {
-                tempoMarks.add(NativePlaybackEngine.TempoMark(0, 120f))
-            }
+        // Parse events with automatic fallback generation
+        val resolvedEventsJson = score.eventsJson?.takeIf { it.isNotBlank() && it != "[]" }
+            ?: generateEventsJsonFromScoreParts(score.parts, score.divisions)
 
-            currentTpq = calculatedTpq
-            currentBpm = tempoMarks.first().bpm
-            
-            // Calculate actual total seconds based on events and resolved tempo
-            val maxTick = eventStream.maxOfOrNull { it.tickPosition + it.durationTicks } ?: 0
-            if (maxTick > 0 && currentTpq > 0 && currentBpm > 0) {
-                calculatedTotalSeconds = (maxTick * 60f / (currentBpm * currentTpq)).roundToInt()
-            } else {
-                calculatedTotalSeconds = score.totalSeconds // Fallback
-            }
-            
-            playbackEngine.loadEvents(eventStream, tempoMarks, calculatedTpq)
+        val eventType = object : TypeToken<List<MusicalEvent>>() {}.type
+        val events: List<MusicalEvent> = try {
+            gson.fromJson(resolvedEventsJson, eventType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
         }
+
+        eventStream = EventStream.freeze(events)
+        eventsCount = events.size
+        
+        // We'll calculate actual total seconds after extracting tempo metadata
+        
+        // Parse metadata & determine true ticks-per-quarter (divisions)
+        val tempoMarks = mutableListOf<NativePlaybackEngine.TempoMark>()
+        val defaultEventTpq = events.firstOrNull()?.ticksPerQuarter ?: score.divisions.takeIf { it > 0 } ?: 960
+        var calculatedTpq = defaultEventTpq
+
+        if (score.metadataJson != null && score.metadataJson != "{}") {
+            try {
+                val metadata = gson.fromJson(score.metadataJson, ScoreMetadata::class.java)
+                if (metadata.ticksPerQuarter > 0) {
+                    calculatedTpq = metadata.ticksPerQuarter
+                }
+                metadata.tempoEvents.forEach { t ->
+                    tempoMarks.add(NativePlaybackEngine.TempoMark(t.tick, t.bpm))
+                }
+            } catch (e: Exception) {
+                try {
+                    val rawMap = gson.fromJson(score.metadataJson, Map::class.java) as Map<*, *>
+                    val tpqVal = (rawMap["ticks_per_quarter"] as? Number)?.toInt() ?: 0
+                    if (tpqVal > 0) calculatedTpq = tpqVal
+                    val tempoList = rawMap["tempo_events"] as? List<*>
+                    tempoList?.forEach { item ->
+                        val t = item as? Map<*, *>
+                        if (t != null) {
+                            val tick = (t["tick"] as? Number)?.toInt() ?: 0
+                            val bpm = (t["bpm"] as? Number)?.toFloat() ?: 120f
+                            tempoMarks.add(NativePlaybackEngine.TempoMark(tick, bpm))
+                        }
+                    }
+                } catch (err: Exception) {}
+            }
+        }
+        if (tempoMarks.isEmpty()) {
+            tempoMarks.add(NativePlaybackEngine.TempoMark(0, 120f))
+        }
+
+        currentTpq = calculatedTpq
+        currentBpm = tempoMarks.first().bpm
+        
+        // Calculate actual total seconds based on events and resolved tempo
+        val maxTick = eventStream.maxOfOrNull { it.tickPosition + it.durationTicks } ?: 0
+        if (maxTick > 0 && currentTpq > 0 && currentBpm > 0) {
+            calculatedTotalSeconds = (maxTick * 60f / (currentBpm * currentTpq)).roundToInt()
+        } else {
+            calculatedTotalSeconds = score.totalSeconds // Fallback
+        }
+        
+        playbackEngine.loadEvents(eventStream, tempoMarks, calculatedTpq)
         
         if (webView.url != null && webView.progress == 100) {
             renderScore(currentScoreXml!!)
@@ -238,15 +249,9 @@ open class MidiPlayerController(
     }
     
     private fun renderScore(xml: String) {
-        val escaped = xml
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("</", "<\\/")
-
+        val encoded = android.util.Base64.encodeToString(xml.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
         webView.post {
-            webView.evaluateJavascript("loadScore('$escaped', $currentTpq);", null)
+            webView.evaluateJavascript("loadScoreBase64('$encoded', $currentTpq);", null)
         }
         isRendered = true
     }
@@ -277,6 +282,29 @@ open class MidiPlayerController(
 
     fun seek(progressFraction: Float) {
         playbackEngine.seek(progressFraction)
+    }
+
+    fun setTempo(bpm: Float) {
+        currentBpm = bpm
+        playbackEngine.setTempo(bpm)
+        recalculateTotalSeconds()
+    }
+
+    fun setSpeedMultiplier(multiplier: Float) {
+        playbackEngine.setSpeedMultiplier(multiplier)
+        recalculateTotalSeconds()
+    }
+
+    fun getBaseBPM(): Float = currentBpm
+    fun getSpeedMultiplier(): Float = playbackEngine.getSpeedMultiplier()
+
+    private fun recalculateTotalSeconds() {
+        val maxTick = eventStream.maxOfOrNull { it.tickPosition + it.durationTicks } ?: 0
+        val effectiveBpm = playbackEngine.getCurrentBPM()
+        if (maxTick > 0 && currentTpq > 0 && effectiveBpm > 0) {
+            calculatedTotalSeconds = (maxTick * 60f / (effectiveBpm * currentTpq)).roundToInt()
+        }
+        onScoreLoadedCallback(calculatedTotalSeconds)
     }
 
     /**

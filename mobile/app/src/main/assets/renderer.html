@@ -295,6 +295,20 @@
         }
     }
 
+    // Load a base64-encoded MusicXML string into OSMD
+    function loadScoreBase64(b64, tpq = 960) {
+        try {
+            const xmlStr = atob(b64);
+            loadScore(xmlStr, tpq);
+        } catch (e) {
+            console.error('Base64 decoding failed in renderer.html:', e);
+            updateStatus('Error decoding MusicXML');
+            if (window.VoxSightBridge) {
+                window.VoxSightBridge.onRenderError('Base64 decoding failed');
+            }
+        }
+    }
+
     let currentVisualFocus = null;
     let colorMappingList = [];
 
@@ -410,11 +424,36 @@
         return 'lh_' + Math.abs(hash).toString(16).padStart(8, '0');
     }
 
+    function getMeasureNumberFromSrcNote(srcNote) {
+        if (!srcNote) return 1;
+        if (srcNote.SourceMeasure && srcNote.SourceMeasure.MeasureNumber) return srcNote.SourceMeasure.MeasureNumber;
+        if (srcNote.sourceMeasure && srcNote.sourceMeasure.MeasureNumber) return srcNote.sourceMeasure.MeasureNumber;
+        return 1;
+    }
+
+    function getVoiceFromSrcNote(srcNote) {
+        if (!srcNote) return 1;
+        if (srcNote.ParentVoiceEntry && srcNote.ParentVoiceEntry.ParentVoice) {
+            var vId = srcNote.ParentVoiceEntry.ParentVoice.VoiceId;
+            if (vId !== undefined) {
+                var num = parseInt(vId, 10);
+                if (!isNaN(num)) return num;
+            }
+        }
+        if (srcNote.voice !== undefined) {
+            var num = parseInt(srcNote.voice, 10);
+            if (!isNaN(num)) return num;
+        }
+        if (srcNote.Voice !== undefined && srcNote.Voice.VoiceId !== undefined) {
+            var num = parseInt(srcNote.Voice.VoiceId, 10);
+            if (!isNaN(num)) return num;
+        }
+        return 1;
+    }
+
     /**
      * Extract note coordinates from the rendered OSMD SVG.
      * These are sent to SyncManager for playback-to-visual correlation.
-     *
-     * Strategy: Walk the OSMD GraphicSheet to get note bounding boxes.
      */
     function extractNoteCoordinates() {
         noteCoordinates = [];
@@ -428,6 +467,27 @@
             
             let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
             findGraphicalNotes(root, new Set(), allGraphicalNotes);
+
+            // Sort graphical notes in physical reading order: MeasureNumber ASC -> X ASC -> Y ASC
+            allGraphicalNotes.sort((a, b) => {
+                let srcA = a.sourceNote || a.SourceNote;
+                let srcB = b.sourceNote || b.SourceNote;
+                let mA = getMeasureNumberFromSrcNote(srcA);
+                let mB = getMeasureNumberFromSrcNote(srcB);
+                if (mA !== mB) return mA - mB;
+                
+                let bboxA = a.positionAndShape || a.PositionAndShape;
+                let bboxB = b.positionAndShape || b.PositionAndShape;
+                let posA = bboxA ? (bboxA.absolutePosition || bboxA.AbsolutePosition) : null;
+                let posB = bboxB ? (bboxB.absolutePosition || bboxB.AbsolutePosition) : null;
+                let xA = posA ? posA.x : 0;
+                let xB = posB ? posB.x : 0;
+                if (Math.abs(xA - xB) > 0.01) return xA - xB;
+                
+                let yA = posA ? posA.y : 0;
+                let yB = posB ? posB.y : 0;
+                return yA - yB;
+            });
 
             let unitToPx = 10;
             if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
@@ -457,7 +517,6 @@
                 let h = (size.height || size.Height || 2) * unitToPx * zoom;
 
                 // Priority: Real DOM Bounding Box
-                // This guarantees pixel-perfect alignment for the Canvas Overlay
                 let domElements = getSvgElements(gNote);
                 if (domElements.length > 0 && domElements[0]) {
                     try {
@@ -474,7 +533,7 @@
 
                 let tick = 0;
                 try {
-                    const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
+                    const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry;
                     const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
                     const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
                     const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
@@ -497,9 +556,14 @@
                     }
                 } catch(e) {}
 
+                let mNum = getMeasureNumberFromSrcNote(srcNote);
+                let voice = getVoiceFromSrcNote(srcNote);
+
                 noteCoordinates.push({
                     tick: tick,
                     midiNote: midiNote,
+                    measureNumber: mNum,
+                    voice: voice,
                     x: x,
                     y: y,
                     width: w,
@@ -523,25 +587,40 @@
     let synth = null;
     let synthStarted = false;
 
-    async function initSynth() {
+    function ensureSynth() {
         if (!synth) {
-            await Tone.start();
-            synth = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "triangle" },
-                envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
-            }).toDestination();
-            synth.volume.value = -10;
-            synthStarted = true;
+            try {
+                Tone.start();
+                synth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "triangle" },
+                    envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
+                }).toDestination();
+                synth.volume.value = -10;
+                synthStarted = true;
+            } catch(e) {
+                console.warn("Failed to initialize Tone.js synth:", e);
+            }
+        }
+        if (Tone.context && Tone.context.state !== 'running') {
+            try { Tone.context.resume(); } catch(e) {}
         }
     }
 
+    async function initSynth() {
+        ensureSynth();
+    }
+
     function playNote(midiNote, durationMs, velocity) {
-        if (!synth) initSynth();
-        if (synthStarted) {
-            const freq = Tone.Frequency(midiNote, "midi").toFrequency();
-            const vel = velocity / 127.0;
-            const dur = durationMs / 1000.0;
-            synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
+        ensureSynth();
+        if (synth) {
+            try {
+                const freq = Tone.Frequency(midiNote, "midi").toFrequency();
+                const vel = (velocity || 80) / 127.0;
+                const dur = Math.max(0.1, (durationMs || 500) / 1000.0);
+                synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
+            } catch(e) {
+                console.warn("playNote error:", e);
+            }
         }
     }
 

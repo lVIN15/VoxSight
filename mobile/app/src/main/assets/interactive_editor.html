@@ -9,7 +9,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f172a; /* Sleek dark slate */
+            background: #0f172a;
             color: #f1f5f9;
             overflow-x: auto;
             -webkit-user-select: none;
@@ -20,8 +20,9 @@
             position: relative;
             width: 100%;
             min-height: 100vh;
-            background: #ffffff; /* Sheet music itself rendered on white canvas */
+            background: #ffffff;
             padding: 16px;
+            cursor: pointer;
         }
 
         #osmd-render {
@@ -40,7 +41,6 @@
             z-index: 10;
         }
 
-        /* Status bar */
         #status-bar {
             position: fixed;
             bottom: 0;
@@ -56,18 +56,9 @@
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        #status-text {
-            font-size: 12px;
-            color: #94a3b8;
-        }
+        #status-text { font-size: 12px; color: #94a3b8; }
+        #editor-hint { font-size: 11px; color: #38bdf8; font-weight: 500; }
 
-        #editor-hint {
-            font-size: 11px;
-            color: #38bdf8;
-            font-weight: 500;
-        }
-
-        /* Loading state */
         .loading-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -94,40 +85,44 @@
 </head>
 <body>
 
-    <!-- Loading overlay -->
     <div id="loading-overlay" class="loading-overlay">
         <div class="spinner"></div>
     </div>
 
-    <!-- Score container with canvas overlay -->
     <div id="score-container">
         <div id="osmd-render"></div>
         <canvas id="highlight-canvas"></canvas>
     </div>
 
-    <!-- Status bar -->
     <div id="status-bar">
         <span id="status-text">Ready</span>
         <span id="editor-hint">Tap notes to edit</span>
     </div>
 
-    <!-- Libraries (Local offline support) -->
     <script src="opensheetmusicdisplay.min.js"></script>
 
     <script>
+    // ─── Globals ───────────────────────────────────────────────────────────
     let osmd = null;
     let highlightCtx = null;
-    let noteCoordinates = [];
-    let allGraphicalNotes = [];
     let xmlDoc = null;
     let selectedNoteId = null;
     let currentTpq = 960;
 
+    // noteMap: vxId (number) → { gNote, srcNote, coord }
+    let noteMap = new Map();
+    // noteCoordinates: flat array of { id, x, y, w, h, cx, cy } for nearest-neighbor click
+    let noteCoordinates = [];
+    // allGraphicalNotes: cached from DFS traversal (same approach as renderer.html)
+    let allGraphicalNotes = [];
+
+    const scoreContainer = document.getElementById('score-container');
     const renderDiv = document.getElementById('osmd-render');
     const canvas = document.getElementById('highlight-canvas');
     const statusText = document.getElementById('status-text');
     const loadingOverlay = document.getElementById('loading-overlay');
 
+    // ─── OSMD init ─────────────────────────────────────────────────────────
     function initOSMD() {
         osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
             backend: 'svg',
@@ -146,19 +141,43 @@
             coloringEnabled: true,
             colorStemsLikeNoteheads: true
         });
-
         highlightCtx = canvas.getContext('2d');
         updateStatus('Editor Ready');
     }
 
-    // Helper to extract SVG elements from a GraphicalNote
+    // ─── Helper: DFS to find all GraphicalNote objects (proven approach from renderer.html) ──
+    function findGraphicalNotes(obj, visited, results) {
+        if (!obj || typeof obj !== 'object') return results;
+        if (visited.has(obj)) return results;
+        visited.add(obj);
+
+        const srcNote = obj.sourceNote || obj.SourceNote;
+        const bbox = obj.positionAndShape || obj.PositionAndShape;
+
+        if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
+            results.push(obj);
+            return results;
+        }
+
+        if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
+        if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) {
+                findGraphicalNotes(obj[i], visited, results);
+            }
+        } else {
+            for (let key of Object.keys(obj)) {
+                findGraphicalNotes(obj[key], visited, results);
+            }
+        }
+        return results;
+    }
+
+    // ─── Helper: Extract SVG elements from a GraphicalNote ──
     function getSvgElements(gNote) {
         const svgs = [];
         if (!gNote) return svgs;
-        
         const vfnotes = gNote.vfnote;
         if (!vfnotes) return svgs;
-        
         const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
         for (let i = 0; i < arr.length; i++) {
             const vf = arr[i];
@@ -174,73 +193,59 @@
         return svgs;
     }
 
-    function findGraphicalNotes(obj, visited = new Set(), results = []) {
-        if (!obj || typeof obj !== 'object') return results;
-        if (visited.has(obj)) return results;
-        visited.add(obj);
-
-        const srcNote = obj.sourceNote || obj.SourceNote;
-        const bbox = obj.positionAndShape || obj.PositionAndShape;
-        
-        if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
-            results.push(obj);
-            return results;
-        }
-
-        if (Array.isArray(obj)) {
-            for (let i = 0; i < obj.length; i++) {
-                findGraphicalNotes(obj[i], visited, results);
-            }
-        } else {
-            if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
-            for (let key of Object.keys(obj)) {
-                findGraphicalNotes(obj[key], visited, results);
-            }
-        }
-        return results;
-    }
-
     function getFractionValue(fraction) {
         if (!fraction) return 0;
         if (typeof fraction.RealValue === 'number') return fraction.RealValue;
         if (typeof fraction.realValue === 'number') return fraction.realValue;
-        if (fraction.numerator !== undefined && fraction.denominator !== undefined) {
+        if (fraction.numerator !== undefined && fraction.denominator !== undefined)
             return fraction.numerator / fraction.denominator;
-        }
         return 0;
     }
 
-    /**
-     * Load, parse XML and render.
-     */
-    async function loadScore(musicXml, tpq = 960) {
-        currentTpq = tpq;
+    // ─── Load & render ─────────────────────────────────────────────
+    async function loadScore(musicXml, tpq, preserveDoc) {
+        if (tpq !== undefined) currentTpq = tpq;
         if (!osmd) initOSMD();
 
         try {
             loadingOverlay.classList.remove('hidden');
-            
-            // Parse XML Document locally for mutations
-            xmlDoc = new DOMParser().parseFromString(musicXml, 'text/xml');
 
-            await osmd.load(musicXml);
+            if (!preserveDoc || !xmlDoc) {
+                // Parse the XML DOM from the string
+                xmlDoc = new DOMParser().parseFromString(musicXml, 'text/xml');
+
+                // Check for XML parse errors
+                var parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    console.error('XML parse error:', parseError.textContent);
+                    updateStatus('Error: Invalid XML');
+                    loadingOverlay.classList.add('hidden');
+                    return;
+                }
+
+                // Stamp stable IDs on XML notes that don't already have one.
+                stampNoteIds();
+            }
+
+            // Strip data-vx-id attributes before passing to OSMD.
+            var cleanXml = sanitizeMusicXmlString(new XMLSerializer().serializeToString(xmlDoc));
+
+            await osmd.load(cleanXml);
             osmd.zoom = 0.55;
             osmd.render();
 
             resizeCanvas();
-            extractNoteCoordinates();
-            setupNoteClickListeners();
+            buildNoteMap();
 
             loadingOverlay.classList.add('hidden');
-            updateStatus(`Score loaded successfully`);
+            updateStatus('Score loaded – ' + noteMap.size + ' notes – tap to edit');
 
-            // Restore selection highlight if previously selected
+            // Re-draw selection highlight if a note was previously selected
             if (selectedNoteId !== null) {
-                const coord = noteCoordinates.find(n => n.id === selectedNoteId);
-                if (coord) {
-                    drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
+                var entry = noteMap.get(selectedNoteId);
+                if (entry && entry.coord) {
+                    drawHighlight(entry.coord.x, entry.coord.y, entry.coord.w, entry.coord.h);
                 } else {
-                    selectedNoteId = null;
                     clearHighlights();
                 }
             } else {
@@ -254,228 +259,408 @@
         }
     }
 
-    function resizeCanvas() {
-        const osmdDiv = document.getElementById('osmd-render');
-        canvas.width = osmdDiv.offsetWidth;
-        canvas.height = osmdDiv.offsetHeight;
+    // Load a base64‑encoded MusicXML string, decode it and forward to loadScore
+    function loadScoreBase64(b64) {
+        try {
+            const xmlStr = atob(b64);
+            loadScore(xmlStr);
+        } catch (e) {
+            console.error('Base64 decoding failed:', e);
+            updateStatus('Error decoding MusicXML');
+        }
     }
 
-    function extractNoteCoordinates() {
+    // ─── Stamp stable IDs ──────────────────────────────────────────
+    // Assigns data-vx-id to each non-rest <note> element in the XML DOM.
+    function stampNoteIds() {
+        if (!xmlDoc) return;
+        let maxId = -1;
+        var allNoteEls = xmlDoc.getElementsByTagName('note');
+        for (let i = 0; i < allNoteEls.length; i++) {
+            var existing = allNoteEls[i].getAttribute('data-vx-id');
+            if (existing !== null) {
+                var parsed = parseInt(existing, 10);
+                if (!isNaN(parsed) && parsed > maxId) maxId = parsed;
+            }
+        }
+        var nextId = maxId + 1;
+
+        // Stamp only notes that don't already have an ID
+        for (let i = 0; i < allNoteEls.length; i++) {
+            var noteEl = allNoteEls[i];
+            if (noteEl.getElementsByTagName('rest').length > 0) continue; // skip rests
+            if (noteEl.getAttribute('data-vx-id') !== null) continue; // already stamped
+            noteEl.setAttribute('data-vx-id', String(nextId++));
+        }
+    }
+
+    // ─── Pitch, Voice and Measure Key Helpers ──────────────────────
+    function getPitchKeyFromPitchObj(pitch) {
+        if (!pitch) return "UNKNOWN";
+        var step = "C";
+        if (typeof pitch.step === 'string') step = pitch.step.toUpperCase();
+        else if (typeof pitch.Step === 'string') step = pitch.Step.toUpperCase();
+        else if (typeof pitch.fundamentalNote === 'number') {
+            var map = ["C", "D", "E", "F", "G", "A", "B"];
+            step = map[(pitch.fundamentalNote % 7 + 7) % 7] || "C";
+        } else if (typeof pitch.FundamentalNote === 'number') {
+            var map = ["C", "D", "E", "F", "G", "A", "B"];
+            step = map[(pitch.FundamentalNote % 7 + 7) % 7] || "C";
+        }
+
+        var alter = 0;
+        if (typeof pitch.alter === 'number') alter = Math.round(pitch.alter);
+        else if (typeof pitch.Alter === 'number') alter = Math.round(pitch.Alter);
+
+        var octave = 4;
+        if (typeof pitch.octave === 'number') octave = pitch.octave;
+        else if (typeof pitch.Octave === 'number') octave = pitch.Octave;
+
+        return step + "_" + alter + "_" + octave;
+    }
+
+    function getPitchKeyFromXmlNote(noteEl) {
+        var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+        if (!pitchEl) return "REST";
+
+        var stepEl = pitchEl.getElementsByTagName('step')[0];
+        var step = stepEl ? stepEl.textContent.trim().toUpperCase() : "C";
+        step = step.charAt(0);
+
+        var alterEl = pitchEl.getElementsByTagName('alter')[0];
+        var alter = alterEl ? parseInt(alterEl.textContent.trim(), 10) || 0 : 0;
+
+        var octaveEl = pitchEl.getElementsByTagName('octave')[0];
+        var octave = octaveEl ? parseInt(octaveEl.textContent.trim(), 10) || 4 : 4;
+
+        return step + "_" + alter + "_" + octave;
+    }
+
+    function getVoiceFromXmlNote(noteEl) {
+        var vEl = noteEl.getElementsByTagName('voice')[0];
+        return vEl ? (parseInt(vEl.textContent.trim(), 10) || 1) : 1;
+    }
+
+    function getVoiceFromSrcNote(srcNote) {
+        if (!srcNote) return 1;
+        if (srcNote.voice && typeof srcNote.voice.VoiceId === 'number') return srcNote.voice.VoiceId;
+        if (srcNote.Voice && typeof srcNote.Voice.VoiceId === 'number') return srcNote.Voice.VoiceId;
+        if (typeof srcNote.voice === 'number') return srcNote.voice;
+        if (typeof srcNote.Voice === 'number') return srcNote.Voice;
+        return 1;
+    }
+
+    function getMeasureNumberFromXmlNote(noteEl) {
+        var parent = noteEl.parentNode;
+        while (parent && parent.tagName !== 'measure') {
+            parent = parent.parentNode;
+        }
+        if (parent && parent.getAttribute('number')) {
+            var num = parseInt(parent.getAttribute('number'), 10);
+            if (!isNaN(num)) return num;
+        }
+        return 1;
+    }
+
+    function getMeasureNumberFromSrcNote(srcNote) {
+        if (!srcNote) return 1;
+        if (srcNote.SourceMeasure && srcNote.SourceMeasure.MeasureNumber) {
+            return srcNote.SourceMeasure.MeasureNumber;
+        }
+        if (srcNote.sourceMeasure && srcNote.sourceMeasure.MeasureNumber) {
+            return srcNote.sourceMeasure.MeasureNumber;
+        }
+        return 1;
+    }
+
+    // ─── Build Note Map (Structural Measure + Voice + Pitch Matching) ──────
+    function buildNoteMap() {
+        noteMap = new Map();
         noteCoordinates = [];
         allGraphicalNotes = [];
 
-        let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
+        if (!xmlDoc || !osmd) return;
+
+        // Step 1: Index non-rest XML notes by (measureNum:voice:pitchKey) and (measureNum:voice)
+        var xmlPitchBuckets = new Map();
+        var xmlVoiceBuckets = new Map();
+        var xmlMeasureBuckets = new Map();
+        var allXmlNonRestNotes = [];
+
+        var allNoteEls = xmlDoc.getElementsByTagName('note');
+        for (let i = 0; i < allNoteEls.length; i++) {
+            var noteEl = allNoteEls[i];
+            if (noteEl.getElementsByTagName('rest').length > 0) continue; // skip rests
+
+            allXmlNonRestNotes.push(noteEl);
+
+            var mNum = getMeasureNumberFromXmlNote(noteEl);
+            var voice = getVoiceFromXmlNote(noteEl);
+            var pKey = getPitchKeyFromXmlNote(noteEl);
+
+            var fullKey = mNum + ":" + voice + ":" + pKey;
+            var voiceKey = mNum + ":" + voice;
+
+            if (!xmlPitchBuckets.has(fullKey)) xmlPitchBuckets.set(fullKey, []);
+            xmlPitchBuckets.get(fullKey).push(noteEl);
+
+            if (!xmlVoiceBuckets.has(voiceKey)) xmlVoiceBuckets.set(voiceKey, []);
+            xmlVoiceBuckets.get(voiceKey).push(noteEl);
+
+            if (!xmlMeasureBuckets.has(mNum)) xmlMeasureBuckets.set(mNum, []);
+            xmlMeasureBuckets.get(mNum).push(noteEl);
+        }
+
+        // Step 2: Find all graphical notes via DFS
+        var root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
         findGraphicalNotes(root, new Set(), allGraphicalNotes);
 
-        let unitToPx = 10;
+        // Step 3: Get coordinate helpers
+        var unitToPx = 10;
         if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
-        let zoom = osmd.zoom || 1.0;
+        else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
+        var zoom = osmd.zoom || 1.0;
 
+        // Step 4: Match each GraphicalNote to its corresponding XML note
+        var unmappedCount = 0;
         for (let i = 0; i < allGraphicalNotes.length; i++) {
-            let gNote = allGraphicalNotes[i];
-            let srcNote = gNote.sourceNote || gNote.SourceNote;
-            
-            const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
-            if (isRestNote) continue;
+            var gNote = allGraphicalNotes[i];
+            var srcNote = gNote.sourceNote || gNote.SourceNote;
+            if (!srcNote) continue;
 
-            let bbox = gNote.positionAndShape || gNote.PositionAndShape;
-            let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
-            let size = bbox.size || bbox.Size;
-            
-            if (!absPos || !size) continue;
+            var isRest = (typeof srcNote.isRest === 'function') ? srcNote.isRest() : (srcNote.isRest || srcNote.IsRest);
+            if (isRest) continue;
 
-            let x = absPos.x * unitToPx * zoom;
-            let y = absPos.y * unitToPx * zoom;
-            let w = (size.width || 1.5) * unitToPx * zoom;
-            let h = (size.height || 2) * unitToPx * zoom;
+            var mNum = getMeasureNumberFromSrcNote(srcNote);
+            var voice = getVoiceFromSrcNote(srcNote);
+            var pitch = srcNote.pitch || srcNote.Pitch;
+            var pKey = getPitchKeyFromPitchObj(pitch);
 
-            let domElements = getSvgElements(gNote);
-            if (domElements.length > 0 && domElements[0]) {
-                try {
-                    let rect = domElements[0].getBoundingClientRect();
-                    let canvasRect = canvas.getBoundingClientRect();
-                    x = rect.left - canvasRect.left;
-                    y = rect.top - canvasRect.top;
-                    w = rect.width;
-                    h = rect.height;
-                } catch (e) {}
+            var fullKey = mNum + ":" + voice + ":" + pKey;
+            var voiceKey = mNum + ":" + voice;
+
+            var xmlNote = null;
+            if (xmlPitchBuckets.has(fullKey) && xmlPitchBuckets.get(fullKey).length > 0) {
+                xmlNote = xmlPitchBuckets.get(fullKey).shift();
+            } else if (xmlVoiceBuckets.has(voiceKey) && xmlVoiceBuckets.get(voiceKey).length > 0) {
+                xmlNote = xmlVoiceBuckets.get(voiceKey).shift();
+            } else if (xmlMeasureBuckets.has(mNum) && xmlMeasureBuckets.get(mNum).length > 0) {
+                xmlNote = xmlMeasureBuckets.get(mNum).shift();
+            } else if (unmappedCount < allXmlNonRestNotes.length) {
+                xmlNote = allXmlNonRestNotes[unmappedCount++];
             }
 
-            let tick = 0;
-            try {
-                const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
-                const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
-                const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
-                const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
-                tick = Math.round((getFractionValue(timestamp) + getFractionValue(absTimestamp)) * currentTpq * 4);
-            } catch(e) {}
+            if (!xmlNote) continue;
 
-            let midiNote = 60;
-            try {
-                const pitch = srcNote.pitch || srcNote.Pitch;
-                if (pitch) {
-                    midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
+            var vxIdStr = xmlNote.getAttribute('data-vx-id');
+            var vxId = (vxIdStr !== null) ? parseInt(vxIdStr, 10) : i;
+
+            // Compute screen coordinates for click detection
+            var coord = null;
+            var bbox = gNote.positionAndShape || gNote.PositionAndShape;
+            if (bbox) {
+                var absPos = bbox.absolutePosition || bbox.AbsolutePosition;
+                var size = bbox.size || bbox.Size;
+                if (absPos && size) {
+                    var x = absPos.x * unitToPx * zoom;
+                    var y = absPos.y * unitToPx * zoom;
+                    var w = (size.width || size.Width || 1.5) * unitToPx * zoom;
+                    var h = (size.height || size.Height || 2) * unitToPx * zoom;
+
+                    var domElements = getSvgElements(gNote);
+                    if (domElements.length > 0 && domElements[0]) {
+                        try {
+                            var rect = domElements[0].getBoundingClientRect();
+                            var canvasRect = canvas.getBoundingClientRect();
+                            x = rect.left - canvasRect.left;
+                            y = rect.top - canvasRect.top;
+                            w = rect.width;
+                            h = rect.height;
+                        } catch (e) {}
+                    }
+
+                    var cx = x + w / 2;
+                    var cy = y + h / 2;
+                    coord = { id: vxId, x: x, y: y, w: w, h: h, cx: cx, cy: cy };
+                    noteCoordinates.push(coord);
                 }
-            } catch(e) {}
+            }
 
-            noteCoordinates.push({
-                tick: tick,
-                midiNote: midiNote,
-                x: x,
-                y: y,
-                width: w,
-                height: h,
-                id: i
-            });
-            
-            srcNote.__vx_id = i;
-            gNote.__vx_id = i;
+            // Store in map: vxId → { gNote, srcNote, coord }
+            gNote.__vx_id = vxId;
+            srcNote.__vx_id = vxId;
+            noteMap.set(vxId, { gNote: gNote, srcNote: srcNote, coord: coord });
         }
+
+        console.log('[VoxSight Editor] Note map built: ' + noteMap.size + ' notes mapped structurally');
+
+        // Step 5: Attach click handlers to SVG elements
+        setupClickListeners();
     }
 
-    function setupNoteClickListeners() {
-        for (let i = 0; i < allGraphicalNotes.length; i++) {
-            const gNote = allGraphicalNotes[i];
-            const srcNote = gNote.sourceNote || gNote.SourceNote;
-            const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
-            if (isRestNote) continue;
-
-            const domElements = getSvgElements(gNote);
-            domElements.forEach(el => {
-                el.style.cursor = 'pointer';
-                el.onclick = (event) => {
-                    event.stopPropagation();
-                    selectNote(gNote.__vx_id);
-                };
-            });
-        }
+    // ─── Click Handlers ─────────────────────────────────────────────
+    function setupClickListeners() {
+        noteMap.forEach(function(entry, vxId) {
+            var svgEls = getSvgElements(entry.gNote);
+            for (let j = 0; j < svgEls.length; j++) {
+                svgEls[j].style.cursor = 'pointer';
+                // Use a closure to capture the correct vxId
+                (function(id) {
+                    svgEls[j].onclick = function(event) {
+                        event.stopPropagation();
+                        selectNote(id);
+                    };
+                })(vxId);
+            }
+        });
     }
 
-    function selectNote(noteId) {
-        selectedNoteId = noteId;
-        const coord = noteCoordinates.find(n => n.id === noteId);
-        if (!coord) return;
-        
-        drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
-        
-        const gNote = allGraphicalNotes.find(n => n.__vx_id === noteId);
-        if (!gNote) return;
-        const srcNote = gNote.sourceNote || gNote.SourceNote;
-        
-        let pitchStep = "C";
-        let alterVal = 0;
-        let octaveVal = 4;
-        if (srcNote.pitch || srcNote.Pitch) {
-            const pitch = srcNote.pitch || srcNote.Pitch;
-            pitchStep = pitch.step || pitch.Step || "C";
-            alterVal = pitch.alter !== undefined ? pitch.alter : (pitch.Alter || 0);
-            octaveVal = pitch.octave !== undefined ? pitch.octave : (pitch.Octave || 4);
+    // Fallback: click anywhere on the score container → find nearest note
+    scoreContainer.onclick = function(event) {
+        if (noteCoordinates.length === 0) return;
+
+        var rect = canvas.getBoundingClientRect();
+        var clickX = event.clientX - rect.left;
+        var clickY = event.clientY - rect.top;
+
+        var minDist = Infinity;
+        var bestId = null;
+        for (let i = 0; i < noteCoordinates.length; i++) {
+            var nc = noteCoordinates[i];
+            var dist = Math.sqrt((clickX - nc.cx) * (clickX - nc.cx) + (clickY - nc.cy) * (clickY - nc.cy));
+            if (dist < minDist) {
+                minDist = dist;
+                bestId = nc.id;
+            }
         }
-        
-        let durationType = srcNote.type || srcNote.Type || "quarter";
-        let voiceVal = srcNote.voice || srcNote.Voice;
-        let voiceId = voiceVal ? (voiceVal.value || voiceVal.Value || 1) : 1;
-        
-        let measureNum = 1;
-        try {
-            const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry;
-            const pm = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
-            measureNum = pm ? (pm.measureNumber || pm.MeasureNumber || 1) : 1;
-        } catch(e) {}
-        
+        // Only select if reasonably close
+        if (bestId !== null && minDist < 80) {
+            selectNote(bestId);
+        }
+    };
+
+    // ─── Note Selection (sends info to Android bridge) ──────────────
+    function selectNote(vxId) {
+        selectedNoteId = vxId;
+        var entry = noteMap.get(vxId);
+        if (!entry) {
+            console.warn('[VoxSight Editor] selectNote: vxId', vxId, 'not in noteMap');
+            return;
+        }
+
+        // Draw highlight
+        if (entry.coord) {
+            drawHighlight(entry.coord.x, entry.coord.y, entry.coord.w, entry.coord.h);
+        }
+
+        // Extract note properties directly from XML DOM (100% ground truth)
+        var xmlNoteEl = getXmlNoteElement(vxId);
+        var pitchStep = 'C', alterVal = 0, octaveVal = 4;
+        var durationType = 'quarter';
+        var voiceId = 1;
+        var measureNum = 1;
+
+        if (xmlNoteEl) {
+            var pitchEl = xmlNoteEl.getElementsByTagName('pitch')[0];
+            if (pitchEl) {
+                var stepEl = pitchEl.getElementsByTagName('step')[0];
+                if (stepEl && stepEl.textContent.trim()) {
+                    pitchStep = stepEl.textContent.trim().toUpperCase().charAt(0);
+                }
+                var alterEl = pitchEl.getElementsByTagName('alter')[0];
+                if (alterEl && alterEl.textContent.trim()) {
+                    alterVal = parseFloat(alterEl.textContent.trim()) || 0;
+                }
+                var octEl = pitchEl.getElementsByTagName('octave')[0];
+                if (octEl && octEl.textContent.trim()) {
+                    octaveVal = parseInt(octEl.textContent.trim(), 10) || 4;
+                }
+            }
+
+            var typeEl = xmlNoteEl.getElementsByTagName('type')[0];
+            if (typeEl && typeEl.textContent.trim()) {
+                durationType = typeEl.textContent.trim().toLowerCase();
+            }
+
+            var voiceEl = xmlNoteEl.getElementsByTagName('voice')[0];
+            if (voiceEl && voiceEl.textContent.trim()) {
+                voiceId = parseInt(voiceEl.textContent.trim(), 10) || 1;
+            }
+
+            var measEl = xmlNoteEl.parentNode;
+            while (measEl && measEl.tagName !== 'measure') measEl = measEl.parentNode;
+            if (measEl && measEl.getAttribute('number')) {
+                measureNum = parseInt(measEl.getAttribute('number'), 10) || 1;
+            }
+        } else {
+            // Fallback from OSMD SourceNote
+            var srcNote = entry.srcNote;
+            var pitch = srcNote ? (srcNote.pitch || srcNote.Pitch) : null;
+            if (pitch) {
+                pitchStep = pitch.step || pitch.Step || 'C';
+                if (typeof pitch.alter === 'number') alterVal = pitch.alter;
+                else if (typeof pitch.Alter === 'number') alterVal = pitch.Alter;
+                octaveVal = (pitch.octave !== undefined) ? pitch.octave : (pitch.Octave || 4);
+            }
+        }
+
+        console.log('[VoxSight Editor] Note selected: vxId=' + vxId + ' pitch=' + pitchStep + alterVal + ' oct=' + octaveVal + ' dur=' + durationType + ' voice=' + voiceId + ' measure=' + measureNum);
+
+        // Send to Android
         if (window.VoxSightBridge) {
             window.VoxSightBridge.onNoteSelected(
-                noteId,
-                pitchStep,
-                alterVal,
-                octaveVal,
-                durationType,
-                voiceId,
-                measureNum
+                vxId, pitchStep, alterVal, octaveVal,
+                durationType, voiceId, measureNum
             );
         }
     }
 
-    function drawSelectionHighlight(x, y, w, h) {
-        if (!highlightCtx) return;
-        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        highlightCtx.save();
-        highlightCtx.beginPath();
-        const cx = x + w / 2;
-        const cy = y + h / 2;
-        const rx = w * 1.5;
-        const ry = h * 1.5;
-        
-        highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-        highlightCtx.fillStyle = "rgba(56, 189, 248, 0.25)"; /* Modern Sky Blue glow */
-        highlightCtx.fill();
-        highlightCtx.strokeStyle = "#38bdf8";
-        highlightCtx.lineWidth = 2;
-        highlightCtx.stroke();
-        highlightCtx.restore();
-    }
-
-    function clearHighlights() {
-        if (highlightCtx) {
-            highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-    }
-
-    // Locate the exact XML note element mapping to the graphical note index
+    // ─── XML Mutation API (called from Android via evaluateJavascript) ────
+    // Looks up the XML <note> element by its stable data-vx-id attribute.
     function getXmlNoteElement(noteId) {
         if (!xmlDoc) return null;
-        const notes = Array.from(xmlDoc.getElementsByTagName('note')).filter(note => {
-            return note.getElementsByTagName('rest').length === 0;
-        });
-        return notes[noteId] || null;
+        return xmlDoc.querySelector('note[data-vx-id="' + noteId + '"]') || null;
     }
 
-    // ─── API endpoints called from Android via evaluateJavascript ───
-
     window.updateNoteVoice = function(noteId, newVoice) {
-        const noteEl = getXmlNoteElement(noteId);
-        if (!noteEl) return;
+        var noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) { console.warn('updateNoteVoice: note', noteId, 'not found in XML'); return; }
 
-        let voiceEl = noteEl.getElementsByTagName('voice')[0];
+        var voiceEl = noteEl.getElementsByTagName('voice')[0];
         if (!voiceEl) {
             voiceEl = xmlDoc.createElement('voice');
-            noteEl.appendChild(voiceEl);
+            // Insert before <type> or at end
+            var typeEl = noteEl.getElementsByTagName('type')[0];
+            if (typeEl) noteEl.insertBefore(voiceEl, typeEl);
+            else noteEl.appendChild(voiceEl);
         }
         voiceEl.textContent = newVoice.toString();
-        
         reloadScore();
     };
 
     window.updateNotePitch = function(noteId, step, alter, octave) {
-        const noteEl = getXmlNoteElement(noteId);
-        if (!noteEl) return;
+        var noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) { console.warn('updateNotePitch: note', noteId, 'not found in XML'); return; }
 
-        let pitchEl = noteEl.getElementsByTagName('pitch')[0];
+        var pitchEl = noteEl.getElementsByTagName('pitch')[0];
         if (!pitchEl) {
             pitchEl = xmlDoc.createElement('pitch');
-            noteEl.appendChild(pitchEl);
+            noteEl.insertBefore(pitchEl, noteEl.firstChild);
         }
 
-        let stepEl = pitchEl.getElementsByTagName('step')[0];
-        if (!stepEl) {
-            stepEl = xmlDoc.createElement('step');
-            pitchEl.appendChild(stepEl);
-        }
-        stepEl.textContent = step;
+        var stepEl = pitchEl.getElementsByTagName('step')[0];
+        if (!stepEl) { stepEl = xmlDoc.createElement('step'); pitchEl.appendChild(stepEl); }
+        stepEl.textContent = step.toUpperCase();
 
-        let octaveEl = pitchEl.getElementsByTagName('octave')[0];
-        if (!octaveEl) {
-            octaveEl = xmlDoc.createElement('octave');
-            pitchEl.appendChild(octaveEl);
-        }
+        var octaveEl = pitchEl.getElementsByTagName('octave')[0];
+        if (!octaveEl) { octaveEl = xmlDoc.createElement('octave'); pitchEl.appendChild(octaveEl); }
         octaveEl.textContent = octave.toString();
 
-        let alterEl = pitchEl.getElementsByTagName('alter')[0];
+        var alterEl = pitchEl.getElementsByTagName('alter')[0];
         if (alter !== 0) {
             if (!alterEl) {
                 alterEl = xmlDoc.createElement('alter');
-                pitchEl.appendChild(alterEl);
+                pitchEl.insertBefore(alterEl, octaveEl);
             }
             alterEl.textContent = alter.toString();
         } else if (alterEl) {
@@ -486,38 +671,45 @@
     };
 
     window.updateNoteDuration = function(noteId, typeName) {
-        const noteEl = getXmlNoteElement(noteId);
-        if (!noteEl) return;
+        var noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) { console.warn('updateNoteDuration: note', noteId, 'not found in XML'); return; }
 
-        // Retrieve the document divisions value
-        let divisions = 1;
-        const divs = xmlDoc.getElementsByTagName('divisions');
-        if (divs.length > 0) {
-            divisions = parseInt(divs[0].textContent) || 1;
+        // Find divisions for duration calculation
+        var divisions = 1;
+        var parentMeas = noteEl.parentNode;
+        while (parentMeas && parentMeas.tagName !== 'measure') parentMeas = parentMeas.parentNode;
+        if (parentMeas) {
+            var attrs = parentMeas.getElementsByTagName('attributes');
+            for (let a = 0; a < attrs.length; a++) {
+                var divEl = attrs[a].getElementsByTagName('divisions')[0];
+                if (divEl) { divisions = parseInt(divEl.textContent, 10) || 1; break; }
+            }
+        }
+        if (divisions <= 1) {
+            var divEls = xmlDoc.getElementsByTagName('divisions');
+            if (divEls.length > 0) divisions = parseInt(divEls[0].textContent, 10) || 1;
         }
 
-        let multiplier = 1.0;
-        switch (typeName.toLowerCase()) {
-            case "whole": multiplier = 4.0; break;
-            case "half": multiplier = 2.0; break;
-            case "quarter": multiplier = 1.0; break;
-            case "eighth": multiplier = 0.5; break;
-            case "16th": multiplier = 0.25; break;
-        }
+        var multipliers = { whole: 4.0, half: 2.0, quarter: 1.0, eighth: 0.5, '16th': 0.25, '32nd': 0.125 };
+        var mult = multipliers[typeName.toLowerCase()] || 1.0;
+        var newDuration = Math.max(1, Math.round(divisions * mult));
 
-        const newDuration = Math.round(divisions * multiplier);
-        
-        let durationEl = noteEl.getElementsByTagName('duration')[0];
+        var durationEl = noteEl.getElementsByTagName('duration')[0];
         if (!durationEl) {
             durationEl = xmlDoc.createElement('duration');
-            noteEl.appendChild(durationEl);
+            var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+            if (pitchEl && pitchEl.nextSibling) noteEl.insertBefore(durationEl, pitchEl.nextSibling);
+            else noteEl.appendChild(durationEl);
         }
         durationEl.textContent = newDuration.toString();
 
-        let typeEl = noteEl.getElementsByTagName('type')[0];
+        var typeEl = noteEl.getElementsByTagName('type')[0];
         if (!typeEl) {
             typeEl = xmlDoc.createElement('type');
-            noteEl.appendChild(typeEl);
+            var voiceEl = noteEl.getElementsByTagName('voice')[0];
+            if (voiceEl && voiceEl.nextSibling) noteEl.insertBefore(typeEl, voiceEl.nextSibling);
+            else if (durationEl.nextSibling) noteEl.insertBefore(typeEl, durationEl.nextSibling);
+            else noteEl.appendChild(typeEl);
         }
         typeEl.textContent = typeName.toLowerCase();
 
@@ -525,43 +717,89 @@
     };
 
     window.deleteNote = function(noteId) {
-        const noteEl = getXmlNoteElement(noteId);
-        if (!noteEl) return;
+        var noteEl = getXmlNoteElement(noteId);
+        if (!noteEl) { console.warn('deleteNote: note', noteId, 'not found in XML'); return; }
 
-        if (noteEl.parentNode) {
-            noteEl.parentNode.removeChild(noteEl);
+        var isBaseNote = (noteEl.getElementsByTagName('chord').length === 0);
+        var nextNote = noteEl.nextElementSibling;
+        while (nextNote && nextNote.tagName !== 'note') {
+            nextNote = nextNote.nextElementSibling;
         }
+
+        // If we delete the base note of a chord, the next note in the chord MUST drop its <chord/> tag
+        // so it becomes a valid standalone base note in MusicXML.
+        if (isBaseNote && nextNote && nextNote.getElementsByTagName('chord').length > 0) {
+            var chordTag = nextNote.getElementsByTagName('chord')[0];
+            if (chordTag) nextNote.removeChild(chordTag);
+        }
+
+        if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
         selectedNoteId = null;
         reloadScore();
     };
 
+    // ─── XML Serialization & Sanitization ─────────────────────────────────
+    function sanitizeMusicXmlString(xmlString) {
+        if (!xmlString) return '';
+        return xmlString
+            .replace(/\s+xmlns=""/g, '')
+            .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')
+            .replace(/\s+data-vx-id="[^"]*"/g, '');
+    }
+
     function reloadScore() {
-        const serializer = new XMLSerializer();
-        const modifiedXml = serializer.serializeToString(xmlDoc);
-        loadScore(modifiedXml, currentTpq);
+        loadScore('', currentTpq, true);
     }
 
     window.getModifiedXml = function() {
-        if (!xmlDoc) return "";
-        const serializer = new XMLSerializer();
-        return serializer.serializeToString(xmlDoc);
+        if (!xmlDoc) return '';
+        var serializer = new XMLSerializer();
+        var rawXml = serializer.serializeToString(xmlDoc);
+        return sanitizeMusicXmlString(rawXml);
     };
 
-    function updateStatus(msg) {
-        statusText.textContent = msg;
+    // ─── Highlight rendering ────────────────────────────────────────────────
+    function resizeCanvas() {
+        var osmdDiv = document.getElementById('osmd-render');
+        canvas.width = osmdDiv.offsetWidth;
+        canvas.height = osmdDiv.offsetHeight;
     }
 
-    // Handle resize
-    let resizeTimer = null;
-    window.addEventListener('resize', () => {
+    function drawHighlight(x, y, w, h) {
+        if (!highlightCtx) return;
+        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+        highlightCtx.save();
+        highlightCtx.beginPath();
+        var cx = x + w / 2, cy = y + h / 2;
+        var rx = w * 1.5, ry = h * 1.5;
+        highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+        highlightCtx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        highlightCtx.fill();
+        highlightCtx.strokeStyle = '#38bdf8';
+        highlightCtx.lineWidth = 2;
+        highlightCtx.stroke();
+        highlightCtx.restore();
+    }
+
+    function clearHighlights() {
+        if (highlightCtx) highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    window.clearHighlights = clearHighlights;
+
+    function updateStatus(msg) { statusText.textContent = msg; }
+
+    var resizeTimer = null;
+    window.addEventListener('resize', function() {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
+        resizeTimer = setTimeout(function() {
             resizeCanvas();
-            extractNoteCoordinates();
-            setupNoteClickListeners();
+            buildNoteMap();
             if (selectedNoteId !== null) {
-                const coord = noteCoordinates.find(n => n.id === selectedNoteId);
-                if (coord) drawSelectionHighlight(coord.x, coord.y, coord.width, coord.height);
+                var entry = noteMap.get(selectedNoteId);
+                if (entry && entry.coord) {
+                    drawHighlight(entry.coord.x, entry.coord.y, entry.coord.w, entry.coord.h);
+                }
             }
         }, 300);
     });

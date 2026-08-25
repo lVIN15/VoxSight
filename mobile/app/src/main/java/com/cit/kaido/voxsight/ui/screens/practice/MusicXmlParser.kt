@@ -3,6 +3,8 @@ package com.cit.kaido.voxsight.ui.screens.practice
 import android.content.Context
 import android.net.Uri
 import android.util.Xml
+import com.cit.kaido.voxsight.model.MusicalEvent
+import com.google.gson.Gson
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.io.StringReader
@@ -12,6 +14,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val DEFAULT_BPM = 96f
+const val STANDARD_TPQ = 480
 
 /**
  * Minimal MusicXML parser for prototype playback and score visualization.
@@ -56,7 +59,8 @@ data class MusicXmlNote(
     val alter: Int = 0,
     val isDotted: Boolean = false,
     val originalVoice: Int = 1,
-    val isChord: Boolean = false
+    val isChord: Boolean = false,
+    val measureNumber: Int = 1
 )
 
 fun parseMusicXmlScore(
@@ -73,7 +77,8 @@ fun parseMusicXmlScore(
     var currentMeasureNotes = mutableListOf<MusicXmlNote>()
     var title: String? = null
     var composer: String? = null
-    var divisions = 1
+    var currentDivisions = 1
+    var parsedTempo: Float? = null
     
     // We will track total duration per part to find the actual max duration
     val partDurations = mutableMapOf<Int, Int>()
@@ -108,10 +113,15 @@ fun parseMusicXmlScore(
             when (event) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
+                        "sound" -> {
+                            val tAttr = parser.getAttributeValue(null, "tempo")?.toFloatOrNull()
+                            if (tAttr != null && parsedTempo == null) parsedTempo = tAttr
+                        }
+                        "per-minute" -> {
+                            val pm = parser.nextText().trim().toFloatOrNull()
+                            if (pm != null && parsedTempo == null) parsedTempo = pm
+                        }
                         "part" -> {
-                            // Start of a new <part> element. Increment the part counter.
-                            // This counter is later used to assign a default voice for notes
-                            // that do not specify a <staff> or <voice> element.
                             currentPartIndex++
                         }
                         "measure" -> {
@@ -132,7 +142,10 @@ fun parseMusicXmlScore(
                             }
                         }
                         "divisions" -> {
-                            divisions = parser.nextText().toIntOrNull() ?: divisions
+                            val parsedDiv = parser.nextText().toIntOrNull()
+                            if (parsedDiv != null && parsedDiv > 0) {
+                                currentDivisions = parsedDiv
+                            }
                         }
                         "note" -> {
                             inNote = true
@@ -197,16 +210,18 @@ fun parseMusicXmlScore(
                 }
                 XmlPullParser.END_TAG -> {
                     if (parser.name == "backup") {
+                        val backupTicks = (backupDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
                         val currentPartDuration = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = max(0, currentPartDuration - backupDuration)
+                        partDurations[currentPartIndex] = max(0, currentPartDuration - backupTicks)
                         inBackup = false
                     } else if (parser.name == "forward") {
+                        val forwardTicks = (forwardDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
                         val currentPartDuration = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = currentPartDuration + forwardDuration
+                        partDurations[currentPartIndex] = currentPartDuration + forwardTicks
                         inForward = false
                     } else if (parser.name == "note" && inNote) {
-                        // Determine the duration to use (inherit for chords)
-                        val effectiveDuration = if (isChord) lastDuration else duration ?: 0
+                        val rawDur = if (isChord) lastDuration else duration ?: 0
+                        val effectiveDuration = (rawDur.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
 
                         val currentCursor = partDurations.getOrDefault(currentPartIndex, 0)
                         val noteStartTime = if (isChord) {
@@ -215,11 +230,9 @@ fun parseMusicXmlScore(
                             currentCursor
                         }
                         
-                        // Accumulate duration for the current part
                         partDurations[currentPartIndex] = noteStartTime + effectiveDuration
 
                         if (isRest || (step != null && octave != null)) {
-                            // Resolve pitch step with accidental
                             val resolvedStep = if (isRest) "R" else {
                                 when (alter) {
                                     1 -> "${step}#"
@@ -229,7 +242,6 @@ fun parseMusicXmlScore(
                             }
                             val resolvedOctave = if (isRest) 0 else octave!!
 
-                            // Voice assignment: prioritize staff number, then part index, then voice attribute
                             val actualVoice = when {
                                 staff != null && staff in 1..4 -> staff!!
                                 currentPartIndex > 0 -> currentPartIndex
@@ -237,7 +249,6 @@ fun parseMusicXmlScore(
                                 else -> 1
                             }
 
-                            // Add note to the overall list
                             val note = MusicXmlNote(
                                 step = resolvedStep,
                                 octave = resolvedOctave,
@@ -250,15 +261,14 @@ fun parseMusicXmlScore(
                                 alter = alter ?: 0,
                                 isDotted = isDotted,
                                 originalVoice = voice ?: 1,
-                                isChord = isChord
+                                isChord = isChord,
+                                measureNumber = currentMeasureNumber
                             )
                             notes.add(note)
                             currentMeasureNotes.add(note)
-                            // Also add to part‑specific collection
                             val partList = partNotesMap.getOrPut(currentPartIndex) { mutableListOf() }
                             partList.add(note)
                         }
-                        // Reset state for next note
                         inNote = false
                         isChord = false
                     } else if (parser.name == "measure") {
@@ -271,20 +281,12 @@ fun parseMusicXmlScore(
             event = parser.next()
         }
 
-        // Log parsing summary for debugging
         android.util.Log.d("MusicXmlParser", "Parsed ${notes.size} notes, distinct voices: ${notes.map { it.voice }.distinct()}")
-        // The overall length of the piece should be based on the longest part.
-        // Using the maximum duration across all parts prevents the total time from
-        // being inflated by summing every part together.
         val maxTotalDuration = partDurations.values.maxOrNull() ?: 0
 
-        val beats = if (divisions > 0) {
-            maxTotalDuration.toFloat() / divisions
-        } else {
-            // Fallback: approximate using note count and number of parts.
-            notes.size.toFloat() / max(1, currentPartIndex)
-        }
-        val totalSeconds = max(1, (beats * 60f / DEFAULT_BPM).roundToInt())
+        val resolvedTempo = parsedTempo ?: 120f
+        val beats = maxTotalDuration.toFloat() / STANDARD_TPQ
+        val totalSeconds = max(1, (beats * 60f / resolvedTempo).roundToInt())
         val resolvedTitle = title?.takeIf { it.isNotBlank() }
             ?: fallbackTitle.ifBlank { "Untitled Score" }
         val resolvedComposer = composer?.takeIf { it.isNotBlank() } ?: "Unknown Composer"
@@ -410,14 +412,19 @@ fun parseMusicXmlScore(
             }
         }
 
+        val eventsJson = generateEventsJsonFromScoreParts(finalParts, STANDARD_TPQ)
+        val metadataJson = "{\"ticks_per_quarter\":$STANDARD_TPQ,\"tempo_events\":[{\"tick\":0,\"bpm\":$resolvedTempo}]}"
+
         MusicXmlScore(
             title = resolvedTitle,
             composer = resolvedComposer,
             notes = finalNotes,
             parts = finalParts,
             totalSeconds = totalSeconds,
-            divisions = divisions,
-            rawXml = rawText
+            divisions = STANDARD_TPQ,
+            rawXml = rawText,
+            eventsJson = eventsJson,
+            metadataJson = metadataJson
         )
     } catch (_: Exception) {
         null
@@ -442,7 +449,8 @@ fun parseMusicXmlFromString(
     var currentMeasureNotes = mutableListOf<MusicXmlNote>()
     var title: String? = null
     var composer: String? = null
-    var divisions = 1
+    var currentDivisions = 1
+    var parsedTempo: Float? = null
 
     val partDurations = mutableMapOf<Int, Int>()
     var currentPartIndex = 0
@@ -474,6 +482,14 @@ fun parseMusicXmlFromString(
             when (event) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
+                        "sound" -> {
+                            val tAttr = parser.getAttributeValue(null, "tempo")?.toFloatOrNull()
+                            if (tAttr != null && parsedTempo == null) parsedTempo = tAttr
+                        }
+                        "per-minute" -> {
+                            val pm = parser.nextText().trim().toFloatOrNull()
+                            if (pm != null && parsedTempo == null) parsedTempo = pm
+                        }
                         "part" -> { currentPartIndex++ }
                         "measure" -> {
                             currentMeasureNumber = parser.getAttributeValue(null, "number")?.toIntOrNull() ?: 1
@@ -493,7 +509,10 @@ fun parseMusicXmlFromString(
                             }
                         }
                         "divisions" -> {
-                            divisions = parser.nextText().toIntOrNull() ?: divisions
+                            val parsedDiv = parser.nextText().toIntOrNull()
+                            if (parsedDiv != null && parsedDiv > 0) {
+                                currentDivisions = parsedDiv
+                            }
                         }
                         "note" -> {
                             inNote = true; isRest = false; isChord = false; isDotted = false
@@ -521,15 +540,18 @@ fun parseMusicXmlFromString(
                 }
                 XmlPullParser.END_TAG -> {
                     if (parser.name == "backup") {
+                        val backupTicks = (backupDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
                         val cur = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = max(0, cur - backupDuration)
+                        partDurations[currentPartIndex] = max(0, cur - backupTicks)
                         inBackup = false
                     } else if (parser.name == "forward") {
+                        val forwardTicks = (forwardDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
                         val cur = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = cur + forwardDuration
+                        partDurations[currentPartIndex] = cur + forwardTicks
                         inForward = false
                     } else if (parser.name == "note" && inNote) {
-                        val effectiveDuration = if (isChord) lastDuration else duration ?: 0
+                        val rawDur = if (isChord) lastDuration else duration ?: 0
+                        val effectiveDuration = (rawDur.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
                         val currentCursor = partDurations.getOrDefault(currentPartIndex, 0)
                         val noteStartTime = if (isChord) max(0, currentCursor - effectiveDuration) else currentCursor
                         partDurations[currentPartIndex] = noteStartTime + effectiveDuration
@@ -551,7 +573,8 @@ fun parseMusicXmlFromString(
                                 voice = actualVoice, staff = staff ?: 1,
                                 type = noteType ?: "quarter", isRest = isRest,
                                 alter = alter ?: 0, isDotted = isDotted,
-                                originalVoice = voice ?: 1, isChord = isChord
+                                originalVoice = voice ?: 1, isChord = isChord,
+                                measureNumber = currentMeasureNumber
                             )
                             notes.add(note); currentMeasureNotes.add(note)
                             partNotesMap.getOrPut(currentPartIndex) { mutableListOf() }.add(note)
@@ -566,10 +589,10 @@ fun parseMusicXmlFromString(
             event = parser.next()
         }
 
+        val resolvedTempo = parsedTempo ?: 120f
         val maxTotalDuration = partDurations.values.maxOrNull() ?: 0
-        val beats = if (divisions > 0) maxTotalDuration.toFloat() / divisions
-                    else notes.size.toFloat() / max(1, currentPartIndex)
-        val totalSeconds = max(1, (beats * 60f / DEFAULT_BPM).roundToInt())
+        val beats = maxTotalDuration.toFloat() / STANDARD_TPQ
+        val totalSeconds = max(1, (beats * 60f / resolvedTempo).roundToInt())
         val resolvedTitle = title?.takeIf { it.isNotBlank() } ?: fallbackTitle.ifBlank { "Untitled Score" }
         val resolvedComposer = composer?.takeIf { it.isNotBlank() } ?: "Unknown Composer"
 
@@ -641,15 +664,96 @@ fun parseMusicXmlFromString(
             }
         }
 
+        val eventsJson = generateEventsJsonFromScoreParts(finalParts, STANDARD_TPQ)
+        val metadataJson = "{\"ticks_per_quarter\":$STANDARD_TPQ,\"tempo_events\":[{\"tick\":0,\"bpm\":$resolvedTempo}]}"
+
         MusicXmlScore(
             title = resolvedTitle, composer = resolvedComposer,
             notes = finalNotes, parts = finalParts,
-            totalSeconds = totalSeconds, divisions = divisions,
-            rawXml = rawXml
+            totalSeconds = totalSeconds, divisions = STANDARD_TPQ,
+            rawXml = rawXml,
+            eventsJson = eventsJson,
+            metadataJson = metadataJson
         )
     } catch (_: Exception) {
         null
     }
+}
+
+fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): String {
+    val eventsList = mutableListOf<MusicalEvent>()
+    var eventIndex = 0
+    val safeTpq = if (tpq > 0) tpq else 1
+
+    parts.forEach { part ->
+        part.notes.forEach { note ->
+            if (note.isRest) return@forEach
+
+            val satbVoiceStr = when (note.voice) {
+                1 -> "SOPRANO"
+                2 -> "ALTO"
+                3 -> "TENOR"
+                4 -> "BASS"
+                else -> when (part.id) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "UNKNOWN"
+                }
+            }
+
+            val midi = calculateMidiNote(note.step, note.alter, note.octave)
+            val pitchName = formatPitchName(note.step, note.alter, note.octave)
+            val eventId = "t${note.startTimeDivisions}-p${part.id}-c${eventIndex++}"
+
+            eventsList.add(
+                MusicalEvent(
+                    eventId = eventId,
+                    measureNumber = note.measureNumber,
+                    tickPosition = note.startTimeDivisions,
+                    ticksPerQuarter = safeTpq,
+                    pitchMidi = midi,
+                    pitchName = pitchName,
+                    durationTicks = note.durationDivisions,
+                    durationQuarters = note.durationDivisions.toFloat() / safeTpq,
+                    voiceSource = note.voice,
+                    staffId = note.staff,
+                    partId = part.id,
+                    isRest = false,
+                    isChordMember = note.isChord,
+                    satbVoice = satbVoiceStr,
+                    satbConfidence = 1.0f,
+                    playbackTrack = satbVoiceStr
+                )
+            )
+        }
+    }
+    return Gson().toJson(eventsList)
+}
+
+private fun calculateMidiNote(step: String, alter: Int, octave: Int): Int {
+    val baseLetter = step.take(1).uppercase()
+    val base = when (baseLetter) {
+        "C" -> 0
+        "D" -> 2
+        "E" -> 4
+        "F" -> 5
+        "G" -> 7
+        "A" -> 9
+        "B" -> 11
+        else -> 0
+    }
+    return base + alter + (octave + 1) * 12
+}
+
+private fun formatPitchName(step: String, alter: Int, octave: Int): String {
+    val alterStr = when (alter) {
+        -1 -> "b"
+        1 -> "#"
+        else -> ""
+    }
+    return "$step$alterStr$octave"
 }
 
 private val xmlEntityPattern =

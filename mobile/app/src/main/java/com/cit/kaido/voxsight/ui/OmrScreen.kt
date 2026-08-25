@@ -59,7 +59,7 @@ fun OmrScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var backendUrl by remember { mutableStateOf("http://192.168.1.3:8080") }
+    var backendUrl by remember { mutableStateOf("http://10.202.26.27:8080") }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     
@@ -161,7 +161,7 @@ fun OmrScreen(onBack: () -> Unit = {}) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Use http://192.168.1.3:8080 for physical device on local Wi-Fi.",
+                        "Use http://10.149.87.27:8080 for physical device on local Wi-Fi.",
                         color = TextMutedColor,
                         fontSize = 11.sp
                     )

@@ -62,7 +62,7 @@ fun ScoreReviewScreen(
         fun onNoteSelected(
             id: Int,
             pitchStep: String,
-            alterVal: Int,
+            alterVal: Double,   // Float in MusicXML (e.g. 1.0, -1.0); Int bridge would silently fail
             octaveVal: Int,
             durationType: String,
             voiceId: Int,
@@ -73,7 +73,7 @@ fun ScoreReviewScreen(
                 selectedNote = SelectedNoteInfo(
                     id = id,
                     pitchStep = pitchStep,
-                    alter = alterVal,
+                    alter = alterVal.toInt(),  // Round: 1.0 → 1, -1.0 → -1, 0.5 → 0
                     octave = octaveVal,
                     durationType = durationType,
                     voiceId = voiceId,
@@ -205,9 +205,9 @@ fun ScoreReviewScreen(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoaded = true
-                                    // Inject raw MusicXML into page
-                                    val escapedXml = escapeJavascriptString(musicXml)
-                                    evaluateJavascript("loadScore('$escapedXml');", null)
+                                    // Inject raw MusicXML into page using Base64 to avoid quoting issues
+                                    val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
+                                    evaluateJavascript("loadScoreBase64('$encoded');", null)
                                 }
                             }
                             addJavascriptInterface(EditorJsBridge(), "VoxSightBridge")
@@ -270,16 +270,22 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
     val tpq = score.divisions
 
     score.parts.forEach { part ->
-        val satbVoiceStr = when (part.id) {
-            1 -> "SOPRANO"
-            2 -> "ALTO"
-            3 -> "TENOR"
-            4 -> "BASS"
-            else -> "UNKNOWN"
-        }
-        
         part.notes.forEach { note ->
             if (note.isRest) return@forEach
+            
+            val satbVoiceStr = when (note.voice) {
+                1 -> "SOPRANO"
+                2 -> "ALTO"
+                3 -> "TENOR"
+                4 -> "BASS"
+                else -> when (part.id) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "UNKNOWN"
+                }
+            }
             
             val midi = calculateMidiNote(note.step, note.alter, note.octave)
             val pitchName = formatPitchName(note.step, note.alter, note.octave)
@@ -288,7 +294,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
             eventsList.add(
                 MusicalEvent(
                     eventId = eventId,
-                    measureNumber = 1 + (note.startTimeDivisions / (tpq * 4)),
+                    measureNumber = note.measureNumber,
                     tickPosition = note.startTimeDivisions,
                     ticksPerQuarter = tpq,
                     pitchMidi = midi,
@@ -312,7 +318,10 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
 }
 
 private fun calculateMidiNote(step: String, alter: Int, octave: Int): Int {
-    val base = when (step.uppercase()) {
+    // MusicXmlParser may embed accidentals in step (e.g. "C#", "Fb").
+    // Extract just the base letter for the lookup.
+    val baseLetter = step.take(1).uppercase()
+    val base = when (baseLetter) {
         "C" -> 0
         "D" -> 2
         "E" -> 4

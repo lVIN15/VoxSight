@@ -1,7 +1,9 @@
 package com.cit.kaido.voxsight.ui.screens.practice
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,9 +23,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Visibility
@@ -125,6 +129,8 @@ fun Module2PracticeScreen(
     )
     
     var midiController by remember { mutableStateOf<MidiPlayerController?>(null) }
+    var currentBpm by remember { mutableFloatStateOf(120f) }
+    var speedMultiplier by remember { mutableFloatStateOf(1.0f) }
     var totalSeconds by remember { mutableStateOf(resolvedScore.totalSeconds) }
     var showDiagnostics by remember { mutableStateOf(false) }
     val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
@@ -219,6 +225,7 @@ fun Module2PracticeScreen(
                     pitchAttempts = pitchAttempts,
                     onReady = { controller ->
                         midiController = controller
+                        currentBpm = controller.getBaseBPM()
                         if (audioMuteEnabled) {
                             controller.mutePart(selectedPart.shortLabel.first().toString())
                         }
@@ -284,7 +291,17 @@ fun Module2PracticeScreen(
                     midiController?.seek(progress)
                 },
                 currentTime = formatTime(currentSeconds),
-                totalTime = formatTime(totalSeconds)
+                totalTime = formatTime(totalSeconds),
+                currentBpm = currentBpm,
+                speedMultiplier = speedMultiplier,
+                onTempoChange = { newBpm ->
+                    currentBpm = newBpm
+                    midiController?.setTempo(newBpm)
+                },
+                onSpeedMultiplierChange = { newMultiplier ->
+                    speedMultiplier = newMultiplier
+                    midiController?.setSpeedMultiplier(newMultiplier)
+                }
             )
         }
 
@@ -907,12 +924,88 @@ private fun PlaybackControlBar(
     onProgressChange: (Float) -> Unit,
     onProgressChangeFinished: () -> Unit = {},
     currentTime: String,
-    totalTime: String
+    totalTime: String,
+    currentBpm: Float = 120f,
+    speedMultiplier: Float = 1.0f,
+    onTempoChange: (Float) -> Unit = {},
+    onSpeedMultiplierChange: (Float) -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // ── Tempo (BPM) Stepper & Speed Multiplier Chips ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // BPM Stepper
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .background(VoxCardBackground, RoundedCornerShape(20.dp))
+                    .border(1.dp, VoxCardStroke, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                IconButton(
+                    onClick = { onTempoChange((currentBpm - 5f).coerceAtLeast(40f)) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.Remove,
+                        contentDescription = "Decrease Tempo",
+                        tint = VoxPurplePrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Text(
+                    text = "♩ ${currentBpm.roundToInt()} BPM",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = VoxTextPrimary
+                )
+                IconButton(
+                    onClick = { onTempoChange((currentBpm + 5f).coerceAtMost(240f)) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.Add,
+                        contentDescription = "Increase Tempo",
+                        tint = VoxPurplePrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Speed Multiplier Chips
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val multipliers = listOf(0.75f to "0.75×", 1.0f to "1.0×", 1.25f to "1.25×", 1.5f to "1.5×")
+                multipliers.forEach { (factor, label) ->
+                    val isSelected = kotlin.math.abs(speedMultiplier - factor) < 0.01f
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) VoxPurplePrimary else VoxCardBackground,
+                        border = BorderStroke(1.dp, if (isSelected) VoxPurplePrimary else VoxCardStroke),
+                        modifier = Modifier
+                            .clickable { onSpeedMultiplierChange(factor) }
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else VoxTextSecondary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically

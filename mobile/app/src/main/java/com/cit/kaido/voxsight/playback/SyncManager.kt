@@ -206,30 +206,51 @@ class SyncManager {
         val coords = HashMap<String, NoteCoordinate>()
         val matchResults = ArrayList<MatchResult>()
 
-        // Group active events and OSMD elements by pitch (highly reliable)
         val activeEvents = events.filter { !it.isRest }
-        val eventsByPitch = activeEvents.groupBy { it.pitchMidi }
-        val osmdByPitch = osmdElements.groupBy { it.midiNote }
+        val usedOsmdIds = HashSet<Int>()
 
-        val allPitches = (eventsByPitch.keys + osmdByPitch.keys).toSet()
+        // Sort events strictly chronologically (Measure, Beat/Tick, Staff, Voice, Pitch descending)
+        val sortedEvents = activeEvents.sortedWith(
+            compareBy<MusicalEvent>({ it.measureNumber }, { it.tickPosition }, { it.staffId }, { it.voiceSource }, { -it.pitchMidi })
+        )
 
-        for (pitch in allPitches) {
-            // Sort both lists chronologically.
-            // For unison notes at the EXACT SAME TICK across different staves (e.g. Alto C4 vs Tenor C4),
-            // we use staffId (1=Treble, 2=Bass) for events, and Y-coordinate (smaller=higher) for visual notes.
-            // This completely eliminates any Alto/Tenor color swaps!
-            val groupEvents = (eventsByPitch[pitch] ?: emptyList())
-                .sortedWith(compareBy({ it.tickPosition }, { it.staffId }))
-            val groupOsmd = (osmdByPitch[pitch] ?: emptyList())
-                .sortedWith(compareBy({ it.id }, { it.y }))
-            
-            // Sequential pitch matching: Nth event matches Nth OSMD note.
-            // This is 100% immune to OMR timing drift, missing beats, and tick resolution differences.
-            val limit = minOf(groupEvents.size, groupOsmd.size)
-            for (i in 0 until limit) {
-                val event = groupEvents[i]
-                val elem = groupOsmd[i]
-                coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+        // PASS 1: Strict Same-Measure + Same-Pitch Match (left-to-right visual order)
+        for (event in sortedEvents) {
+            val candidate = osmdElements.firstOrNull { elem ->
+                !usedOsmdIds.contains(elem.id) &&
+                elem.measureNumber == event.measureNumber &&
+                elem.midiNote == event.pitchMidi
+            }
+            if (candidate != null) {
+                usedOsmdIds.add(candidate.id)
+                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+            }
+        }
+
+        // PASS 2: Nearby Measure (+/- 1 measure tolerance for pickup / anacrusis measure numbering offsets)
+        for (event in sortedEvents) {
+            if (coords.containsKey(event.eventId)) continue
+            val candidate = osmdElements.firstOrNull { elem ->
+                !usedOsmdIds.contains(elem.id) &&
+                kotlin.math.abs(elem.measureNumber - event.measureNumber) <= 1 &&
+                elem.midiNote == event.pitchMidi
+            }
+            if (candidate != null) {
+                usedOsmdIds.add(candidate.id)
+                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+            }
+        }
+
+        // PASS 3: Global Pitch Match (Chronological order)
+        for (event in sortedEvents) {
+            if (coords.containsKey(event.eventId)) continue
+            val candidate = osmdElements.firstOrNull { elem ->
+                !usedOsmdIds.contains(elem.id) &&
+                elem.midiNote == event.pitchMidi
+            }
+            if (candidate != null) {
+                usedOsmdIds.add(candidate.id)
+                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
             }
         }
 
@@ -239,31 +260,23 @@ class SyncManager {
         val totalEvents = activeEvents.size
         val totalOsmdNodes = osmdElements.size
 
-        val osmdByTickPitch = osmdElements.groupBy { "t${it.tick}-m${it.midiNote}" }
+        val osmdByTickPitchGroup = osmdElements.groupBy { "t${it.tick}-m${it.midiNote}" }
         
         for (event in activeEvents) {
             val isMatched = coords.containsKey(event.eventId)
-
-            // A duplicate match occurs if multiple OSMD nodes were found for this tick+pitch
-            val groupOsmd = osmdByTickPitch["t${event.tickPosition}-m${event.pitchMidi}"] ?: emptyList()
+            val groupOsmd = osmdByTickPitchGroup["t${event.tickPosition}-m${event.pitchMidi}"] ?: emptyList()
             val isDuplicate = groupOsmd.size > 1
-
             matchResults.add(MatchResult(event.eventId, isMatched, isDuplicate))
         }
 
         val matchedPairs = matchResults.count { it.matched }
         val duplicateMatches = matchResults.count { it.duplicateMatch }
 
-        // Bipartite matching confidence:
-        // confidence = matched_pairs / max(total_events, total_nodes)
-        // Penalize duplicates (one event matched to multiple nodes)
         val denominator = maxOf(totalEvents, totalOsmdNodes)
         val rawConfidence = if (denominator > 0) {
             (matchedPairs.toFloat() - duplicateMatches.toFloat() * 0.5f) / denominator.toFloat()
         } else 0f
 
-        // Structure penalty factor (Fix #32):
-        // Prevents confidence inflation in dense engraving.
         val nodesPerEvent = matchResults.groupBy { it.eventId }
             .map { it.value.size.toFloat() }
         val npeVariance = if (nodesPerEvent.size > 1) {
@@ -308,13 +321,15 @@ class SyncManager {
      */
     data class OsmdNoteElement(
         val id: Int = 0,
-        val eventId: String? = null,  // May not be available
-        val tick: Int,
-        val midiNote: Int,
-        val x: Float,
-        val y: Float,
-        val width: Float,
-        val height: Float
+        val eventId: String? = null,
+        val tick: Int = 0,
+        val midiNote: Int = 60,
+        val measureNumber: Int = 1,
+        val voice: Int = 1,
+        val x: Float = 0f,
+        val y: Float = 0f,
+        val width: Float = 0f,
+        val height: Float = 0f
     )
 
     data class NoteHighlightData(

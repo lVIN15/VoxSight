@@ -185,11 +185,16 @@ fun NoteEditorBottomSheet(
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             IconButton(
                                 onClick = { 
-                                    // Move pitch step up
+                                    // Move pitch step up with octave rollover
                                     val steps = listOf("C", "D", "E", "F", "G", "A", "B")
                                     val currentIndex = steps.indexOf(pitchStep)
-                                    val nextIndex = (currentIndex + 1) % steps.size
-                                    onPitchChanged(steps[nextIndex], alter, octave)
+                                    if (pitchStep == "B") {
+                                        if (octave < 8) {
+                                            onPitchChanged("C", alter, octave + 1)
+                                        }
+                                    } else if (currentIndex != -1) {
+                                        onPitchChanged(steps[currentIndex + 1], alter, octave)
+                                    }
                                 },
                                 modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
                             ) {
@@ -197,11 +202,16 @@ fun NoteEditorBottomSheet(
                             }
                             IconButton(
                                 onClick = { 
-                                    // Move pitch step down
+                                    // Move pitch step down with octave rollover
                                     val steps = listOf("C", "D", "E", "F", "G", "A", "B")
                                     val currentIndex = steps.indexOf(pitchStep)
-                                    val prevIndex = if (currentIndex - 1 < 0) steps.size - 1 else currentIndex - 1
-                                    onPitchChanged(steps[prevIndex], alter, octave)
+                                    if (pitchStep == "C") {
+                                        if (octave > 1) {
+                                            onPitchChanged("B", alter, octave - 1)
+                                        }
+                                    } else if (currentIndex > 0) {
+                                        onPitchChanged(steps[currentIndex - 1], alter, octave)
+                                    }
                                 },
                                 modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
                             ) {
@@ -333,7 +343,7 @@ fun NoteEditorBottomSheet(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "DELETE DUPLICATE NOTE",
+                    text = "DELETE NOTE",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp
                 )

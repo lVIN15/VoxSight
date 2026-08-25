@@ -136,7 +136,7 @@ class PracticeActivity : AppCompatActivity(),
         val passedEventsJson = intent.getStringExtra(EXTRA_EVENTS_JSON)
         val fileUri = intent.getStringExtra(EXTRA_FILE_URI)
         val fileName = intent.getStringExtra(EXTRA_FILE_NAME)
-        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: "http://192.168.1.3:8080"
+        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: "http://10.202.26.27:8080"
 
         if (passedMusicXml != null && passedEventsJson != null) {
             // Data already available (passed from OmrScreen after /api/analyze)
@@ -285,18 +285,10 @@ class PracticeActivity : AppCompatActivity(),
     // ─── Rendering ─────────────────────────────────────────────────────
     private fun renderScore() {
         val xml = musicXml ?: return
-
-        // Escape the MusicXML for JavaScript string injection
-        val escaped = xml
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("</", "<\\/")
-
-        webView.evaluateJavascript("loadScore('$escaped');", null)
+        val encoded = android.util.Base64.encodeToString(xml.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        webView.evaluateJavascript("loadScoreBase64('$encoded');", null)
         isRendered = true
-        Log.i(TAG, "Score sent to OSMD renderer")
+        Log.i(TAG, "Score sent to OSMD renderer via Base64")
     }
 
     // ─── Playback Controls (called from UI) ────────────────────────────

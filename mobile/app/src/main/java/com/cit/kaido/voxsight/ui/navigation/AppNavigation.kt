@@ -207,7 +207,7 @@ fun AppNavigation() {
                             
                             val finalScore = parsedScore.copy(
                                 eventsJson = eventsJson,
-                                metadataJson = "{}"
+                                metadataJson = parsedScore.metadataJson
                             )
                             
                             // Save to cache

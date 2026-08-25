@@ -89,7 +89,8 @@
         let masterCompressor;
         let toneConfigured = false;
         const muteState = { S: false, A: false, T: false, B: false };
-        // ---------- Verovio & MusicXML parsing ----------
+
+        // ---------- MusicXML parsing ----------
         async function parseMusicXML(musicxmlString) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(musicxmlString, 'application/xml');
@@ -101,15 +102,9 @@
             const sound = xmlDoc.querySelector('sound[tempo]');
             if (sound) tempo = Number(sound.getAttribute('tempo')) || tempo;
 
-            // Get the divisions (ticks per quarter note) to calculate accurate beat durations
-            const divisionsNode = xmlDoc.querySelector('divisions');
-            const divisions = divisionsNode ? Number(divisionsNode.textContent) : 1;
-            const beatsPerQuarter = divisions ? 1 / divisions : 1;
-
             const parts = xmlDoc.querySelectorAll('part');
             parts.forEach(part => {
                 const id = part.getAttribute('id') || '';
-                // Try ID-based match first, fall back to order
                 const label = (id.includes('S') ? 'S' :
                     id.includes('A') ? 'A' :
                         id.includes('T') ? 'T' :
@@ -117,89 +112,91 @@
                                 partOrder[partIndex] || 'S');
                 partIndex++;
 
-                let time = 0;
-                part.querySelectorAll('note').forEach(note => {
-                    // Calculate accurate beats using divisions
-                    const durNode = note.querySelector('duration');
-                    const durationBeats = durNode ? (Number(durNode.textContent) * beatsPerQuarter) : 0.5;
+                let currentDivisions = 1;
+                let measureStartBeat = 0;
 
-                    // If it's a rest, advance time but don't push a note
-                    if (note.querySelector('rest')) {
-                        time += durationBeats;
-                        return;
-                    }
+                part.querySelectorAll('measure').forEach(measure => {
+                    let timeInMeasure = 0;
+                    let measureMaxBeats = 0;
 
-                    const step = note.querySelector('step')?.textContent;
-                    const octave = note.querySelector('octave')?.textContent;
-                    const alter = note.querySelector('alter')?.textContent;
+                    Array.from(measure.childNodes).forEach(node => {
+                        if (node.nodeType !== 1) return; // Element nodes only
+                        const tagName = node.tagName.toLowerCase();
 
-                    if (!step || !octave) return; // Skip if invalid pitch
+                        if (tagName === 'attributes') {
+                            const divEl = node.querySelector('divisions');
+                            if (divEl) {
+                                const val = Number(divEl.textContent);
+                                if (val > 0) currentDivisions = val;
+                            }
+                        } else if (tagName === 'backup') {
+                            const durEl = node.querySelector('duration');
+                            if (durEl) {
+                                const dur = Number(durEl.textContent) || 0;
+                                timeInMeasure -= dur / currentDivisions;
+                                if (timeInMeasure < 0) timeInMeasure = 0;
+                            }
+                        } else if (tagName === 'forward') {
+                            const durEl = node.querySelector('duration');
+                            if (durEl) {
+                                const dur = Number(durEl.textContent) || 0;
+                                timeInMeasure += dur / currentDivisions;
+                            }
+                        } else if (tagName === 'note') {
+                            const isChord = !!node.querySelector('chord');
+                            const durNode = node.querySelector('duration');
+                            const durationBeats = durNode ? (Number(durNode.textContent) / currentDivisions) : 1.0;
 
-                    let pitch = step + (alter == 1 ? '#' : alter == -1 ? 'b' : '') + octave;
+                            const noteStartBeat = measureStartBeat + timeInMeasure;
 
-                    const type = note.querySelector('type')?.textContent;
-                    const durationMap = { whole: '1m', half: '2n', quarter: '4n', eighth: '8n', '16th': '16n', '32nd': '32n' };
-                    const toneDur = durationMap[type] || '4n';
+                            if (node.querySelector('rest')) {
+                                if (!isChord) {
+                                    timeInMeasure += durationBeats;
+                                    if (timeInMeasure > measureMaxBeats) measureMaxBeats = timeInMeasure;
+                                }
+                                return;
+                            }
 
-                    satb[label].push({
-                        time: time,
-                        pitch: pitch,
-                        duration: toneDur,
-                        durationBeats: durationBeats, // Added this so Tone.js knows when to release the synth!
-                        voice: label
+                            const step = node.querySelector('step')?.textContent;
+                            const octave = node.querySelector('octave')?.textContent;
+                            const alter = node.querySelector('alter')?.textContent;
+
+                            if (!step || !octave) {
+                                if (!isChord) {
+                                    timeInMeasure += durationBeats;
+                                    if (timeInMeasure > measureMaxBeats) measureMaxBeats = timeInMeasure;
+                                }
+                                return;
+                            }
+
+                            let pitch = step + (alter == 1 ? '#' : alter == -1 ? 'b' : '') + octave;
+
+                            const type = node.querySelector('type')?.textContent;
+                            const durationMap = { whole: '1m', half: '2n', quarter: '4n', eighth: '8n', '16th': '16n', '32nd': '32n' };
+                            const toneDur = durationMap[type] || '4n';
+
+                            satb[label].push({
+                                time: noteStartBeat,
+                                pitch: pitch,
+                                duration: toneDur,
+                                durationBeats: durationBeats,
+                                voice: label
+                            });
+
+                            if (!isChord) {
+                                timeInMeasure += durationBeats;
+                                if (timeInMeasure > measureMaxBeats) measureMaxBeats = timeInMeasure;
+                            }
+                        }
                     });
 
-                    time += durationBeats;
+                    measureStartBeat += Math.max(measureMaxBeats, 1.0);
                 });
             });
 
             return { satb, tempo };
         }
 
-        // Simple fallback parser using DOMParser (in case Verovio unavailable)
-        function parseMusicXMLFallback(musicxmlString) {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(musicxmlString, 'application/xml');
-            const satb = { S: [], A: [], T: [], B: [] };
-            let tempo = 120;
-            const partOrder = ['S', 'A', 'T', 'B'];
-            let partIndex = 0;
-
-            const sound = xmlDoc.querySelector('sound[tempo]');
-            if (sound) tempo = Number(sound.getAttribute('tempo')) || tempo;
-            const parts = xmlDoc.querySelectorAll('part');
-            parts.forEach(part => {
-                const id = part.getAttribute('id') || '';
-                // Try ID-based match first, fall back to order
-                const label = (id.includes('S') ? 'S' :
-                    id.includes('A') ? 'A' :
-                        id.includes('T') ? 'T' :
-                            id.includes('B') ? 'B' :
-                                partOrder[partIndex] || 'S');
-                partIndex++;
-                let time = 0;
-                part.querySelectorAll('note').forEach(note => {
-                    if (note.querySelector('rest')) {
-                        const dur = note.querySelector('duration');
-                        time += dur ? Number(dur.textContent) * 0.25 : 0;
-                        return;
-                    }
-                    const step = note.querySelector('step')?.textContent;
-                    const octave = note.querySelector('octave')?.textContent;
-                    const alter = note.querySelector('alter')?.textContent;
-                    if (!step || !octave) return;
-                    let pitch = step + (alter == 1 ? '#' : alter == -1 ? 'b' : '') + octave;
-                    const type = note.querySelector('type')?.textContent;
-                    const durationMap = { whole: '1m', half: '2n', quarter: '4n', eighth: '8n', '16th': '16n', '32nd': '32n' };
-                    const dur = durationMap[type] || '4n';
-                    satb[label].push({ time, pitch, duration: dur, voice: label });
-                    const durNode = note.querySelector('duration');
-                    const beats = durNode ? Number(durNode.textContent) * 0.25 : 0.5;
-                    time += beats;
-                });
-            });
-            return { satb, tempo };
-        }
         let parts = {};
         const firedCounts = { S: 0, A: 0, T: 0, B: 0 };
         let pendingSatb = null;
@@ -224,13 +221,10 @@
             });
             synthS = synthA = synthT = synthB = undefined;
 
-            // Dispose master chain nodes (they'll be recreated in initAudioEngine)
             try { masterGain?.disconnect(); masterGain?.dispose(); } catch (_) { }
             try { masterCompressor?.disconnect(); masterCompressor?.dispose(); } catch (_) { }
             try { masterLimiter?.disconnect(); masterLimiter?.dispose(); } catch (_) { }
             masterGain = masterCompressor = masterLimiter = undefined;
-            // NOTE: Do NOT reset toneConfigured here — creating a second AudioContext
-            // orphans the old one and breaks Transport ↔ Part binding in Tone.js.
         }
 
         function init() {
@@ -256,7 +250,6 @@
                 document.getElementById('score').innerHTML = '<p style="color: red; padding: 20px;">Error: No MusicXML data received</p>';
                 return;
             }
-            // Render MusicXML if OSMD loaded
             if (osmd) {
                 resizeScoreContainer();
                 osmd.load(data.musicxml)
@@ -274,42 +267,23 @@
                     });
             }
 
-            // ---- Determine SATB data and tempo ----
-            // Priority 1: Use pre-parsed SATB from the backend (most reliable voice assignment)
-            const backendSatb = data.satb;
-            const hasBackendSatb = backendSatb &&
-                (backendSatb.S?.length || backendSatb.A?.length ||
-                 backendSatb.T?.length || backendSatb.B?.length);
-
-            if (hasBackendSatb) {
-                pendingSatb = backendSatb;
-                pendingTempo = Number(data.tempo) || 120;
-                console.log('Using backend SATB data. Tempo:', pendingTempo,
-                    'S:', backendSatb.S?.length || 0,
-                    'A:', backendSatb.A?.length || 0,
-                    'T:', backendSatb.T?.length || 0,
-                    'B:', backendSatb.B?.length || 0);
-            } else {
-                // Priority 2: Parse MusicXML ourselves
-                try {
-                    const { satb, tempo } = await parseMusicXML(data.musicxml);
-                    pendingSatb = satb;
-                    pendingTempo = Number(tempo) || 120;
-                    console.log('Parsed SATB from MusicXML. Tempo:', pendingTempo,
-                        'S:', satb.S?.length || 0,
-                        'A:', satb.A?.length || 0,
-                        'T:', satb.T?.length || 0,
-                        'B:', satb.B?.length || 0);
-                } catch (e) {
-                    console.error('Failed to parse MusicXML:', e);
-                    pendingSatb = { S: [], A: [], T: [], B: [] };
-                    pendingTempo = 120;
-                }
+            try {
+                const { satb, tempo } = await parseMusicXML(data.musicxml);
+                pendingSatb = satb;
+                pendingTempo = Number(data.tempo) || Number(tempo) || 120;
+                console.log('Parsed SATB from MusicXML. Tempo:', pendingTempo,
+                    'S:', satb.S?.length || 0,
+                    'A:', satb.A?.length || 0,
+                    'T:', satb.T?.length || 0,
+                    'B:', satb.B?.length || 0);
+            } catch (e) {
+                console.error('Failed to parse MusicXML:', e);
+                pendingSatb = { S: [], A: [], T: [], B: [] };
+                pendingTempo = 120;
             }
             window.SATB = pendingSatb;
             window.TEMPO = pendingTempo;
 
-            // Don't build audio nodes until the user presses Play (Android WebView gesture reliability)
             teardownAudioEngine();
             console.log('Audio data prepared; press Play to start.');
         }
@@ -318,7 +292,6 @@
             satb = satb || {};
             console.log('initAudioEngine called with tempo:', tempo, 'satb:', satb);
 
-            // Reset Transport state/scheduled events from any previous run
             try { Tone.Transport.stop(); } catch (_) { }
             try { Tone.Transport.seconds = 0; } catch (_) { }
             try { Tone.Transport.cancel(0); } catch (_) { }
@@ -330,7 +303,6 @@
             firedCounts.T = 0;
             firedCounts.B = 0;
 
-            // Avoid piling up synth nodes across reloads
             [synthS, synthA, synthT, synthB].forEach(s => {
                 try { s?.disconnect?.(); } catch (_) { }
                 try { s?.dispose?.(); } catch (_) { }
@@ -339,7 +311,6 @@
 
             if (!toneConfigured) {
                 Tone.setContext(new Tone.Context({ latencyHint: 'interactive' }));
-                // Defaults are generally the most reliable for Part/Transport scheduling
                 Tone.getContext().lookAhead = 0.1;
                 Tone.getContext().updateInterval = 0.03;
                 toneConfigured = true;
@@ -350,7 +321,6 @@
             const minStartSeconds = getMinStartSeconds(satb, secondsPerBeat);
             console.log('Audio timing: secondsPerBeat=', secondsPerBeat, 'minStartSeconds=', minStartSeconds);
 
-            // Master output chain: Gain → Compressor → Limiter → Speakers
             masterLimiter = new Tone.Limiter(-6).toDestination();
             masterCompressor = new Tone.Compressor({
                 threshold: -24,
@@ -363,12 +333,10 @@
             masterGain.connect(masterCompressor);
             masterCompressor.connect(masterLimiter);
 
-            // Single shared synth for all voices (keeps it simple, avoids overload)
-            // Voice params MUST be at top level — Tone.js v14 ignores nested "options" key
             const synthOptions = {
                 maxPolyphony: 8,
                 oscillator: {
-                    type: 'sine',  // Cleaner, more musical tones
+                    type: 'sine',
                     partials: [1, 2, 3]
                 },
                 envelope: {
@@ -384,14 +352,11 @@
             synthT = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
             synthB = new Tone.PolySynth(Tone.Synth, synthOptions).connect(masterGain);
 
-            // Build Tone.Part per voice
-            // Merge all notes into S for now (SATB separation comes later)
-            const allNotes = [].concat(satb.S || [], satb.A || [], satb.T || [], satb.B || []);
-            parts.S = createPart(allNotes, synthS, 'S', secondsPerBeat, minStartSeconds);
-            parts.A = createPart([], synthA, 'A', secondsPerBeat, minStartSeconds);
-            parts.T = createPart([], synthT, 'T', secondsPerBeat, minStartSeconds);
-            parts.B = createPart([], synthB, 'B', secondsPerBeat, minStartSeconds);
-            console.log('Total notes (merged):', allNotes.length);
+            parts.S = createPart(satb.S || [], synthS, 'S', secondsPerBeat, minStartSeconds);
+            parts.A = createPart(satb.A || [], synthA, 'A', secondsPerBeat, minStartSeconds);
+            parts.T = createPart(satb.T || [], synthT, 'T', secondsPerBeat, minStartSeconds);
+            parts.B = createPart(satb.B || [], synthB, 'B', secondsPerBeat, minStartSeconds);
+            console.log('Notes per voice: S=' + (satb.S?.length||0) + ' A=' + (satb.A?.length||0) + ' T=' + (satb.T?.length||0) + ' B=' + (satb.B?.length||0));
         }
 
         function getMinStartSeconds(satb, secondsPerBeat) {
@@ -431,14 +396,10 @@
                         return null;
                     }
 
-                    // Determine duration: if the backend sent a Tone.js duration string (e.g., "4n"), use it directly;
-                    // otherwise treat the value as beats and convert to seconds.
                     let duration;
                     if (typeof n.duration === 'string' && isNaN(Number(n.duration))) {
-                        // Assume it's a Tone.js notation like "4n", "8n", etc.
                         duration = n.duration;
                     } else {
-                        // Fallback: treat as beats (or use durationBeats if present)
                         const durationBeats = Number(n.durationBeats ?? n.duration);
                         const safeDurationBeats = Number.isFinite(durationBeats) && durationBeats > 0 ? durationBeats : 0.5;
                         duration = Math.max(safeDurationBeats * secondsPerBeat, 0.05);
@@ -486,16 +447,14 @@
             );
 
             return part;
-        }     // ---------- Synchronization ----------        //
+        }
 
         function setupSync() {
-            // Approximate measure start times in seconds
             const bpm = pendingTempo || 120;
             const secondsPerBeat = 60 / bpm;
-            const beatsPerMeasure = 4; // assume common time; could be derived from Verovio later
+            const beatsPerMeasure = 4;
             window.measureMap = {};
 
-            // Determine total beats from SATB data
             const allNotes = [].concat(pendingSatb?.S || [], pendingSatb?.A || [], pendingSatb?.T || [], pendingSatb?.B || []);
             const maxBeat = allNotes.reduce((max, n) => Math.max(max, n.time + (n.durationBeats || 0)), 0);
             const totalMeasures = Math.ceil(maxBeat / beatsPerMeasure);
@@ -503,26 +462,8 @@
             for (let i = 1; i <= totalMeasures; i++) {
                 window.measureMap[i] = (i - 1) * beatsPerMeasure * secondsPerBeat;
             }
-
-            // Update OSMD cursor on Transport ticks
-            Tone.Transport.scheduleRepeat((time) => {
-                const now = Tone.Transport.seconds;
-                let currentMeasure = 1;
-                for (let m in window.measureMap) {
-                    if (now >= window.measureMap[m]) {
-                        currentMeasure = Number(m);
-                    } else break;
-                }
-
-                // TEMPORARILY DISABLED: 'showMeasure' is not a valid OSMD API method. 
-                // Standard OSMD cursor movement relies on osmd.cursor.next()
-                /*
-                if (osmd && osmd.cursor) {
-                    osmd.cursor.showMeasure(currentMeasure); 
-                }
-                */
-            }, '16n');
         }
+
         async function play() {
             if (!pendingSatb) {
                 console.warn('Play requested but no SATB data is loaded');
@@ -539,7 +480,6 @@
             await Tone.start();
             console.log('AudioContext state after Tone.start():', Tone.getContext().state);
 
-            // Build audio graph lazily on first Play (after context is running)
             if (!parts || Object.keys(parts).length === 0) {
                 try {
                     initAudioEngine(pendingSatb, pendingTempo);
@@ -550,8 +490,6 @@
                     return;
                 }
             }
-
-            console.log('Tone ctx:', Tone.getContext().state, 'Transport:', Tone.Transport.state, 'bpm:', Tone.Transport.bpm.value);
 
             if (!parts || Object.keys(parts).length === 0) {
                 console.warn('Play requested but no parts are loaded');
@@ -568,11 +506,9 @@
                 return;
             }
 
-            // Fresh start from the beginning
             Tone.Transport.stop();
             Tone.Transport.seconds = 0;
 
-            // Start Transport immediately, then parts at Transport time 0
             Tone.Transport.start("+0");
 
             Object.values(parts).forEach(part => {
@@ -583,18 +519,6 @@
             });
 
             console.log('Transport started at', Tone.now().toFixed(3));
-
-            setTimeout(() => {
-                console.log('Fired counts after 1s: S=' + firedCounts.S +
-                    ' A=' + firedCounts.A +
-                    ' T=' + firedCounts.T +
-                    ' B=' + firedCounts.B);
-                if (firedCounts.S === 0 && firedCounts.A === 0 &&
-                    firedCounts.T === 0 && firedCounts.B === 0) {
-                    console.error('WARNING: No notes fired after 1s! Transport state:',
-                        Tone.Transport.state, 'seconds:', Tone.Transport.seconds.toFixed(3));
-                }
-            }, 1000);
         }
 
         function pause() {
@@ -613,7 +537,6 @@
             console.log('Transport stopped');
         }
 
-
         function toggleMute(part) {
             muteState[part] = !muteState[part];
             const btn = document.querySelector(`button[data-part="${part}"]`);
@@ -621,7 +544,6 @@
             btn.textContent = muteState[part] ? `Unmute ${part}` : `Mute ${part}`;
         }
 
-        // UI event listeners
         document.addEventListener('DOMContentLoaded', () => {
             init();
             resizeScoreContainer();

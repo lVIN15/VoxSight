@@ -390,30 +390,14 @@ class NativePlaybackEngine(private val context: Context) {
             // Check for tempo change at current tick (Fix #34)
             updateTempoIfNeeded(currentTick)
 
-            // ─── STEP 4: EXACT PACING (Fix for speed oscillation) ──
+            // ─── STEP 4: EXACT PACING (Smooth & Scalable) ──
             if (idx < playbackQueue.size) {
                 val nextTick = playbackQueue[idx].tickPosition
-                val tickDelta = nextTick - currentTick
-                val sleepNs = ticksToNs(tickDelta)
+                val tickDelta = (nextTick - currentTick).coerceAtLeast(0)
+                val sleepMs = ticksToMs(tickDelta)
                 
-                expectedWallTimeNs += sleepNs
-                
-                var nowNs = System.nanoTime()
-                var actualSleepNs = expectedWallTimeNs - nowNs
-                
-                if (actualSleepNs > 0) {
-                    if (actualSleepNs > 10_000_000) {
-                        delay((actualSleepNs / 1_000_000) - 5)
-                    }
-                    while (System.nanoTime() < expectedWallTimeNs && isPlaying.get()) {
-                        // Busy wait for precision
-                    }
-                } else {
-                    // Drift compensation: if we are late, do not aggressively try to catch up 
-                    // by playing immediately. Reset expected wall time to prevent speed oscillation.
-                    if (actualSleepNs < -5_000_000) {
-                        expectedWallTimeNs = System.nanoTime()
-                    }
+                if (sleepMs > 0) {
+                    delay(sleepMs)
                 }
             }
 
@@ -578,6 +562,7 @@ class NativePlaybackEngine(private val context: Context) {
      * Intentional tempo changes are NOT treated as drift errors.
      */
     private fun updateTempoIfNeeded(currentTick: Int) {
+        if (tempoEvents.size <= 1) return // Keep user-set or single base tempo
         for (mark in tempoEvents.reversed()) {
             if (currentTick >= mark.tick) {
                 if (currentBPM != mark.bpm) {
@@ -589,17 +574,49 @@ class NativePlaybackEngine(private val context: Context) {
         }
     }
 
+    // ─── Tempo & Speed Multiplier Controls ─────────────────────────────
+    private var speedMultiplier = 1.0f
+
+    fun setTempo(bpm: Float) {
+        this.currentBPM = bpm.coerceIn(30f, 300f)
+        this.tempoEvents = listOf(TempoMark(0, currentBPM))
+        Log.i(TAG, "User updated tempo to $currentBPM BPM (effective: ${currentBPM * speedMultiplier})")
+        if (state == PlaybackState.PLAYING) {
+            dispatcherJob?.cancel()
+            dispatcherJob = dispatcherScope.launch {
+                runDispatcherLoop()
+            }
+        }
+    }
+
+    fun setSpeedMultiplier(multiplier: Float) {
+        this.speedMultiplier = multiplier.coerceIn(0.25f, 3.0f)
+        Log.i(TAG, "Speed multiplier set to ${speedMultiplier}x (effective: ${currentBPM * speedMultiplier})")
+        if (state == PlaybackState.PLAYING) {
+            dispatcherJob?.cancel()
+            dispatcherJob = dispatcherScope.launch {
+                runDispatcherLoop()
+            }
+        }
+    }
+
+    fun getSpeedMultiplier(): Float = speedMultiplier
+
+    fun getBaseBPM(): Float = currentBPM
+
     // ─── Timing Conversion ─────────────────────────────────────────────
     private fun ticksToMs(ticks: Long): Long {
-        if (currentBPM <= 0 || ticksPerQuarter <= 0) return 0
-        return (ticks.toDouble() * 60000.0 / (currentBPM.toDouble() * ticksPerQuarter.toDouble())).toLong().coerceAtLeast(0)
+        val effectiveBpm = currentBPM * speedMultiplier
+        if (effectiveBpm <= 0 || ticksPerQuarter <= 0) return 0
+        return (ticks.toDouble() * 60000.0 / (effectiveBpm.toDouble() * ticksPerQuarter.toDouble())).toLong().coerceAtLeast(0)
     }
 
     private fun ticksToMs(ticks: Int): Long = ticksToMs(ticks.toLong())
 
     private fun ticksToNs(ticks: Int): Long {
-        if (currentBPM <= 0 || ticksPerQuarter <= 0) return 0
-        return (ticks.toDouble() * 60_000_000_000.0 / (currentBPM.toDouble() * ticksPerQuarter.toDouble())).toLong().coerceAtLeast(0)
+        val effectiveBpm = currentBPM * speedMultiplier
+        if (effectiveBpm <= 0 || ticksPerQuarter <= 0) return 0
+        return (ticks.toDouble() * 60_000_000_000.0 / (effectiveBpm.toDouble() * ticksPerQuarter.toDouble())).toLong().coerceAtLeast(0)
     }
 
     // ─── Lifecycle ─────────────────────────────────────────────────────
@@ -632,7 +649,7 @@ class NativePlaybackEngine(private val context: Context) {
 
     // ─── Query State ───────────────────────────────────────────────────
     fun getState(): PlaybackState = state
-    fun getCurrentBPM(): Float = currentBPM
+    fun getCurrentBPM(): Float = currentBPM * speedMultiplier
     fun getCurrentTick(): Int {
         val idx = currentEventIndex.get()
         return if (idx < playbackQueue.size) playbackQueue[idx].tickPosition else 0
