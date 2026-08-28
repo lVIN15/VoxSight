@@ -342,7 +342,7 @@ fun NoteEditorBottomSheet(
                     onClick = { onToggleDot(!isDotted) },
                     label = {
                         Text(
-                            text = if (isDotted) "• Dotted (Active)" else "• Dot Note/Rest",
+                            text = if (isDotted) "• Dotted (Active)" else (if (isRest) "• Dot Rest" else "• Dot Note"),
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
@@ -364,14 +364,25 @@ fun NoteEditorBottomSheet(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val durations = listOf(
-                    "whole" to "Whole 𝅝",
-                    "half" to "Half 𝅗𝅥",
-                    "quarter" to "Quarter 𝅘𝅥",
-                    "eighth" to "Eighth 𝅘𝅥𝅮",
-                    "16th" to "16th 𝅘𝅥𝅯",
-                    "32nd" to "32nd 𝅘𝅥𝅰"
-                )
+                val durations = if (isRest) {
+                    listOf(
+                        "whole" to "Whole 𝄻",
+                        "half" to "Half 𝄼",
+                        "quarter" to "Quarter 𝄽",
+                        "eighth" to "Eighth 𝄾",
+                        "16th" to "16th 𝄿",
+                        "32nd" to "32nd 𝅀"
+                    )
+                } else {
+                    listOf(
+                        "whole" to "Whole 𝅝",
+                        "half" to "Half 𝅗𝅥",
+                        "quarter" to "Quarter 𝅘𝅥",
+                        "eighth" to "Eighth 𝅘𝅥𝅮",
+                        "16th" to "16th 𝅘𝅥𝅯",
+                        "32nd" to "32nd 𝅘𝅥𝅰"
+                    )
+                }
                 durations.forEach { (type, label) ->
                     val isDurSelected = durationType.lowercase() == type
                     FilterChip(
