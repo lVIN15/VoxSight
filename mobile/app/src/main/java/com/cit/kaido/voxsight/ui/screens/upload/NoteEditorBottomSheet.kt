@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,9 +41,18 @@ fun NoteEditorBottomSheet(
     durationType: String,
     voiceId: Int,
     measureNumber: Int,
+    lyricText: String = "",
+    isRest: Boolean = false,
+    isDotted: Boolean = false,
+    onLyricChanged: (String) -> Unit = {},
     onVoiceChanged: (Int) -> Unit,
     onPitchChanged: (step: String, alter: Int, octave: Int) -> Unit,
-    onDurationChanged: (String) -> Unit,
+    onDurationChanged: (String, Boolean) -> Unit,
+    onToggleDot: (Boolean) -> Unit,
+    onConvertToRest: () -> Unit,
+    onConvertToNote: (step: String, alter: Int, octave: Int) -> Unit,
+    onAddNote: (position: String, step: String, alter: Int, octave: Int, type: String, dotted: Boolean) -> Unit,
+    onAddRest: (position: String, type: String, dotted: Boolean) -> Unit,
     onDeleteClicked: () -> Unit,
     onDismissRequest: () -> Unit
 ) {
@@ -61,22 +72,60 @@ fun NoteEditorBottomSheet(
         ) {
             // Header Section
             Text(
-                text = "Edit Note",
+                text = if (isRest) "Edit Rest" else "Edit Note",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = VoxTextPrimary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Measure $measureNumber • Note Index $noteId",
+                text = "Measure $measureNumber • Element ID #$noteId",
                 style = MaterialTheme.typography.bodyMedium,
                 color = VoxTextSubtitle
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 0. Convert between Note and Rest
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        if (isRest) {
+                            onConvertToNote(pitchStep.ifBlank { "C" }, alter, if (octave in 1..8) octave else 4)
+                        } else {
+                            onConvertToRest()
+                        }
+                    }
+                    .border(1.dp, VoxPurplePrimary.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                color = VoxPurpleIconBg.copy(alpha = 0.5f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.SwapHoriz,
+                        contentDescription = "Convert Element",
+                        tint = VoxPurplePrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isRest) "Convert Rest → Normal Note" else "Convert Note → Rest",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = VoxPurplePrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             // 1. Voice Assignment Section (SATB)
             Text(
-                text = "Voice Assignment",
+                text = "Voice / Part Assignment",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = VoxTextPrimary,
                 modifier = Modifier.fillMaxWidth(),
@@ -85,13 +134,13 @@ fun NoteEditorBottomSheet(
             Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 val voices = listOf(
-                    1 to "Soprano",
-                    2 to "Alto",
-                    3 to "Tenor",
-                    4 to "Bass"
+                    1 to "Soprano (S)",
+                    2 to "Alto (A)",
+                    3 to "Tenor (T)",
+                    4 to "Bass (B)"
                 )
                 voices.forEach { (id, name) ->
                     val isSelected = voiceId == id
@@ -102,7 +151,7 @@ fun NoteEditorBottomSheet(
                         4 -> Color(0xFF2196F3) // Bass - Blue
                         else -> VoxPurplePrimary
                     }
-                    
+
                     Surface(
                         modifier = Modifier
                             .weight(1f)
@@ -116,12 +165,12 @@ fun NoteEditorBottomSheet(
                         color = if (isSelected) voiceColor.copy(alpha = 0.1f) else Color.Transparent
                     ) {
                         Box(
-                            modifier = Modifier.padding(vertical = 12.dp),
+                            modifier = Modifier.padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = name.substring(0, 1),
-                                fontSize = 16.sp,
+                                text = name.substringAfter("(").substringBefore(")"),
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isSelected) voiceColor else VoxTextSubtitle
                             )
@@ -130,171 +179,185 @@ fun NoteEditorBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 2. Pitch Transposer Section
-            Text(
-                text = "Pitch / Octave",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = VoxTextPrimary,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Start
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Pitch Display
-                val alterSymbol = when (alter) {
-                    -1 -> "♭"
-                    1 -> "♯"
-                    else -> ""
-                }
-                
-                Surface(
-                    color = VoxPurpleIconBg,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .width(100.dp)
-                        .height(130.dp)
+            // 2. Pitch Transposer Section (Only for normal notes)
+            if (!isRest) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Pitch & Accidental",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxTextPrimary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Start
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "$pitchStep$alterSymbol$octave",
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = VoxPurplePrimary
-                        )
+                    val alterSymbol = when (alter) {
+                        -1 -> "♭"
+                        1 -> "♯"
+                        else -> ""
                     }
-                }
 
-                // Semitone adjusters (Stacked vertically next to the display card)
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Semitone Pitch Adjuster
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Surface(
+                        color = VoxPurpleIconBg,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .width(96.dp)
+                            .height(120.dp)
                     ) {
-                        Text("Pitch", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = { 
-                                    // Move pitch step up with octave rollover
-                                    val steps = listOf("C", "D", "E", "F", "G", "A", "B")
-                                    val currentIndex = steps.indexOf(pitchStep)
-                                    if (pitchStep == "B") {
-                                        if (octave < 8) {
-                                            onPitchChanged("C", alter, octave + 1)
-                                        }
-                                    } else if (currentIndex != -1) {
-                                        onPitchChanged(steps[currentIndex + 1], alter, octave)
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
-                            ) {
-                                Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Step Up", tint = VoxPurplePrimary, modifier = Modifier.size(20.dp))
-                            }
-                            IconButton(
-                                onClick = { 
-                                    // Move pitch step down with octave rollover
-                                    val steps = listOf("C", "D", "E", "F", "G", "A", "B")
-                                    val currentIndex = steps.indexOf(pitchStep)
-                                    if (pitchStep == "C") {
-                                        if (octave > 1) {
-                                            onPitchChanged("B", alter, octave - 1)
-                                        }
-                                    } else if (currentIndex > 0) {
-                                        onPitchChanged(steps[currentIndex - 1], alter, octave)
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
-                            ) {
-                                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Step Down", tint = VoxPurplePrimary, modifier = Modifier.size(20.dp))
-                            }
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "$pitchStep$alterSymbol$octave",
+                                fontSize = 30.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = VoxPurplePrimary
+                            )
                         }
                     }
 
-                    // Accidental Switchers (Flat / Natural / Sharp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Accidental", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
+                        // Semitone Pitch Step Adjuster
                         Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(VoxPurpleIconBg)
-                                .padding(1.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            val accidentals = listOf(-1 to "♭", 0 to "♮", 1 to "♯")
-                            accidentals.forEach { (valAlter, symbol) ->
-                                val isAccSelected = alter == valAlter
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isAccSelected) VoxPurplePrimary else Color.Transparent)
-                                        .clickable { onPitchChanged(pitchStep, valAlter, octave) },
-                                    contentAlignment = Alignment.Center
+                            Text("Step", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        val steps = listOf("C", "D", "E", "F", "G", "A", "B")
+                                        val currentIndex = steps.indexOf(pitchStep)
+                                        if (pitchStep == "B") {
+                                            if (octave < 8) onPitchChanged("C", alter, octave + 1)
+                                        } else if (currentIndex != -1 && currentIndex < steps.size - 1) {
+                                            onPitchChanged(steps[currentIndex + 1], alter, octave)
+                                        }
+                                    },
+                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
                                 ) {
-                                    Text(
-                                        text = symbol,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isAccSelected) Color.White else VoxPurplePrimary
-                                    )
+                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Step Up", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val steps = listOf("C", "D", "E", "F", "G", "A", "B")
+                                        val currentIndex = steps.indexOf(pitchStep)
+                                        if (pitchStep == "C") {
+                                            if (octave > 1) onPitchChanged("B", alter, octave - 1)
+                                        } else if (currentIndex > 0) {
+                                            onPitchChanged(steps[currentIndex - 1], alter, octave)
+                                        }
+                                    },
+                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
+                                ) {
+                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Step Down", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
-                    }
 
-                    // Octave Adjuster
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Octave", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = { 
-                                    if (octave < 8) onPitchChanged(pitchStep, alter, octave + 1)
-                                },
-                                modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
+                        // Accidental Switchers (Flat / Natural / Sharp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Accidental", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(VoxPurpleIconBg)
+                                    .padding(1.dp)
                             ) {
-                                Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Octave Up", tint = VoxPurplePrimary, modifier = Modifier.size(20.dp))
+                                val accidentals = listOf(-1 to "♭", 0 to "♮", 1 to "♯")
+                                accidentals.forEach { (valAlter, symbol) ->
+                                    val isAccSelected = alter == valAlter
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isAccSelected) VoxPurplePrimary else Color.Transparent)
+                                            .clickable { onPitchChanged(pitchStep, valAlter, octave) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = symbol,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isAccSelected) Color.White else VoxPurplePrimary
+                                        )
+                                    }
+                                }
                             }
-                            IconButton(
-                                onClick = { 
-                                    if (octave > 1) onPitchChanged(pitchStep, alter, octave - 1)
-                                },
-                                modifier = Modifier.size(32.dp).background(VoxPurpleIconBg, CircleShape)
-                            ) {
-                                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Octave Down", tint = VoxPurplePrimary, modifier = Modifier.size(20.dp))
+                        }
+
+                        // Octave Adjuster
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Octave", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(
+                                    onClick = { if (octave < 8) onPitchChanged(pitchStep, alter, octave + 1) },
+                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
+                                ) {
+                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Octave Up", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(
+                                    onClick = { if (octave > 1) onPitchChanged(pitchStep, alter, octave - 1) },
+                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
+                                ) {
+                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Octave Down", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 3. Duration Type Selector Section
-            Text(
-                text = "Note Duration",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = VoxTextPrimary,
+            // 3. Duration & Dotted Section
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Start
-            )
-            Spacer(modifier = Modifier.height(10.dp))
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isRest) "Rest Duration" else "Note Duration",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxTextPrimary
+                )
+
+                // Dotted toggle button
+                FilterChip(
+                    selected = isDotted,
+                    onClick = { onToggleDot(!isDotted) },
+                    label = {
+                        Text(
+                            text = if (isDotted) "• Dotted (Active)" else "• Dot Note/Rest",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFFF9800),
+                        selectedLabelColor = Color.White,
+                        containerColor = VoxPurpleIconBg,
+                        labelColor = VoxPurplePrimary
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -306,13 +369,14 @@ fun NoteEditorBottomSheet(
                     "half" to "Half 𝅗𝅥",
                     "quarter" to "Quarter 𝅘𝅥",
                     "eighth" to "Eighth 𝅘𝅥𝅮",
-                    "16th" to "16th 𝅘𝅥𝅯"
+                    "16th" to "16th 𝅘𝅥𝅯",
+                    "32nd" to "32nd 𝅘𝅥𝅰"
                 )
                 durations.forEach { (type, label) ->
                     val isDurSelected = durationType.lowercase() == type
                     FilterChip(
                         selected = isDurSelected,
-                        onClick = { onDurationChanged(type) },
+                        onClick = { onDurationChanged(type, isDotted) },
                         label = { Text(label, fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = VoxPurplePrimary,
@@ -322,9 +386,74 @@ fun NoteEditorBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            // 4. Lyric / Word Input Section (Only for pitch notes)
+            if (!isRest) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Lyric / Syllable",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxTextPrimary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Start
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                var currentLyric by remember(noteId, lyricText) { mutableStateOf(lyricText) }
+                OutlinedTextField(
+                    value = currentLyric,
+                    onValueChange = {
+                        currentLyric = it
+                        onLyricChanged(it)
+                    },
+                    placeholder = { Text("e.g. Hal-le-lu-jah", color = VoxTextSubtitle.copy(alpha = 0.6f), fontSize = 13.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = VoxPurplePrimary,
+                        unfocusedBorderColor = VoxCardStroke,
+                        focusedTextColor = VoxTextPrimary,
+                        unfocusedTextColor = VoxTextPrimary
+                    )
+                )
+            }
 
-            // 4. Action Buttons (Delete note)
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 5. Add Note / Add Rest Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        onAddNote("after", pitchStep.ifBlank { "C" }, alter, octave, durationType.ifBlank { "quarter" }, isDotted)
+                    },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, VoxPurplePrimary)
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Add Note", modifier = Modifier.size(16.dp), tint = VoxPurplePrimary)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("+ Note", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = VoxPurplePrimary)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        onAddRest("after", durationType.ifBlank { "quarter" }, isDotted)
+                    },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF673AB7))
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Add Rest", modifier = Modifier.size(16.dp), tint = Color(0xFF673AB7))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("+ Rest", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF673AB7))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 6. Delete Action Button
             OutlinedButton(
                 onClick = onDeleteClicked,
                 colors = ButtonDefaults.outlinedButtonColors(
@@ -334,18 +463,18 @@ fun NoteEditorBottomSheet(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(46.dp)
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
-                    contentDescription = "Delete Note",
-                    modifier = Modifier.size(20.dp)
+                    contentDescription = "Delete",
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "DELETE NOTE",
+                    text = if (isRest) "DELETE REST" else "DELETE NOTE",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
             }
         }

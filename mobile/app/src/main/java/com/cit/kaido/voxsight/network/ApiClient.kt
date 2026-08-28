@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
     private const val PREFS_NAME = "voxsight_prefs"
     private const val KEY_BASE_URL = "backend_base_url"
-    private const val DEFAULT_BASE_URL = "http://10.202.26.27:8080/"
+    private const val DEFAULT_BASE_URL = "http://192.168.1.56:8080/"
 
     private var activeUrl = DEFAULT_BASE_URL
     private var cachedRetrofit: Retrofit? = null

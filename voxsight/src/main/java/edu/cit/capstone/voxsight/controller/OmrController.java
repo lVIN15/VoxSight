@@ -75,6 +75,8 @@ public class OmrController {
                     uploadsDirPath,
                     uploadedFile.getAbsolutePath()
             );
+            String tessdataDir = System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Roaming" + File.separator + "AudiverisLtd" + File.separator + "audiveris" + File.separator + "config" + File.separator + "tessdata";
+            pb.environment().put("TESSDATA_PREFIX", tessdataDir);
             pb.redirectErrorStream(true); // Merge stdout and stderr
             Process process = pb.start();
 
@@ -112,6 +114,9 @@ public class OmrController {
                 // Move result to the outputs folder
                 Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 log.info("[Success] Moved {} to {}", resultFile.getName(), targetFile.getAbsolutePath());
+
+                // Post-process MusicXML to merge duplicate/split parts and clean misplaced credits
+                cleanMusicXml(targetFile);
 
                 String fileUrl = "/outputs/" + baseName + extension;
                 return ResponseEntity.ok(OmrResponse.ofSuccess(fileUrl, baseName + extension));
@@ -169,6 +174,8 @@ public class OmrController {
                     audiverisPath, "-batch", "-export", "MusicXML",
                     "-output", uploadsDirPath, uploadedFile.getAbsolutePath()
             );
+            String tessdataDir = System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Roaming" + File.separator + "AudiverisLtd" + File.separator + "audiveris" + File.separator + "config" + File.separator + "tessdata";
+            pb.environment().put("TESSDATA_PREFIX", tessdataDir);
             pb.redirectErrorStream(true);
             Process process = pb.start();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -203,6 +210,8 @@ public class OmrController {
         File targetFile = new File(outputsDirPath, baseName + extension);
         try {
             Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            // Post-process MusicXML to merge duplicate/split parts and clean misplaced credits
+            cleanMusicXml(targetFile);
         } catch (IOException e) {
             log.error("Failed to move output: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -334,5 +343,33 @@ public class OmrController {
 
         // Default fallback
         return "We couldn't process this sheet music. Please try uploading a clearer image (at least 300 DPI) or a PDF file.";
+    }
+
+    /**
+     * Invokes musicxml_cleaner.py to merge duplicate/split parts across systems
+     * and strip misplaced footer/credit text from note lyrics.
+     */
+    private void cleanMusicXml(File file) {
+        if (file == null || !file.exists()) return;
+        try {
+            String userDir = System.getProperty("user.dir");
+            File script = new File(userDir, "scripts/musicxml_cleaner.py");
+            if (!script.exists()) {
+                log.warn("[MusicXML Cleaner] Script not found at: {}", script.getAbsolutePath());
+                return;
+            }
+            ProcessBuilder pb = new ProcessBuilder("python", script.getAbsolutePath(), file.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    log.info("[MusicXML Cleaner] {}", line);
+                }
+            }
+            p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("[MusicXML Cleaner] Non-fatal error cleaning MusicXML: {}", e.getMessage());
+        }
     }
 }

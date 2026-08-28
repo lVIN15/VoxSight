@@ -412,7 +412,7 @@ fun UploadScoreScreen(
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = {
-                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { "http://10.202.26.27:8080" })
+                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { "http://192.168.1.56:8080" })
                         showSettingsDialog = false
                     }
                 ) {

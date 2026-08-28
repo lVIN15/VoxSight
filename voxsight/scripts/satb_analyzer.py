@@ -267,6 +267,13 @@ def analyze(xml_path: str) -> dict:
     """
     log.info(f"[{PIPELINE_START_ANALYSIS}] Parsing: {xml_path}")
 
+    # Clean and merge duplicate parts / strip credit lyrics before music21 parsing
+    try:
+        from musicxml_cleaner import clean_musicxml_file
+        clean_musicxml_file(xml_path)
+    except Exception as e:
+        log.warn(f"Pre-analysis musicxml clean error: {e}")
+
     try:
         score = music21.converter.parse(xml_path)
     except Exception as e:

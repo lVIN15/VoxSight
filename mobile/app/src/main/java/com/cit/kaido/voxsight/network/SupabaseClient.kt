@@ -4,6 +4,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
+import io.ktor.client.engine.android.Android
 
 object Supabase {
     
@@ -16,6 +17,7 @@ object Supabase {
             supabaseUrl = SUPABASE_URL,
             supabaseKey = SUPABASE_ANON_KEY
         ) {
+            httpEngine = Android.create()
             install(Auth)
             install(Postgrest)
         }

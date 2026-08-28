@@ -82,6 +82,8 @@ fun parseMusicXmlScore(
     
     // We will track total duration per part to find the actual max duration
     val partDurations = mutableMapOf<Int, Int>()
+    val partNamesMap = mutableMapOf<Int, String>()
+    var currentScorePartIndex = 0
     var currentPartIndex = 0
 
     var inNote = false
@@ -113,6 +115,15 @@ fun parseMusicXmlScore(
             when (event) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
+                        "score-part" -> {
+                            currentScorePartIndex++
+                        }
+                        "part-name" -> {
+                            val pName = parser.nextText().trim()
+                            if (pName.isNotBlank() && currentScorePartIndex > 0) {
+                                partNamesMap[currentScorePartIndex] = pName
+                            }
+                        }
                         "sound" -> {
                             val tAttr = parser.getAttributeValue(null, "tempo")?.toFloatOrNull()
                             if (tAttr != null && parsedTempo == null) parsedTempo = tAttr
@@ -342,17 +353,20 @@ fun parseMusicXmlScore(
 
             // Group notes by part for direct access
             val partNotes = adjustedMeasures.flatMap { it.notes }
+            val declaredName = partNamesMap[partIndex]?.takeIf { it.isNotBlank() }
+            val resolvedPartName = when {
+                declaredName != null -> declaredName
+                totalParts == 1 -> "Voice Part"
+                totalParts == 2 -> if (partIndex == 1) "Soprano / Alto" else "Tenor / Bass"
+                totalParts == 3 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Bass"; else -> "Part $partIndex" }
+                totalParts == 4 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Tenor"; 4 -> "Bass"; else -> "Part $partIndex" }
+                else -> "Part $partIndex"
+            }
 
             finalParts.add(
                 MusicXmlPart(
                     id = partIndex,
-                    name = when (partIndex) {
-                        1 -> "Soprano"
-                        2 -> "Alto"
-                        3 -> "Tenor"
-                        4 -> "Bass"
-                        else -> "Part $partIndex"
-                    },
+                    name = resolvedPartName,
                     notes = partNotes,
                     measures = adjustedMeasures
                 )
@@ -395,16 +409,20 @@ fun parseMusicXmlScore(
                     note.copy(voice = isolatedVoice)
                 }
                 finalNotes.addAll(adjustedNotes)
+                val declaredNameFallback = partNamesMap[partIndex]?.takeIf { it.isNotBlank() }
+                val resolvedPartNameFallback = when {
+                    declaredNameFallback != null -> declaredNameFallback
+                    totalPartsFallback == 1 -> "Voice Part"
+                    totalPartsFallback == 2 -> if (partIndex == 1) "Soprano / Alto" else "Tenor / Bass"
+                    totalPartsFallback == 3 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Bass"; else -> "Part $partIndex" }
+                    totalPartsFallback == 4 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Tenor"; 4 -> "Bass"; else -> "Part $partIndex" }
+                    else -> "Part $partIndex"
+                }
+
                 finalParts.add(
                     MusicXmlPart(
                         id = partIndex,
-                        name = when (partIndex) {
-                            1 -> "Soprano"
-                            2 -> "Alto"
-                            3 -> "Tenor"
-                            4 -> "Bass"
-                            else -> "Part $partIndex"
-                        },
+                        name = resolvedPartNameFallback,
                         notes = adjustedNotes,
                         measures = listOf(MusicXmlMeasure(1, adjustedNotes))
                     )

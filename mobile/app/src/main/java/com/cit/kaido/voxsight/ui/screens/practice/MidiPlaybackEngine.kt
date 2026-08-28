@@ -69,14 +69,19 @@ fun MidiPlaybackEngine(
         }
     }
 
+    // Load score only when the score identity/content changes
+    LaunchedEffect(score?.title, score?.rawXml) {
+        if (score != null) {
+            controller.loadScore(score)
+        }
+    }
+
     AndroidView(
         factory = {
             controller.webView
         },
-        update = { view ->
-            if (score != null) {
-                controller.loadScore(score)
-            }
+        update = {
+            // Score loading and lifecycle are handled reactively by LaunchedEffect
         },
         modifier = modifier
     )
@@ -112,8 +117,10 @@ open class MidiPlayerController(
     var pitchAttempts by mutableStateOf(listOf<com.cit.kaido.voxsight.pitch.PitchAttempt>())
     
     private var eventStream: EventStream = EventStream.empty()
+    private var isPageFinished = false
     private var isRendered = false
     private var currentScoreXml: String? = null
+    private var loadedScoreKey: String? = null
     
     open val totalSeconds: Int get() = calculatedTotalSeconds
     
@@ -137,6 +144,7 @@ open class MidiPlayerController(
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            allowFileAccess = true
             cacheMode = WebSettings.LOAD_NO_CACHE
             mediaPlaybackRequiresUserGesture = false
             
@@ -156,6 +164,7 @@ open class MidiPlayerController(
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
+                isPageFinished = true
                 if (currentScoreXml != null && !isRendered) {
                     renderScore(currentScoreXml!!)
                 }
@@ -175,7 +184,13 @@ open class MidiPlayerController(
     
     @Suppress("UNCHECKED_CAST")
     fun loadScore(score: MusicXmlScore) {
+        val scoreKey = "${score.title}_${score.rawXml.hashCode()}"
+        if (scoreKey == loadedScoreKey && isRendered) {
+            return
+        }
+        loadedScoreKey = scoreKey
         currentScoreXml = score.rawXml
+        isRendered = false
         
         // Parse events with automatic fallback generation
         val resolvedEventsJson = score.eventsJson?.takeIf { it.isNotBlank() && it != "[]" }
@@ -241,7 +256,7 @@ open class MidiPlayerController(
         
         playbackEngine.loadEvents(eventStream, tempoMarks, calculatedTpq)
         
-        if (webView.url != null && webView.progress == 100) {
+        if (isPageFinished && currentScoreXml != null && !isRendered) {
             renderScore(currentScoreXml!!)
         }
         
@@ -249,11 +264,12 @@ open class MidiPlayerController(
     }
     
     private fun renderScore(xml: String) {
+        if (isRendered) return
+        isRendered = true
         val encoded = android.util.Base64.encodeToString(xml.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
         webView.post {
             webView.evaluateJavascript("loadScoreBase64('$encoded', $currentTpq);", null)
         }
-        isRendered = true
     }
 
     // ─── Control API ───────────────────────────────────────────────
@@ -479,10 +495,17 @@ open class MidiPlayerController(
 
     // ─── JavaScript Bridge ─────────────────────────────────────────────
     inner class VoxSightJsBridge {
+        private var lastProcessedLayoutHash: String? = null
+
         @JavascriptInterface
         @Suppress("UNCHECKED_CAST")
         fun onRenderComplete(layoutHash: String, coordinatesJson: String) {
             try {
+                if (layoutHash == lastProcessedLayoutHash && mappedNotesCount > 0) {
+                    return
+                }
+                lastProcessedLayoutHash = layoutHash
+
                 val coordType = object : TypeToken<List<Map<String, Any>>>() {}.type
                 val rawCoords: List<Map<String, Any>> = gson.fromJson(coordinatesJson, coordType)
 

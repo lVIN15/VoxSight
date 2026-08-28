@@ -232,7 +232,16 @@
                 document.getElementById('score').innerHTML = '<p style="color: orange; padding: 20px;">Note: OpenSheetMusicDisplay library failed to load. Tone.js audio will still play.</p>';
                 return;
             }
-            osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('score', { autoResize: true, drawTitle: false });
+            osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('score', {
+                autoResize: true,
+                drawTitle: false,
+                autoGenerateMultipleRestMeasuresFromRestMeasures: true,
+                renderMultipleRestMeasures: true
+            });
+            if (osmd.rules) {
+                osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
+                osmd.rules.RenderMultipleRestMeasures = true;
+            }
         }
 
         function resizeScoreContainer() {
@@ -256,6 +265,7 @@
                     .then(() => {
                         requestAnimationFrame(() => {
                             osmd.render();
+                            renderHBarRests();
                             if (typeof osmd.resize === 'function') {
                                 osmd.resize();
                             }
@@ -542,6 +552,164 @@
             const btn = document.querySelector(`button[data-part="${part}"]`);
             btn.classList.toggle('muted', muteState[part]);
             btn.textContent = muteState[part] ? `Unmute ${part}` : `Mute ${part}`;
+        }
+
+        // ─── SVG H-Bar Rest Renderer for Multi-Measure Rests ───────────
+        function renderHBarRests() {
+            if (!osmd || !osmd.graphic) return;
+
+            var scoreDiv = document.getElementById('score');
+            if (!scoreDiv) return;
+
+            var existing = scoreDiv.querySelectorAll('.voxsight-hbar-rest');
+            for (let i = 0; i < existing.length; i++) {
+                existing[i].remove();
+            }
+
+            var svgs = scoreDiv.querySelectorAll('svg');
+            if (!svgs || svgs.length === 0) return;
+            var pages = (osmd.graphic && osmd.graphic.MusicPages) ? osmd.graphic.MusicPages : [];
+
+            var measureList = osmd.graphic.measureList;
+            if (!measureList) return;
+
+            var unitToPx = 10;
+            if (osmd.graphic && osmd.graphic.rules && osmd.graphic.rules.unitInPixels) unitToPx = osmd.graphic.rules.unitInPixels;
+            else if (osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
+
+            for (let mIdx = 0; mIdx < measureList.length; mIdx++) {
+                var mRow = measureList[mIdx];
+                if (!mRow) continue;
+
+                for (let sIdx = 0; sIdx < mRow.length; sIdx++) {
+                    var gMeas = mRow[sIdx];
+                    if (!gMeas) continue;
+
+                    if (gMeas.IsExtraGraphicalMeasure || gMeas.isExtraGraphicalMeasure || !gMeas.parentMusicSystem) continue;
+
+                    var multirestCount = 0;
+                    if (gMeas.parentSourceMeasure && gMeas.parentSourceMeasure.multipleRestMeasures) {
+                        multirestCount = gMeas.parentSourceMeasure.multipleRestMeasures;
+                    }
+
+                    if (multirestCount >= 2) {
+                        // Check if source measure has pitched notes
+                        if (gMeas.parentSourceMeasure && gMeas.parentSourceMeasure.VerticalSourceStaffEntryContainers) {
+                            var hasPitch = false;
+                            var containers = gMeas.parentSourceMeasure.VerticalSourceStaffEntryContainers;
+                            for (var vi = 0; vi < containers.length; vi++) {
+                                var entries = containers[vi].StaffEntries;
+                                if (entries) {
+                                    for (var ei = 0; ei < entries.length; ei++) {
+                                        var se = entries[ei];
+                                        if (se.VoiceEntries) {
+                                            for (var vei = 0; vei < se.VoiceEntries.length; vei++) {
+                                                var ve = se.VoiceEntries[vei];
+                                                if (ve.Notes) {
+                                                    for (var ni = 0; ni < ve.Notes.length; ni++) {
+                                                        if (ve.Notes[ni].Pitch || !ve.Notes[ni].isRest()) {
+                                                            hasPitch = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (hasPitch) continue;
+                        }
+
+                        var mNum = gMeas.parentSourceMeasure ? gMeas.parentSourceMeasure.MeasureNumber : (mIdx + 1);
+                        var bbox = gMeas.PositionAndShape || gMeas.positionAndShape;
+                        var absPos = bbox ? (bbox.absolutePosition || bbox.AbsolutePosition) : null;
+                        var size = bbox ? (bbox.size || bbox.Size) : null;
+                        if (!absPos || !size) continue;
+
+                        var sys = gMeas.parentMusicSystem;
+                        var page = sys ? (sys.Parent || sys.parentMusicPage || sys.ParentMusicPage) : null;
+                        var pIdx = (pages && page) ? pages.indexOf(page) : 0;
+                        if (pIdx < 0) pIdx = 0;
+                        var targetSvg = (pIdx < svgs.length) ? svgs[pIdx] : svgs[0];
+
+                        var pageY = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.y : 0;
+                        var pageX = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.x : 0;
+
+                        var sx = (absPos.x - pageX) * unitToPx;
+                        var sy = (absPos.y - pageY) * unitToPx;
+                        var sw = size.width * unitToPx;
+                        var sh = size.height * unitToPx;
+
+                        if (!sw || sw < 20 || !sh || sh < 15) continue;
+
+                        var line1Y = sy;
+                        var line3Y = sy + (sh * 0.5);
+                        var serifTop = sy + (sh * 0.25);
+                        var serifBottom = sy + (sh * 0.75);
+
+                        var barWidth = Math.max(36, Math.min(70, sw * 0.38));
+                        var leftX = sx + (sw - barWidth) / 2;
+                        var rightX = leftX + barWidth;
+
+                        var gEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        gEl.setAttribute('class', 'voxsight-hbar-rest');
+                        gEl.setAttribute('data-measure-num', mNum.toString());
+                        gEl.setAttribute('data-staff-idx', sIdx.toString());
+
+                        // Mask rectangle behind H-Bar to cleanly conceal any default rest symbol
+                        var bgMask = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        bgMask.setAttribute('x', (leftX - 4).toFixed(2));
+                        bgMask.setAttribute('y', (line1Y + 2).toFixed(2));
+                        bgMask.setAttribute('width', (barWidth + 8).toFixed(2));
+                        bgMask.setAttribute('height', (sh - 4).toFixed(2));
+                        bgMask.setAttribute('fill', '#ffffff');
+                        bgMask.setAttribute('opacity', '0.92');
+                        gEl.appendChild(bgMask);
+
+                        var beam = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        beam.setAttribute('x1', leftX.toFixed(2));
+                        beam.setAttribute('y1', line3Y.toFixed(2));
+                        beam.setAttribute('x2', rightX.toFixed(2));
+                        beam.setAttribute('y2', line3Y.toFixed(2));
+                        beam.setAttribute('stroke', '#000000');
+                        beam.setAttribute('stroke-width', '5.5');
+                        beam.setAttribute('stroke-linecap', 'square');
+                        gEl.appendChild(beam);
+
+                        var lSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        lSerif.setAttribute('x1', leftX.toFixed(2));
+                        lSerif.setAttribute('y1', serifTop.toFixed(2));
+                        lSerif.setAttribute('x2', leftX.toFixed(2));
+                        lSerif.setAttribute('y2', serifBottom.toFixed(2));
+                        lSerif.setAttribute('stroke', '#000000');
+                        lSerif.setAttribute('stroke-width', '3.2');
+                        gEl.appendChild(lSerif);
+
+                        var rSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        rSerif.setAttribute('x1', rightX.toFixed(2));
+                        rSerif.setAttribute('y1', serifTop.toFixed(2));
+                        rSerif.setAttribute('x2', rightX.toFixed(2));
+                        rSerif.setAttribute('y2', serifBottom.toFixed(2));
+                        rSerif.setAttribute('stroke', '#000000');
+                        rSerif.setAttribute('stroke-width', '3.2');
+                        gEl.appendChild(rSerif);
+
+                        var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', (sx + sw / 2).toFixed(2));
+                        text.setAttribute('y', (line1Y - 7).toFixed(2));
+                        text.setAttribute('font-family', 'serif, "Times New Roman", sans-serif');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('font-size', '16');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', '#000000');
+                        text.textContent = multirestCount.toString();
+                        gEl.appendChild(text);
+
+                        targetSvg.appendChild(gEl);
+                    }
+                }
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {

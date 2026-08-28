@@ -1,11 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <title>VoxSight Sheet Music</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -71,7 +76,10 @@
         /* Loading state */
         .loading-overlay {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: rgba(26, 26, 46, 0.9);
             display: flex;
             align-items: center;
@@ -79,7 +87,9 @@
             z-index: 1000;
         }
 
-        .loading-overlay.hidden { display: none; }
+        .loading-overlay.hidden {
+            display: none;
+        }
 
         .spinner {
             width: 40px;
@@ -90,9 +100,14 @@
             animation: spin 0.8s linear infinite;
         }
 
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
+
 <body>
 
     <!-- Loading overlay -->
@@ -117,642 +132,1291 @@
     <script src="Tone.min.js"></script>
 
     <script>
-    /**
-     * VoxSight OSMD Renderer v1.0
-     * ============================
-     * Architecture Contract (v3.7):
-     *   - Read-only renderer: NEVER modifies MusicXML
-     *   - Canvas overlay for note highlighting (no DOM mutation on OSMD SVG)
-     *   - layout_hash gating: coordinates are versioned
-     *   - Bipartite matching: extracts note positions for SyncManager
-     *   - No audio code — playback is handled natively
-     */
+        /**
+         * VoxSight OSMD Renderer v1.0
+         * ============================
+         * Architecture Contract (v3.7):
+         *   - Read-only renderer: NEVER modifies MusicXML
+         *   - Canvas overlay for note highlighting (no DOM mutation on OSMD SVG)
+         *   - layout_hash gating: coordinates are versioned
+         *   - Bipartite matching: extracts note positions for SyncManager
+         *   - No audio code — playback is handled natively
+         */
 
-    // Helper function to safely get the float value of an OSMD Fraction
-    function getFractionValue(fraction) {
-        if (!fraction) return 0;
-        if (typeof fraction.RealValue === 'number') return fraction.RealValue;
-        if (typeof fraction.realValue === 'number') return fraction.realValue;
-        if (fraction.numerator !== undefined && fraction.denominator !== undefined) {
-            return fraction.numerator / fraction.denominator;
-        }
-        return 0;
-    }
-
-    // Helper function to extract VexFlow SVG elements from an OSMD GraphicalNote
-    function getSvgElements(gNote) {
-        const svgs = [];
-        if (!gNote) return svgs;
-        
-        const vfnotes = gNote.vfnote;
-        if (!vfnotes) return svgs;
-        
-        // vfnote can be an array or a single object depending on OSMD version
-        const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
-        for (let i = 0; i < arr.length; i++) {
-            const vf = arr[i];
-            if (!vf) continue;
-            let el = null;
-            if (typeof vf.getSVGGElement === 'function') {
-                el = vf.getSVGGElement();
-            } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
-                el = vf.getAttribute('el');
+        // Helper function to safely get the float value of an OSMD Fraction
+        function getFractionValue(fraction) {
+            if (!fraction) return 0;
+            if (typeof fraction.RealValue === 'number') return fraction.RealValue;
+            if (typeof fraction.realValue === 'number') return fraction.realValue;
+            if (fraction.numerator !== undefined && fraction.denominator !== undefined) {
+                return fraction.numerator / fraction.denominator;
             }
-            if (el) svgs.push(el);
+            return 0;
         }
-        return svgs;
-    }
 
-    // ─── State ──────────────────────────────────────────────────────
-    let osmd = null;
-    let highlightCtx = null;
-    let layoutHash = null;
-    let noteCoordinates = [];  // Extracted from OSMD after render
-    let allGraphicalNotes = []; // Cached references to bypass minification issues
+        // Helper function to extract VexFlow SVG elements from an OSMD GraphicalNote
+        function getSvgElements(gNote) {
+            const svgs = [];
+            if (!gNote) return svgs;
 
-    function findGraphicalNotes(obj, visited = new Set(), results = []) {
-        if (!obj || typeof obj !== 'object') return results;
-        if (visited.has(obj)) return results;
-        visited.add(obj);
+            const vfnotes = gNote.vfnote;
+            if (!vfnotes) return svgs;
 
-        const srcNote = obj.sourceNote || obj.SourceNote;
-        const bbox = obj.positionAndShape || obj.PositionAndShape;
-        
-        if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
-            results.push(obj);
+            // vfnote can be an array or a single object depending on OSMD version
+            const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
+            for (let i = 0; i < arr.length; i++) {
+                const vf = arr[i];
+                if (!vf) continue;
+                let el = null;
+                if (typeof vf.getSVGGElement === 'function') {
+                    el = vf.getSVGGElement();
+                } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
+                    el = vf.getAttribute('el');
+                }
+                if (el) svgs.push(el);
+            }
+            return svgs;
+        }
+
+        // ─── State ──────────────────────────────────────────────────────
+        let osmd = null;
+        let highlightCtx = null;
+        let layoutHash = null;
+        let noteCoordinates = [];  // Extracted from OSMD after render
+        let allGraphicalNotes = []; // Cached references to bypass minification issues
+        let xmlDoc = null;          // Global MusicXML DOM for H-bar and structure inspection
+        let colorMappingList = [];
+        let currentVisualFocus = null;
+
+        function findGraphicalNotes(obj, visited = new Set(), results = []) {
+            if (!obj || typeof obj !== 'object') return results;
+            if (visited.has(obj)) return results;
+            visited.add(obj);
+
+            const srcNote = obj.sourceNote || obj.SourceNote;
+            const bbox = obj.positionAndShape || obj.PositionAndShape;
+
+            if (srcNote && bbox && (bbox.absolutePosition || bbox.AbsolutePosition)) {
+                results.push(obj);
+                return results;
+            }
+
+            if (Array.isArray(obj)) {
+                for (let i = 0; i < obj.length; i++) {
+                    findGraphicalNotes(obj[i], visited, results);
+                }
+            } else {
+                if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
+                for (let key of Object.keys(obj)) {
+                    findGraphicalNotes(obj[key], visited, results);
+                }
+            }
             return results;
         }
 
-        if (Array.isArray(obj)) {
-            for (let i = 0; i < obj.length; i++) {
-                findGraphicalNotes(obj[i], visited, results);
-            }
-        } else {
-            if (obj instanceof HTMLElement || obj instanceof SVGElement || obj instanceof Node) return results;
-            for (let key of Object.keys(obj)) {
-                findGraphicalNotes(obj[key], visited, results);
-            }
-        }
-        return results;
-    }
+        // ─── DOM References ─────────────────────────────────────────────
+        const renderDiv = document.getElementById('osmd-render');
+        const canvas = document.getElementById('highlight-canvas');
+        const statusText = document.getElementById('status-text');
+        const syncConfidence = document.getElementById('sync-confidence');
+        const loadingOverlay = document.getElementById('loading-overlay');
 
-    // ─── DOM References ─────────────────────────────────────────────
-    const renderDiv = document.getElementById('osmd-render');
-    const canvas = document.getElementById('highlight-canvas');
-    const statusText = document.getElementById('status-text');
-    const syncConfidence = document.getElementById('sync-confidence');
-    const loadingOverlay = document.getElementById('loading-overlay');
-
-    // ─── Initialize OSMD ────────────────────────────────────────────
-    function initOSMD() {
-        osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
-            backend: 'svg',
-            autoResize: false,
-            newSystemFromXML: true,
-            newPageFromXML: true,
-            drawTitle: true,
-            drawComposer: true,
-            drawPartNames: true,
-            drawMeasureNumbers: true,
-            drawLyrics: true,
-            drawSlurs: true,
-            drawCredits: true,
-            drawFingerings: true,
-            drawingParameters: 'default',
-            coloringEnabled: true,
-            colorStemsLikeNoteheads: true
-            // Read-only. No editing, no cursor manipulation.
-        });
-
-        highlightCtx = canvas.getContext('2d');
-        updateStatus('OSMD initialized');
-    }
-
-    let currentTpq = 960;
-
-    /**
-     * Load and render MusicXML.
-     * Called from Android via WebView.evaluateJavascript().
-     *
-     * Architecture Contract: musicXml is the RAW, UNTOUCHED string.
-     * OSMD renders it as-is. No preprocessing.
-     *
-     * @param {string} musicXml - Raw MusicXML string
-     * @param {number} tpq - Ticks per quarter from backend
-     */
-    async function loadScore(musicXml, tpq = 960) {
-        currentTpq = tpq;
-        if (!osmd) initOSMD();
-
-        try {
-            updateStatus('Loading score...');
-            loadingOverlay.classList.remove('hidden');
-
-            await osmd.load(musicXml);
-            
-            // Set to fully zoomed-out view by default
-            if ('zoom' in osmd) {
-                osmd.zoom = 0.4;
-            } else if ('Zoom' in osmd) {
-                osmd.Zoom = 0.4;
-            } else {
-                osmd.zoom = 0.4;
-            }
-            
-            osmd.render();
-
-            // Resize canvas to match rendered score
-            resizeCanvas();
-
-            // Extract note coordinates for SyncManager
-            extractNoteCoordinates();
-
-            // Compute layout hash
-            layoutHash = computeLayoutHash();
-
-            loadingOverlay.classList.add('hidden');
-            updateStatus(`Score loaded: ${noteCoordinates.length} notes`);
-
-            // Apply visual focus dimming
-            // (Removed redundant call - updateColorsAndRender is called by applySyncColors)
-
-            // Notify Android that render is complete
-            if (window.VoxSightBridge) {
-                window.VoxSightBridge.onRenderComplete(
-                    layoutHash,
-                    JSON.stringify(noteCoordinates)
-                );
-            }
-
-        } catch (err) {
-            console.error('OSMD load error:', err);
-            updateStatus('Error: ' + err.message);
-            loadingOverlay.classList.add('hidden');
-
-            if (window.VoxSightBridge) {
-                window.VoxSightBridge.onRenderError(err.message);
-            }
-        }
-    }
-
-    // Load a base64-encoded MusicXML string into OSMD
-    function loadScoreBase64(b64, tpq = 960) {
-        try {
-            const xmlStr = atob(b64);
-            loadScore(xmlStr, tpq);
-        } catch (e) {
-            console.error('Base64 decoding failed in renderer.html:', e);
-            updateStatus('Error decoding MusicXML');
-            if (window.VoxSightBridge) {
-                window.VoxSightBridge.onRenderError('Base64 decoding failed');
-            }
-        }
-    }
-
-    let currentVisualFocus = null;
-    let colorMappingList = [];
-
-    window.setVisualFocus = function(partLabel) {
-        currentVisualFocus = partLabel;
-        updateColorsAndRender();
-    };
-
-    /**
-     * API for Android to clear the visual focus.
-     */
-    window.clearVisualFocus = function() {
-        currentVisualFocus = null;
-        updateColorsAndRender();
-    };
-
-    window.applySyncColors = function(colorsJson) {
-        try {
-            colorMappingList = JSON.parse(colorsJson);
-            if (!osmd) return;
-            updateColorsAndRender();
-        } catch(e) {
-            console.error('[VoxSight] applySyncColors failed:', e);
-        }
-    };
-
-    /**
-     * Applies Visual Focus dimming and Sync Colors directly using OSMD's native properties.
-     * This avoids brittle DOM manipulation and ensures 100% reliability.
-     */
-    function updateColorsAndRender() {
-        try {
-            if (!osmd) return;
-            
-            // Find ALL GraphicalNotes again because they might have been regenerated
-            let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet;
-            let tempGraphicalNotes = [];
-            findGraphicalNotes(root, new Set(), tempGraphicalNotes);
-            
-            for (let i = 0; i < tempGraphicalNotes.length; i++) {
-                let gNote = tempGraphicalNotes[i];
-                let srcNote = gNote.sourceNote || gNote.SourceNote;
-                if (!srcNote) continue;
-                
-                // Match using the definitive __vx_id placed on the SourceNote during first extraction
-                let gId = srcNote.__vx_id;
-                let baseColor = "#000000"; // Default
-                
-                if (colorMappingList.length > 0) {
-                    const match = colorMappingList.find(c => c.id === gId);
-                    if (match) {
-                        baseColor = match.color;
-                        srcNote.CustomSatbLabel = match.part;
-                        const voice = srcNote.voice || srcNote.Voice;
-                        if (voice) voice.CustomSatbLabel = match.part;
-                    }
-                }
-                
-                let partLabel = srcNote.CustomSatbLabel;
-                if (!partLabel) {
-                    const voice = srcNote.voice || srcNote.Voice;
-                    if (voice && voice.CustomSatbLabel) partLabel = voice.CustomSatbLabel;
-                    else partLabel = "S";
-                }
-                
-                const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
-                
-                if (isDimmed) {
-                    // Append '26' (15% opacity) to the hex color
-                    const dimColor = baseColor.length === 7 ? baseColor + "26" : "#00000026";
-                    srcNote.NoteheadColor = dimColor;
-                    if ('StemColor' in srcNote) srcNote.StemColor = dimColor;
-                } else {
-                    srcNote.NoteheadColor = baseColor;
-                    if ('StemColor' in srcNote) srcNote.StemColor = baseColor;
-                }
-            }
-            
-            // Re-render internally using OSMD
-            window.__vx_is_internal_render = true;
-            osmd.setOptions({ coloringEnabled: true, colorStemsLikeNoteheads: true });
-            osmd.render();
-            window.__vx_is_internal_render = false;
-        } catch (err) {
-            console.error('[VoxSight] updateColorsAndRender failed:', err);
-        }
-    }
-
-    /**
-     * Resize the canvas overlay to match the OSMD render area.
-     */
-    function resizeCanvas() {
-        const osmdDiv = document.getElementById('osmd-render');
-        canvas.width = osmdDiv.offsetWidth;
-        canvas.height = osmdDiv.offsetHeight;
-    }
-
-    /**
-     * Compute layout hash based on current render dimensions.
-     * If this changes, SyncManager must re-extract coordinates.
-     */
-    function computeLayoutHash() {
-        const w = renderDiv.offsetWidth;
-        const h = renderDiv.offsetHeight;
-        const zoom = window.devicePixelRatio || 1;
-        const raw = `osmd_render_w${w}_h${h}_z${zoom}`;
-        // Simple hash
-        let hash = 0;
-        for (let i = 0; i < raw.length; i++) {
-            hash = ((hash << 5) - hash) + raw.charCodeAt(i);
-            hash |= 0;
-        }
-        return 'lh_' + Math.abs(hash).toString(16).padStart(8, '0');
-    }
-
-    function getMeasureNumberFromSrcNote(srcNote) {
-        if (!srcNote) return 1;
-        if (srcNote.SourceMeasure && srcNote.SourceMeasure.MeasureNumber) return srcNote.SourceMeasure.MeasureNumber;
-        if (srcNote.sourceMeasure && srcNote.sourceMeasure.MeasureNumber) return srcNote.sourceMeasure.MeasureNumber;
-        return 1;
-    }
-
-    function getVoiceFromSrcNote(srcNote) {
-        if (!srcNote) return 1;
-        if (srcNote.ParentVoiceEntry && srcNote.ParentVoiceEntry.ParentVoice) {
-            var vId = srcNote.ParentVoiceEntry.ParentVoice.VoiceId;
-            if (vId !== undefined) {
-                var num = parseInt(vId, 10);
-                if (!isNaN(num)) return num;
-            }
-        }
-        if (srcNote.voice !== undefined) {
-            var num = parseInt(srcNote.voice, 10);
-            if (!isNaN(num)) return num;
-        }
-        if (srcNote.Voice !== undefined && srcNote.Voice.VoiceId !== undefined) {
-            var num = parseInt(srcNote.Voice.VoiceId, 10);
-            if (!isNaN(num)) return num;
-        }
-        return 1;
-    }
-
-    /**
-     * Extract note coordinates from the rendered OSMD SVG.
-     * These are sent to SyncManager for playback-to-visual correlation.
-     */
-    function extractNoteCoordinates() {
-        noteCoordinates = [];
-        allGraphicalNotes = [];
-
-        try {
-            if (!osmd) {
-                updateStatus('Extraction error: osmd is null');
-                return;
-            }
-            
-            let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
-            findGraphicalNotes(root, new Set(), allGraphicalNotes);
-
-            // Sort graphical notes in physical reading order: MeasureNumber ASC -> X ASC -> Y ASC
-            allGraphicalNotes.sort((a, b) => {
-                let srcA = a.sourceNote || a.SourceNote;
-                let srcB = b.sourceNote || b.SourceNote;
-                let mA = getMeasureNumberFromSrcNote(srcA);
-                let mB = getMeasureNumberFromSrcNote(srcB);
-                if (mA !== mB) return mA - mB;
-                
-                let bboxA = a.positionAndShape || a.PositionAndShape;
-                let bboxB = b.positionAndShape || b.PositionAndShape;
-                let posA = bboxA ? (bboxA.absolutePosition || bboxA.AbsolutePosition) : null;
-                let posB = bboxB ? (bboxB.absolutePosition || bboxB.AbsolutePosition) : null;
-                let xA = posA ? posA.x : 0;
-                let xB = posB ? posB.x : 0;
-                if (Math.abs(xA - xB) > 0.01) return xA - xB;
-                
-                let yA = posA ? posA.y : 0;
-                let yB = posB ? posB.y : 0;
-                return yA - yB;
+        // ─── Initialize OSMD ────────────────────────────────────────────
+        function initOSMD() {
+            osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
+                backend: 'svg',
+                autoResize: false,
+                newSystemFromXML: true,
+                newPageFromXML: true,
+                drawTitle: true,
+                drawComposer: true,
+                drawPartNames: true,
+                drawMeasureNumbers: true,
+                drawLyrics: true,
+                drawSlurs: true,
+                drawCredits: true,
+                drawFingerings: true,
+                drawDynamics: false,
+                drawOrnaments: false,
+                drawingParameters: 'default',
+                coloringEnabled: true,
+                colorStemsLikeNoteheads: true,
+                autoGenerateMultipleRestMeasuresFromRestMeasures: true,
+                renderMultipleRestMeasures: true
             });
 
-            let unitToPx = 10;
-            if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
-            else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
-            else if (osmd && osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
-            else if (osmd && osmd.Rules && osmd.Rules.unitInPixels) unitToPx = osmd.Rules.unitInPixels;
+            if (osmd.rules) {
+                osmd.rules.ColoringEnabled = true;
+                osmd.rules.ColorStemsLikeNoteheads = true;
+                osmd.rules.ColorBeams = true;
+                osmd.rules.ColorFlags = true;
+                osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
+                osmd.rules.RenderMultipleRestMeasures = true;
+            }
 
-            let zoom = osmd.zoom || osmd.Zoom || 1.0;
+            highlightCtx = canvas.getContext('2d');
+            updateStatus('Ready');
+        }
 
-            for (let i = 0; i < allGraphicalNotes.length; i++) {
-                let gNote = allGraphicalNotes[i];
-                let srcNote = gNote.sourceNote || gNote.SourceNote;
-                
-                const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
-                if (isRestNote) continue;
+        let currentTpq = 960;
 
-                let bbox = gNote.positionAndShape || gNote.PositionAndShape;
-                let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
-                let size = bbox.size || bbox.Size;
-                
-                if (!absPos || !size) continue;
+        // ─── Base64 & UTF-8 Decoder Helper ────────────────────────────
+        function decodeBase64ToXml(b64) {
+            if (!b64) return '';
+            try {
+                var binary = atob(b64);
+                var bytes = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return new TextDecoder('utf-8').decode(bytes);
+            } catch (e) {
+                try {
+                    return decodeURIComponent(escape(atob(b64)));
+                } catch (e2) {
+                    return atob(b64);
+                }
+            }
+        }
 
-                // Fallback internal coordinates
-                let x = absPos.x * unitToPx * zoom;
-                let y = absPos.y * unitToPx * zoom;
-                let w = (size.width || size.Width || 1.5) * unitToPx * zoom;
-                let h = (size.height || size.Height || 2) * unitToPx * zoom;
+        function sanitizeMusicXmlString(xmlString) {
+            if (!xmlString) return '';
+            return xmlString
+                .replace(/\s+xmlns=""/g, '')
+                .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')
+                .replace(/\s+data-vx-id="[^"]*"/g, '');
+        }
 
-                // Priority: Real DOM Bounding Box
-                let domElements = getSvgElements(gNote);
-                if (domElements.length > 0 && domElements[0]) {
-                    try {
-                        let rect = domElements[0].getBoundingClientRect();
-                        let canvasRect = canvas.getBoundingClientRect();
-                        x = rect.left - canvasRect.left;
-                        y = rect.top - canvasRect.top;
-                        w = rect.width;
-                        h = rect.height;
-                    } catch (e) {
-                        // ignore and use fallback
-                    }
+        /**
+         * Load and render MusicXML.
+         * Called from Android via WebView.evaluateJavascript().
+         */
+        async function loadScore(musicXml, tpq = 960) {
+            if (tpq !== undefined && typeof tpq === 'number' && tpq > 0) currentTpq = tpq;
+            if (!osmd) initOSMD();
+
+            try {
+                updateStatus('Loading score...');
+                loadingOverlay.classList.remove('hidden');
+
+                var xmlToLoad = musicXml;
+                if (typeof xmlToLoad === 'string' && !xmlToLoad.trim().startsWith('<')) {
+                    xmlToLoad = decodeBase64ToXml(xmlToLoad.trim());
                 }
 
-                let tick = 0;
-                try {
-                    const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry;
-                    const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
-                    const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
-                    const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
-                    
-                    const timestampReal = getFractionValue(timestamp);
-                    const absTimestampReal = getFractionValue(absTimestamp);
-                    
-                    tick = Math.round((timestampReal + absTimestampReal) * currentTpq * 4);
-                } catch(e) {}
-
-                let midiNote = 60;
-                try {
-                    const pitch = srcNote.pitch || srcNote.Pitch;
-                    if (pitch) {
-                        midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
-                    } else if (srcNote.halfTone !== undefined) {
-                        midiNote = srcNote.halfTone + 12;
-                    } else if (srcNote.HalfTone !== undefined) {
-                        midiNote = srcNote.HalfTone + 12;
-                    }
-                } catch(e) {}
-
-                let mNum = getMeasureNumberFromSrcNote(srcNote);
-                let voice = getVoiceFromSrcNote(srcNote);
-
-                noteCoordinates.push({
-                    tick: tick,
-                    midiNote: midiNote,
-                    measureNumber: mNum,
-                    voice: voice,
-                    x: x,
-                    y: y,
-                    width: w,
-                    height: h,
-                    id: i
-                });
-                
-                // Store calculated coordinates and attach persistent ID to the source note
-                if (srcNote) srcNote.__vx_id = i;
-                gNote.__vx_id = i;
-            }
-        } catch (err) {
-            console.error('Error extracting coordinates:', err);
-            updateStatus('Extraction error: ' + err.message);
-        }
-
-        console.log(`Extracted ${noteCoordinates.length} note coordinates`);
-    }
-
-    // ─── Tone.js Audio Synth (Fallback) ─────────────────────────────
-    let synth = null;
-    let synthStarted = false;
-
-    function ensureSynth() {
-        if (!synth) {
-            try {
-                Tone.start();
-                synth = new Tone.PolySynth(Tone.Synth, {
-                    oscillator: { type: "triangle" },
-                    envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
-                }).toDestination();
-                synth.volume.value = -10;
-                synthStarted = true;
-            } catch(e) {
-                console.warn("Failed to initialize Tone.js synth:", e);
-            }
-        }
-        if (Tone.context && Tone.context.state !== 'running') {
-            try { Tone.context.resume(); } catch(e) {}
-        }
-    }
-
-    async function initSynth() {
-        ensureSynth();
-    }
-
-    function playNote(midiNote, durationMs, velocity) {
-        ensureSynth();
-        if (synth) {
-            try {
-                const freq = Tone.Frequency(midiNote, "midi").toFrequency();
-                const vel = (velocity || 80) / 127.0;
-                const dur = Math.max(0.1, (durationMs || 500) / 1000.0);
-                synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
-            } catch(e) {
-                console.warn("playNote error:", e);
-            }
-        }
-    }
-
-    // ─── Highlight API (called from Android via WebView) ────────────
-    window.currentPitchOverlay = { version: 0, notes: [] };
-    let overlayRafId = null;
-
-    window.updatePitchOverlay = function(payload) {
-        const data = typeof payload === "string" ? JSON.parse(payload) : payload;
-
-        // Ignore stale frames
-        if (data.version <= window.currentPitchOverlay.version) {
-            return;
-        }
-
-        window.currentPitchOverlay = data;
-
-        if (overlayRafId !== null) {
-            cancelAnimationFrame(overlayRafId);
-        }
-        overlayRafId = requestAnimationFrame(renderPitchOverlay);
-    };
-
-    /**
-     * Render the pitch feedback overlay from state.
-     * Uses canvas overlay — never mutates the OSMD SVG DOM.
-     */
-    function renderPitchOverlay() {
-        if (!highlightCtx) return;
-
-        // Clear previous highlights
-        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
-
-        try {
-            const notes = window.currentPitchOverlay.notes;
-            for (const note of notes) {
-                const { x, y, width, height, color } = note;
-                let r = 99, g = 102, b = 241; // Default
-                if (color) {
-                    const hex = color.replace('#', '');
-                    if (hex.length === 6) {
-                        r = parseInt(hex.substring(0, 2), 16);
-                        g = parseInt(hex.substring(2, 4), 16);
-                        b = parseInt(hex.substring(4, 6), 16);
-                    }
+                if (!xmlToLoad || typeof xmlToLoad !== 'string' || xmlToLoad.trim().length === 0) {
+                    console.error('[VoxSight Renderer] loadScore: Empty XML string');
+                    updateStatus('Error: No XML provided');
+                    loadingOverlay.classList.add('hidden');
+                    return;
                 }
 
-                // Draw elegant elliptical highlight aura behind the notehead
-                highlightCtx.save();
-                highlightCtx.beginPath();
-                
-                // Draw a soft glowing ellipse roughly the size of the note
-                const cx = x + width / 2;
-                const cy = y + height / 2;
-                const rx = width / 1.5;
-                const ry = height / 1.5;
-                
-                highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-                
-                // Set up soft drop shadow
-                highlightCtx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
-                highlightCtx.shadowBlur = 15;
-                
-                // Soft translucent fill for the aura
-                highlightCtx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
-                highlightCtx.fill();
-                
-                // Soft border ring for definition
-                highlightCtx.shadowBlur = 0;
-                highlightCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.6)`;
-                highlightCtx.lineWidth = 1.5;
-                highlightCtx.stroke();
-                
-                highlightCtx.restore();
-            }
-        } catch (e) {
-            console.error("Failed to render pitch overlay:", e);
-        }
-    }
+                try {
+                    xmlDoc = new DOMParser().parseFromString(xmlToLoad, 'text/xml');
+                    if (xmlDoc.querySelector('parsererror')) {
+                        console.warn('DOM parser error in renderer.html');
+                    }
+                } catch (e) {
+                    console.warn('DOM parsing error in renderer.html:', e);
+                }
 
-    /**
-     * Clear all highlights.
-     */
-    function clearHighlights() {
-        if (!highlightCtx) return;
-        window.currentPitchOverlay = { version: window.currentPitchOverlay.version + 1, notes: [] };
-        if (overlayRafId !== null) {
-            cancelAnimationFrame(overlayRafId);
-        }
-        highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+                var cleanXml = sanitizeMusicXmlString(xmlToLoad);
+                if (!cleanXml || cleanXml.indexOf('<score-partwise') === -1) {
+                    cleanXml = xmlToLoad;
+                }
 
-    /**
-     * Update sync confidence display.
-     */
-    function updateSyncConfidence(confidence) {
-        const pct = Math.round(confidence * 100);
-        syncConfidence.textContent = `Sync: ${pct}%`;
-        syncConfidence.style.color = pct >= 80 ? '#4ade80' :
-                                      pct >= 50 ? '#facc15' : '#f87171';
-    }
+                await osmd.load(cleanXml);
 
-    // ─── Utilities ──────────────────────────────────────────────────
-    function updateStatus(msg) {
-        statusText.textContent = msg;
-        console.log('[VoxSight]', msg);
-    }
+                // Set to fully zoomed-out view by default
+                if ('zoom' in osmd) {
+                    osmd.zoom = 0.4;
+                } else if ('Zoom' in osmd) {
+                    osmd.Zoom = 0.4;
+                } else {
+                    osmd.zoom = 0.4;
+                }
 
-    // Handle window resize — invalidate layout
-    let resizeTimer = null;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            resizeCanvas();
-            const newHash = computeLayoutHash();
-            if (newHash !== layoutHash && !window.__vx_is_internal_render) {
-                layoutHash = newHash;
+                osmd.render();
+
+                // Resize canvas to match rendered score
+                resizeCanvas();
+
+                // Render authentic H-bar rests for multi-measure rest bars
+                renderHBarRests();
+
+                // Extract note coordinates for SyncManager
                 extractNoteCoordinates();
-                updateStatus('Layout changed — re-extracted coordinates');
 
+                // Compute layout hash
+                layoutHash = computeLayoutHash();
+
+                loadingOverlay.classList.add('hidden');
+                updateStatus(`Score loaded: ${noteCoordinates.length} notes`);
+
+                // Notify Android that render is complete
                 if (window.VoxSightBridge) {
-                    window.VoxSightBridge.onLayoutChanged(
+                    window.VoxSightBridge.onRenderComplete(
                         layoutHash,
                         JSON.stringify(noteCoordinates)
                     );
                 }
-            }
-        }, 300);
-    });
 
-    // Initialize on load
-    initOSMD();
+            } catch (err) {
+                console.error('OSMD load error in renderer.html:', err);
+                updateStatus('Error: ' + err.message);
+                loadingOverlay.classList.add('hidden');
+
+                if (window.VoxSightBridge) {
+                    window.VoxSightBridge.onRenderError(err.message);
+                }
+            }
+        }
+
+        // Load a base64-encoded MusicXML string into OSMD
+        function loadScoreBase64(b64, tpq = 960) {
+            try {
+                const xmlStr = decodeBase64ToXml(b64);
+                loadScore(xmlStr, tpq);
+            } catch (e) {
+                console.error('Base64 decoding failed in renderer.html:', e);
+                updateStatus('Error decoding MusicXML');
+                if (window.VoxSightBridge) {
+                    window.VoxSightBridge.onRenderError('Base64 decoding failed');
+                }
+            }
+        }
+
+        window.loadScore = loadScore;
+        window.loadScoreBase64 = loadScoreBase64;
+
+        window.setVisualFocus = function (partLabel) {
+            currentVisualFocus = partLabel;
+            updateColorsAndRender();
+        };
+
+        /**
+         * API for Android to clear the visual focus.
+         */
+        window.clearVisualFocus = function () {
+            currentVisualFocus = null;
+            updateColorsAndRender();
+        };
+
+        let lastAppliedColorsJson = '';
+
+        window.applySyncColors = function (colorsJson) {
+            try {
+                if (colorsJson === lastAppliedColorsJson) return;
+                lastAppliedColorsJson = colorsJson;
+                colorMappingList = JSON.parse(colorsJson);
+                if (!osmd) return;
+                updateColorsAndRender();
+            } catch (e) {
+                console.error('[VoxSight] applySyncColors failed:', e);
+            }
+        };
+
+        function getSvgElements(gNote) {
+            const svgs = [];
+            if (!gNote) return svgs;
+            const vfnotes = gNote.vfnote;
+            if (!vfnotes) return svgs;
+            const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
+            for (let i = 0; i < arr.length; i++) {
+                const vf = arr[i];
+                if (!vf) continue;
+                let el = null;
+                if (typeof vf.getSVGGElement === 'function') {
+                    el = vf.getSVGGElement();
+                } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
+                    el = vf.getAttribute('el');
+                }
+                if (el) svgs.push(el);
+            }
+            return svgs;
+        }
+
+        /**
+         * Applies Visual Focus dimming and Sync Colors using OSMD's native note, stem, and beam coloring engine.
+         * Natively colors 100% of Noteheads, Stems, Flags, and Connected Note Beam Tails.
+         */
+        function updateColorsAndRender() {
+            try {
+                if (!osmd || !colorMappingList || colorMappingList.length === 0) return;
+
+                let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet;
+                let tempGraphicalNotes = [];
+                findGraphicalNotes(root, new Set(), tempGraphicalNotes);
+
+                for (let i = 0; i < tempGraphicalNotes.length; i++) {
+                    let gNote = tempGraphicalNotes[i];
+                    let srcNote = gNote.sourceNote || gNote.SourceNote;
+                    if (!srcNote) continue;
+
+                    let gId = srcNote.__vx_id !== undefined ? srcNote.__vx_id : gNote.__vx_id;
+                    let match = colorMappingList.find(c => c.id === gId);
+                    if (!match) continue;
+
+                    let baseColor = match.color || "#000000";
+                    let partLabel = match.part || "S";
+                    srcNote.CustomSatbLabel = partLabel;
+
+                    const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
+                    const targetColor = isDimmed ? (baseColor.length === 7 ? baseColor + "26" : "#00000026") : baseColor;
+
+                    // 1. Set notehead and stem colors on SourceNote
+                    srcNote.NoteheadColor = targetColor;
+                    srcNote.NoteheadColorCurrentlyRendered = targetColor;
+                    srcNote.NoteheadColorXml = targetColor;
+                    srcNote.StemColor = targetColor;
+                    srcNote.StemColorXml = targetColor;
+
+                    // 2. Set StemColor on ParentVoiceEntry so VexFlow StaveNote draws colored stems
+                    let pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry || gNote.ParentVoiceEntry;
+                    if (pve) {
+                        pve.StemColor = targetColor;
+                        pve.StemColorXml = targetColor;
+                    }
+
+                    // 3. Hydrate NoteBeam notes so OSMD's ColorBeams check passes
+                    let noteBeam = srcNote.NoteBeam || srcNote.noteBeam;
+                    if (noteBeam) {
+                        noteBeam.Color = targetColor;
+                        let bNotes = noteBeam.Notes || noteBeam.notes || [];
+                        for (let b = 0; b < bNotes.length; b++) {
+                            bNotes[b].NoteheadColor = targetColor;
+                            bNotes[b].NoteheadColorCurrentlyRendered = targetColor;
+                            bNotes[b].NoteheadColorXml = targetColor;
+                            bNotes[b].StemColor = targetColor;
+                            bNotes[b].StemColorXml = targetColor;
+                        }
+                    }
+                }
+
+                // Ensure OSMD coloring rules are fully activated
+                if (osmd.rules) {
+                    osmd.rules.ColoringEnabled = true;
+                    osmd.rules.ColorStemsLikeNoteheads = true;
+                    osmd.rules.ColorBeams = true;
+                    osmd.rules.ColorFlags = true;
+                }
+
+                // Render with OSMD's native coloring engine — colors noteheads, stems, and connecting beam tails
+                window.__vx_is_internal_render = true;
+                osmd.setOptions({ coloringEnabled: true, colorStemsLikeNoteheads: true });
+                osmd.render();
+                renderHBarRests();
+
+                // Post-render pass: directly color any VexFlow beam objects in SVG DOM
+                if (osmd.graphic && osmd.graphic.MusicPages) {
+                    let pages = osmd.graphic.MusicPages;
+                    for (let p = 0; p < pages.length; p++) {
+                        let systems = pages[p].MusicSystems || [];
+                        for (let s = 0; s < systems.length; s++) {
+                            let sys = systems[s];
+                            let staffEntries = sys.StaffEntries || [];
+                            for (let se = 0; se < staffEntries.length; se++) {
+                                let entry = staffEntries[se];
+                                let gNotes = entry.findStaffEntryNotes ? entry.findStaffEntryNotes() : (entry.graphicalNotes || []);
+                                for (let gn = 0; gn < gNotes.length; gn++) {
+                                    let sn = gNotes[gn].sourceNote || gNotes[gn].SourceNote;
+                                    if (!sn) continue;
+                                    let sId = sn.__vx_id;
+                                    let m = colorMappingList.find(c => c.id === sId);
+                                    if (!m) continue;
+                                    let bCol = m.color || "#000000";
+                                    let pLab = m.part || "S";
+                                    let isDim = (currentVisualFocus !== null && currentVisualFocus !== pLab);
+                                    let tCol = isDim ? (bCol.length === 7 ? bCol + "26" : "#00000026") : bCol;
+
+                                    let vfarr = gNotes[gn].vfnote ? (Array.isArray(gNotes[gn].vfnote) ? gNotes[gn].vfnote : [gNotes[gn].vfnote]) : [];
+                                    for (let vi = 0; vi < vfarr.length; vi++) {
+                                        let vfn = vfarr[vi];
+                                        if (vfn && vfn.beam) {
+                                            if (typeof vfn.beam.setStyle === 'function') {
+                                                vfn.beam.setStyle({ fillStyle: tCol, strokeStyle: tCol });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                window.__vx_is_internal_render = false;
+            } catch (err) {
+                console.error('[VoxSight] updateColorsAndRender failed:', err);
+            }
+        }
+
+        /**
+         * Resize the canvas overlay to match the OSMD render area.
+         */
+        function resizeCanvas() {
+            const osmdDiv = document.getElementById('osmd-render');
+            canvas.width = osmdDiv.offsetWidth;
+            canvas.height = osmdDiv.offsetHeight;
+        }
+
+        /**
+         * Compute layout hash based on current render dimensions.
+         * If this changes, SyncManager must re-extract coordinates.
+         */
+        function computeLayoutHash() {
+            const w = renderDiv.offsetWidth;
+            const h = renderDiv.offsetHeight;
+            const zoom = window.devicePixelRatio || 1;
+            const raw = `osmd_render_w${w}_h${h}_z${zoom}`;
+            // Simple hash
+            let hash = 0;
+            for (let i = 0; i < raw.length; i++) {
+                hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+                hash |= 0;
+            }
+            return 'lh_' + Math.abs(hash).toString(16).padStart(8, '0');
+        }
+
+        function getMeasureNumberFromSrcNote(srcNote) {
+            if (!srcNote) return 1;
+            if (srcNote.SourceMeasure && srcNote.SourceMeasure.MeasureNumber) return srcNote.SourceMeasure.MeasureNumber;
+            if (srcNote.sourceMeasure && srcNote.sourceMeasure.MeasureNumber) return srcNote.sourceMeasure.MeasureNumber;
+            return 1;
+        }
+
+        function getVoiceFromSrcNote(srcNote) {
+            if (!srcNote) return 1;
+            if (srcNote.ParentVoiceEntry && srcNote.ParentVoiceEntry.ParentVoice) {
+                var vId = srcNote.ParentVoiceEntry.ParentVoice.VoiceId;
+                if (vId !== undefined) {
+                    var num = parseInt(vId, 10);
+                    if (!isNaN(num)) return num;
+                }
+            }
+            if (srcNote.voice !== undefined) {
+                var num = parseInt(srcNote.voice, 10);
+                if (!isNaN(num)) return num;
+            }
+            if (srcNote.Voice !== undefined && srcNote.Voice.VoiceId !== undefined) {
+                var num = parseInt(srcNote.Voice.VoiceId, 10);
+                if (!isNaN(num)) return num;
+            }
+            return 1;
+        }
+
+        /**
+         * Extract note coordinates from the rendered OSMD SVG.
+         * These are sent to SyncManager for playback-to-visual correlation.
+         */
+        function extractNoteCoordinates() {
+            noteCoordinates = [];
+            allGraphicalNotes = [];
+
+            try {
+                if (!osmd) {
+                    updateStatus('Extraction error: osmd is null');
+                    return;
+                }
+
+                let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
+                findGraphicalNotes(root, new Set(), allGraphicalNotes);
+
+                // Sort graphical notes in physical reading order: MeasureNumber ASC -> X ASC -> Y ASC
+                allGraphicalNotes.sort((a, b) => {
+                    let srcA = a.sourceNote || a.SourceNote;
+                    let srcB = b.sourceNote || b.SourceNote;
+                    let mA = getMeasureNumberFromSrcNote(srcA);
+                    let mB = getMeasureNumberFromSrcNote(srcB);
+                    if (mA !== mB) return mA - mB;
+
+                    let bboxA = a.positionAndShape || a.PositionAndShape;
+                    let bboxB = b.positionAndShape || b.PositionAndShape;
+                    let posA = bboxA ? (bboxA.absolutePosition || bboxA.AbsolutePosition) : null;
+                    let posB = bboxB ? (bboxB.absolutePosition || bboxB.AbsolutePosition) : null;
+                    let xA = posA ? posA.x : 0;
+                    let xB = posB ? posB.x : 0;
+                    if (Math.abs(xA - xB) > 0.01) return xA - xB;
+
+                    let yA = posA ? posA.y : 0;
+                    let yB = posB ? posB.y : 0;
+                    return yA - yB;
+                });
+
+                let unitToPx = 10;
+                if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
+                else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
+                else if (osmd && osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
+                else if (osmd && osmd.Rules && osmd.Rules.unitInPixels) unitToPx = osmd.Rules.unitInPixels;
+
+                let zoom = osmd.zoom || osmd.Zoom || 1.0;
+
+                for (let i = 0; i < allGraphicalNotes.length; i++) {
+                    let gNote = allGraphicalNotes[i];
+                    let srcNote = gNote.sourceNote || gNote.SourceNote;
+
+                    const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
+                    if (isRestNote) continue;
+
+                    let bbox = gNote.positionAndShape || gNote.PositionAndShape;
+                    let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
+                    let size = bbox.size || bbox.Size;
+
+                    if (!absPos || !size) continue;
+
+                    // Fallback internal coordinates
+                    let x = absPos.x * unitToPx * zoom;
+                    let y = absPos.y * unitToPx * zoom;
+                    let w = (size.width || size.Width || 1.5) * unitToPx * zoom;
+                    let h = (size.height || size.Height || 2) * unitToPx * zoom;
+
+                    // Priority: Real DOM Bounding Box
+                    let domElements = getSvgElements(gNote);
+                    if (domElements.length > 0 && domElements[0]) {
+                        try {
+                            let rect = domElements[0].getBoundingClientRect();
+                            let canvasRect = canvas.getBoundingClientRect();
+                            x = rect.left - canvasRect.left;
+                            y = rect.top - canvasRect.top;
+                            w = rect.width;
+                            h = rect.height;
+                        } catch (e) {
+                            // ignore and use fallback
+                        }
+                    }
+
+                    let tick = 0;
+                    try {
+                        const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry;
+                        const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
+                        const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
+                        const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
+
+                        const timestampReal = getFractionValue(timestamp);
+                        const absTimestampReal = getFractionValue(absTimestamp);
+
+                        tick = Math.round((timestampReal + absTimestampReal) * currentTpq * 4);
+                    } catch (e) { }
+
+                    let midiNote = 60;
+                    try {
+                        const pitch = srcNote.pitch || srcNote.Pitch;
+                        if (pitch) {
+                            midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
+                        } else if (srcNote.halfTone !== undefined) {
+                            midiNote = srcNote.halfTone + 12;
+                        } else if (srcNote.HalfTone !== undefined) {
+                            midiNote = srcNote.HalfTone + 12;
+                        }
+                    } catch (e) { }
+
+                    let mNum = getMeasureNumberFromSrcNote(srcNote);
+                    let voice = getVoiceFromSrcNote(srcNote);
+
+                    noteCoordinates.push({
+                        tick: tick,
+                        midiNote: midiNote,
+                        measureNumber: mNum,
+                        voice: voice,
+                        x: x,
+                        y: y,
+                        width: w,
+                        height: h,
+                        id: i
+                    });
+
+                    // Store calculated coordinates and attach persistent ID to the source note
+                    if (srcNote) srcNote.__vx_id = i;
+                    gNote.__vx_id = i;
+                }
+            } catch (err) {
+                console.error('Error extracting coordinates:', err);
+                updateStatus('Extraction error: ' + err.message);
+            }
+
+            console.log(`Extracted ${noteCoordinates.length} note coordinates`);
+        }
+
+        // ─── Tone.js Audio Synth (Fallback) ─────────────────────────────
+        let synth = null;
+        let synthStarted = false;
+
+        function ensureSynth() {
+            if (!synth) {
+                try {
+                    Tone.start();
+                    synth = new Tone.PolySynth(Tone.Synth, {
+                        oscillator: { type: "triangle" },
+                        envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
+                    }).toDestination();
+                    synth.volume.value = -10;
+                    synthStarted = true;
+                } catch (e) {
+                    console.warn("Failed to initialize Tone.js synth:", e);
+                }
+            }
+            if (Tone.context && Tone.context.state !== 'running') {
+                try { Tone.context.resume(); } catch (e) { }
+            }
+        }
+
+        async function initSynth() {
+            ensureSynth();
+        }
+
+        function playNote(midiNote, durationMs, velocity) {
+            ensureSynth();
+            if (synth) {
+                try {
+                    const freq = Tone.Frequency(midiNote, "midi").toFrequency();
+                    const vel = (velocity || 80) / 127.0;
+                    const dur = Math.max(0.1, (durationMs || 500) / 1000.0);
+                    synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
+                } catch (e) {
+                    console.warn("playNote error:", e);
+                }
+            }
+        }
+
+        // ─── SVG H-Bar Rest Renderer for Multi-Measure Rests (Data-Driven) ────
+        function renderHBarRests() {
+            if (!osmd || !osmd.graphic) return;
+
+            var existing = renderDiv.querySelectorAll('.voxsight-hbar-rest');
+            for (let i = 0; i < existing.length; i++) {
+                existing[i].remove();
+            }
+
+            var svgs = renderDiv.querySelectorAll('svg');
+            if (!svgs || svgs.length === 0) return;
+            var pages = (osmd.graphic && osmd.graphic.MusicPages) ? osmd.graphic.MusicPages : [];
+
+            var xmlParts = xmlDoc ? xmlDoc.getElementsByTagName('part') : [];
+            var measureList = osmd.graphic.measureList;
+            if (!measureList) return;
+
+            var unitToPx = 10;
+            if (osmd.graphic && osmd.graphic.rules && osmd.graphic.rules.unitInPixels) unitToPx = osmd.graphic.rules.unitInPixels;
+            else if (osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
+
+            for (let mIdx = 0; mIdx < measureList.length; mIdx++) {
+                var mRow = measureList[mIdx];
+                if (!mRow) continue;
+
+                for (let sIdx = 0; sIdx < mRow.length; sIdx++) {
+                    var gMeas = mRow[sIdx];
+                    if (!gMeas) continue;
+
+                    if (gMeas.IsExtraGraphicalMeasure || gMeas.isExtraGraphicalMeasure || !gMeas.parentMusicSystem) continue;
+
+                    var multirestCount = 0;
+                    if (gMeas.parentSourceMeasure && gMeas.parentSourceMeasure.multipleRestMeasures) {
+                        multirestCount = gMeas.parentSourceMeasure.multipleRestMeasures;
+                    }
+
+                    var xmlPart = (sIdx < xmlParts.length) ? xmlParts[sIdx] : null;
+                    var xmlMeas = null;
+                    if (xmlPart) {
+                        var allM = xmlPart.getElementsByTagName('measure');
+                        if (mIdx < allM.length) xmlMeas = allM[mIdx];
+                    }
+
+                    if (multirestCount <= 0 && xmlMeas) {
+                        var msEl = xmlMeas.querySelector('measure-style > multiple-rest');
+                        if (msEl) multirestCount = parseInt(msEl.textContent.trim(), 10) || 0;
+                    }
+
+                    // Strict Guard: An H-bar rest must ONLY be rendered on pure rest measures.
+                    if (xmlMeas) {
+                        var pitches = xmlMeas.getElementsByTagName('pitch');
+                        if (pitches.length > 0) continue;
+
+                        var lyrics = xmlMeas.getElementsByTagName('lyric');
+                        if (lyrics.length > 0) continue;
+
+                        var notes = xmlMeas.getElementsByTagName('note');
+                        var hasRhythmNotes = false;
+                        for (var ni = 0; ni < notes.length; ni++) {
+                            var nType = notes[ni].getElementsByTagName('type')[0];
+                            var typeStr = nType ? nType.textContent.trim().toLowerCase() : '';
+                            if (typeStr && typeStr !== 'whole' && typeStr !== 'breve') {
+                                hasRhythmNotes = true;
+                                break;
+                            }
+                        }
+                        if (hasRhythmNotes) continue;
+                    }
+
+                    if (multirestCount >= 2) {
+                        var mNum = gMeas.parentSourceMeasure ? gMeas.parentSourceMeasure.MeasureNumber : (mIdx + 1);
+                        var bbox = gMeas.PositionAndShape || gMeas.positionAndShape;
+                        var absPos = bbox ? (bbox.absolutePosition || bbox.AbsolutePosition) : null;
+                        var size = bbox ? (bbox.size || bbox.Size) : null;
+                        if (!absPos || !size) continue;
+
+                        var sys = gMeas.parentMusicSystem;
+                        var page = sys ? (sys.Parent || sys.parentMusicPage || sys.ParentMusicPage) : null;
+                        var pIdx = (pages && page) ? pages.indexOf(page) : 0;
+                        if (pIdx < 0) pIdx = 0;
+                        var targetSvg = (pIdx < svgs.length) ? svgs[pIdx] : svgs[0];
+
+                        var pageY = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.y : 0;
+                        var pageX = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.x : 0;
+
+                        var sx = (absPos.x - pageX) * unitToPx;
+                        var sy = (absPos.y - pageY) * unitToPx;
+                        var sw = size.width * unitToPx;
+                        var sh = size.height * unitToPx;
+
+                        if (!sw || sw < 20 || !sh || sh < 15) continue;
+
+                        var line1Y = sy;
+                        var line3Y = sy + (sh * 0.5);
+                        var serifTop = sy + (sh * 0.25);
+                        var serifBottom = sy + (sh * 0.75);
+
+                        var barWidth = Math.max(36, Math.min(70, sw * 0.38));
+                        var leftX = sx + (sw - barWidth) / 2;
+                        var rightX = leftX + barWidth;
+
+                        var gEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        gEl.setAttribute('class', 'voxsight-hbar-rest');
+                        gEl.setAttribute('data-measure-num', mNum.toString());
+                        gEl.setAttribute('data-staff-idx', sIdx.toString());
+
+                        // Mask rectangle behind H-Bar to cleanly conceal any default rest symbol
+                        var bgMask = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        bgMask.setAttribute('x', (leftX - 4).toFixed(2));
+                        bgMask.setAttribute('y', (line1Y + 2).toFixed(2));
+                        bgMask.setAttribute('width', (barWidth + 8).toFixed(2));
+                        bgMask.setAttribute('height', (sh - 4).toFixed(2));
+                        bgMask.setAttribute('fill', '#ffffff');
+                        bgMask.setAttribute('opacity', '0.92');
+                        gEl.appendChild(bgMask);
+
+                        var beam = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        beam.setAttribute('x1', leftX.toFixed(2));
+                        beam.setAttribute('y1', line3Y.toFixed(2));
+                        beam.setAttribute('x2', rightX.toFixed(2));
+                        beam.setAttribute('y2', line3Y.toFixed(2));
+                        beam.setAttribute('stroke', '#000000');
+                        beam.setAttribute('stroke-width', '5.5');
+                        beam.setAttribute('stroke-linecap', 'square');
+                        gEl.appendChild(beam);
+
+                        var lSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        lSerif.setAttribute('x1', leftX.toFixed(2));
+                        lSerif.setAttribute('y1', serifTop.toFixed(2));
+                        lSerif.setAttribute('x2', leftX.toFixed(2));
+                        lSerif.setAttribute('y2', serifBottom.toFixed(2));
+                        lSerif.setAttribute('stroke', '#000000');
+                        lSerif.setAttribute('stroke-width', '3.2');
+                        gEl.appendChild(lSerif);
+
+                        var rSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        rSerif.setAttribute('x1', rightX.toFixed(2));
+                        rSerif.setAttribute('y1', serifTop.toFixed(2));
+                        rSerif.setAttribute('x2', rightX.toFixed(2));
+                        rSerif.setAttribute('y2', serifBottom.toFixed(2));
+                        rSerif.setAttribute('stroke', '#000000');
+                        rSerif.setAttribute('stroke-width', '3.2');
+                        gEl.appendChild(rSerif);
+
+                        var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', (sx + sw / 2).toFixed(2));
+                        text.setAttribute('y', (line1Y - 7).toFixed(2));
+                        text.setAttribute('font-family', 'serif, "Times New Roman", sans-serif');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('font-size', '16');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', '#000000');
+                        text.textContent = multirestCount.toString();
+                        gEl.appendChild(text);
+
+                        targetSvg.appendChild(gEl);
+                    }
+                }
+            }
+        }
+
+        // ─── Highlight API (called from Android via WebView) ────────────
+        window.currentPitchOverlay = { version: 0, notes: [] };
+        let overlayRafId = null;
+
+        window.updatePitchOverlay = function (payload) {
+            const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+            // Ignore stale frames
+            if (data.version <= window.currentPitchOverlay.version) {
+                return;
+            }
+
+            window.currentPitchOverlay = data;
+
+            if (overlayRafId !== null) {
+                cancelAnimationFrame(overlayRafId);
+            }
+            overlayRafId = requestAnimationFrame(renderPitchOverlay);
+        };
+
+        /**
+         * Render the pitch feedback overlay from state.
+         * Uses canvas overlay — never mutates the OSMD SVG DOM.
+         */
+        function renderPitchOverlay() {
+            if (!highlightCtx) return;
+
+            // Clear previous highlights
+            highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            try {
+                const notes = window.currentPitchOverlay.notes;
+                for (const note of notes) {
+                    const { x, y, width, height, color } = note;
+                    let r = 99, g = 102, b = 241; // Default
+                    if (color) {
+                        const hex = color.replace('#', '');
+                        if (hex.length === 6) {
+                            r = parseInt(hex.substring(0, 2), 16);
+                            g = parseInt(hex.substring(2, 4), 16);
+                            b = parseInt(hex.substring(4, 6), 16);
+                        }
+                    }
+
+                    // Draw elegant elliptical highlight aura behind the notehead
+                    highlightCtx.save();
+                    highlightCtx.beginPath();
+
+                    // Draw a soft glowing ellipse roughly the size of the note
+                    const cx = x + width / 2;
+                    const cy = y + height / 2;
+                    const rx = width / 1.5;
+                    const ry = height / 1.5;
+
+                    highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+
+                    // Set up soft drop shadow
+                    highlightCtx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+                    highlightCtx.shadowBlur = 15;
+
+                    // Soft translucent fill for the aura
+                    highlightCtx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
+                    highlightCtx.fill();
+
+                    // Soft border ring for definition
+                    highlightCtx.shadowBlur = 0;
+                    highlightCtx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.6)`;
+                    highlightCtx.lineWidth = 1.5;
+                    highlightCtx.stroke();
+
+                    highlightCtx.restore();
+                }
+            } catch (e) {
+                console.error("Failed to render pitch overlay:", e);
+            }
+        }
+
+        /**
+         * Clear all highlights.
+         */
+        function clearHighlights() {
+            if (!highlightCtx) return;
+            window.currentPitchOverlay = { version: window.currentPitchOverlay.version + 1, notes: [] };
+            if (overlayRafId !== null) {
+                cancelAnimationFrame(overlayRafId);
+            }
+            highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        /**
+         * Update sync confidence display.
+         */
+        function updateSyncConfidence(confidence) {
+            const pct = Math.round(confidence * 100);
+            syncConfidence.textContent = `Sync: ${pct}%`;
+            syncConfidence.style.color = pct >= 80 ? '#4ade80' :
+                pct >= 50 ? '#facc15' : '#f87171';
+        }
+
+        // ─── XML Sanitization & Part Merging ──────────────────────────────────
+        function cleanMusicXmlDom(doc) {
+            if (!doc) return;
+
+            // 1. Remove misplaced credit/copyright/annotation lyrics
+            var creditKeywords = ['prepared', 'arranged by', 'arr.', 'composed by', 'music by', 'words by', 'lyrics by', 'copyright', 'all rights reserved', 'freely distributed', 'duplicated', 'performed', 'recorded', 'edition', 'published by', 'printed in', 'jedscott', '.com', '.org', '.net', 'http', 'www.', 'page '];
+            var lyrics = doc.getElementsByTagName('lyric');
+            var toRemoveLyrics = [];
+            for (var i = 0; i < lyrics.length; i++) {
+                var lyr = lyrics[i];
+                var num = lyr.getAttribute('number') || '1';
+                var text = (lyr.textContent || '').trim().toLowerCase();
+
+                // Remove secondary orphan lyric layers (e.g. number != 1)
+                if (num !== '1') {
+                    toRemoveLyrics.push(lyr);
+                    continue;
+                }
+
+                var isCredit = creditKeywords.some(function(kw) { return text.indexOf(kw) !== -1; });
+                var isStrayAnnotation = ['descnr', 'descant', 'optional', 'scott', 'jedscott', 'arranged', 'composer'].some(function(w) { return text.indexOf(w) !== -1; });
+                if (isCredit || isStrayAnnotation || (text.length > 35 && text.indexOf(' ') !== -1)) {
+                    toRemoveLyrics.push(lyr);
+                }
+            }
+            for (var i = 0; i < toRemoveLyrics.length; i++) {
+                var lyr = toRemoveLyrics[i];
+                if (lyr.parentNode) lyr.parentNode.removeChild(lyr);
+            }
+
+            // 2. Clean colliding footer license/copyright credits while preserving header credits
+            var credits = doc.getElementsByTagName('credit');
+            var toRemoveCredits = [];
+            for (var c = 0; c < credits.length; c++) {
+                var cr = credits[c];
+                var cw = cr.getElementsByTagName('credit-words')[0];
+                if (cw) {
+                    var yVal = parseFloat(cw.getAttribute('default-y') || '1000');
+                    var cText = (cw.textContent || '').toLowerCase();
+                    if (yVal < 400 || ['distributed', 'duplicated', 'performed', 'recorded', 'prepared by', 'jedscott.com', 'all rights reserved'].some(function(w) { return cText.indexOf(w) !== -1; })) {
+                        toRemoveCredits.push(cr);
+                    }
+                }
+            }
+            for (var c = 0; c < toRemoveCredits.length; c++) {
+                var cr = toRemoveCredits[c];
+                if (cr.parentNode) cr.parentNode.removeChild(cr);
+            }
+
+            // 3. Remove footer rights / licensing elements
+            var rights = doc.getElementsByTagName('rights');
+            for (var r = rights.length - 1; r >= 0; r--) {
+                if (rights[r].parentNode) rights[r].parentNode.removeChild(rights[r]);
+            }
+
+            // 4. Detect and merge complementary parts (e.g. S/A + Alto, T/B + Bass, or S, A, T, B + Soprano, Alto, Tenor, Bass)
+            var partList = doc.getElementsByTagName('part-list')[0];
+            var parts = doc.getElementsByTagName('part');
+            if (!partList || parts.length < 2) return;
+
+            var nameMap = {
+                's': 'Soprano', 'sop': 'Soprano', 'sopr': 'Soprano', 'soprano': 'Soprano',
+                'a': 'Alto', 'alt': 'Alto', 'alto': 'Alto',
+                't': 'Tenor', 'ten': 'Tenor', 'tenor': 'Tenor',
+                'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass'
+            };
+
+            var tier1Names = new Set(['s', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto', 's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto', 'women', 'treble', 's1', 's2', 'a1', 'a2']);
+            var tier2Names = new Set(['t', 'ten', 'tenor', 'b', 'bas', 'bass', 't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass', 'men', 't1', 't2', 'b1', 'b2']);
+
+            function getChoralTier(n) {
+                var s = (n || '').trim().toLowerCase();
+                if (tier1Names.has(s)) return 1;
+                if (tier2Names.has(s)) return 2;
+                return 0;
+            }
+
+            function getCompositePartNameAndAbbr(raw1, raw2) {
+                var r1 = (raw1 || '').trim();
+                var r2 = (raw2 || '').trim();
+                var compMap = {
+                    's/a': ['Soprano / Alto', 'S/A'],
+                    'sa': ['Soprano / Alto', 'S/A'],
+                    't/b': ['Tenor / Bass', 'T/B'],
+                    'tb': ['Tenor / Bass', 'T/B'],
+                    's/t': ['Soprano / Tenor', 'S/T'],
+                    'st': ['Soprano / Tenor', 'S/T'],
+                    'a/b': ['Alto / Bass', 'A/B'],
+                    'ab': ['Alto / Bass', 'A/B']
+                };
+                if (compMap[r1.toLowerCase()]) return compMap[r1.toLowerCase()];
+                if (compMap[r2.toLowerCase()]) return compMap[r2.toLowerCase()];
+
+                var t1 = getChoralTier(r1);
+                var t2 = getChoralTier(r2);
+                if (t1 === 1 || t2 === 1) {
+                    if ((r1.toLowerCase().indexOf('alto') !== -1 || r2.toLowerCase().indexOf('alto') !== -1) &&
+                        (r1.toLowerCase().indexOf('sop') !== -1 || r2.toLowerCase().indexOf('sop') !== -1 || r1.toLowerCase().indexOf('s/a') !== -1 || r2.toLowerCase().indexOf('s/a') !== -1)) {
+                        return ['Soprano / Alto', 'S/A'];
+                    }
+                }
+                if (t1 === 2 || t2 === 2) {
+                    if ((r1.toLowerCase().indexOf('bass') !== -1 || r2.toLowerCase().indexOf('bass') !== -1) &&
+                        (r1.toLowerCase().indexOf('ten') !== -1 || r2.toLowerCase().indexOf('ten') !== -1 || r1.toLowerCase().indexOf('t/b') !== -1 || r2.toLowerCase().indexOf('t/b') !== -1)) {
+                        return ['Tenor / Bass', 'T/B'];
+                    }
+                }
+
+                var cName = r1.length >= r2.length ? r1 : r2;
+                var abbr = cName.length > 4 ? cName.slice(0, 4) : cName;
+                return [cName, abbr];
+            }
+
+            var partInfo = [];
+            for (var i = 0; i < parts.length; i++) {
+                var p = parts[i];
+                var pid = p.getAttribute('id');
+                var sp = doc.querySelector("score-part[id='" + pid + "']");
+                var rawName = (sp && sp.getElementsByTagName('part-name')[0]) ? sp.getElementsByTagName('part-name')[0].textContent.trim() : pid;
+                var rawAbbr = (sp && sp.getElementsByTagName('part-abbreviation')[0]) ? sp.getElementsByTagName('part-abbreviation')[0].textContent.trim() : rawName;
+                var normName = nameMap[rawName.toLowerCase()] || rawName;
+                var tier = getChoralTier(rawName);
+
+                var measures = {};
+                var measElems = p.getElementsByTagName('measure');
+                for (var m = 0; m < measElems.length; m++) {
+                    var me = measElems[m];
+                    var mnum = me.getAttribute('number');
+                    var notes = me.getElementsByTagName('note');
+                    var nonRest = 0;
+                    for (var n = 0; n < notes.length; n++) {
+                        if (notes[n].getElementsByTagName('rest').length === 0) nonRest++;
+                    }
+                    measures[mnum] = (measures[mnum] || 0) + nonRest;
+                }
+                partInfo.push({ element: p, scorePart: sp, pid: pid, rawName: rawName, rawAbbr: rawAbbr, normName: normName, tier: tier, measures: measures });
+            }
+
+            var mergedPids = new Set();
+            var mergePairs = [];
+            for (var i = 0; i < partInfo.length; i++) {
+                var p1 = partInfo[i];
+                if (mergedPids.has(p1.pid)) continue;
+                for (var j = i + 1; j < partInfo.length; j++) {
+                    var p2 = partInfo[j];
+                    if (mergedPids.has(p2.pid)) continue;
+
+                    var tierMatch = (p1.tier !== 0 && p1.tier === p2.tier);
+                    var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || tierMatch || (partInfo.length === 8 && j === i + 4);
+                    if (nameMatch) {
+                        var overlap = false;
+                        for (var mnum in p1.measures) {
+                            if (p2.measures[mnum] && p1.measures[mnum] > 0 && p2.measures[mnum] > 0) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                        if (!overlap) {
+                            var compNames = getCompositePartNameAndAbbr(p1.rawName, p2.rawName);
+                            mergePairs.push({ p1: p1, p2: p2, canonName: compNames[0], canonAbbr: compNames[1] });
+                            mergedPids.add(p1.pid);
+                            mergedPids.add(p2.pid);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for (var i = 0; i < mergePairs.length; i++) {
+                var pair = mergePairs[i];
+                var elem1 = pair.p1.element;
+                var elem2 = pair.p2.element;
+                var sp1 = pair.p1.scorePart;
+                var sp2 = pair.p2.scorePart;
+
+                if (sp1) {
+                    var pn = sp1.getElementsByTagName('part-name')[0];
+                    if (!pn) {
+                        pn = doc.createElement('part-name');
+                        sp1.appendChild(pn);
+                    }
+                    pn.textContent = pair.canonName;
+
+                    var pa = sp1.getElementsByTagName('part-abbreviation')[0];
+                    if (!pa) {
+                        pa = doc.createElement('part-abbreviation');
+                        sp1.appendChild(pa);
+                    }
+                    pa.textContent = pair.canonAbbr;
+                }
+
+                var seenM2Nums = {};
+                var m2List = elem2.getElementsByTagName('measure');
+                var m2Arr = Array.prototype.slice.call(m2List);
+                for (var m = 0; m < m2Arr.length; m++) {
+                    var m2 = m2Arr[m];
+                    var mnum = m2.getAttribute('number');
+                    var k = seenM2Nums[mnum] || 0;
+                    seenM2Nums[mnum] = k + 1;
+
+                    var notes2 = m2.getElementsByTagName('note');
+                    var hasNotes2 = false;
+                    for (var n = 0; n < notes2.length; n++) {
+                        if (notes2[n].getElementsByTagName('rest').length === 0) { hasNotes2 = true; break; }
+                    }
+                    if (hasNotes2) {
+                        var m1Candidates = elem1.querySelectorAll("measure[number='" + mnum + "']");
+                        if (m1Candidates && m1Candidates.length > 0) {
+                            var targetM1 = (k < m1Candidates.length) ? m1Candidates[k] : m1Candidates[0];
+                            
+                            var tNotes = targetM1.getElementsByTagName('note');
+                            var tHasNotes = false;
+                            for (var tn = 0; tn < tNotes.length; tn++) {
+                                if (tNotes[tn].getElementsByTagName('rest').length === 0) { tHasNotes = true; break; }
+                            }
+
+                            // Only replace targetM1 if targetM1 is a pure rest (no pitched notes)
+                            if (!tHasNotes) {
+                                var m2Clone = m2.cloneNode(true);
+
+                                // Preserve <measure-style> (contains <multiple-rest>) from the target
+                                var targetMeasureStyles = targetM1.getElementsByTagName('measure-style');
+                                for (var msi = 0; msi < targetMeasureStyles.length; msi++) {
+                                    var msClone = targetMeasureStyles[msi].cloneNode(true);
+                                    var cloneAttrs = m2Clone.getElementsByTagName('attributes')[0];
+                                    if (!cloneAttrs) {
+                                        cloneAttrs = doc.createElement('attributes');
+                                        m2Clone.insertBefore(cloneAttrs, m2Clone.firstChild);
+                                    }
+                                    cloneAttrs.appendChild(msClone);
+                                }
+
+                                var tAttrs = targetM1.getElementsByTagName('attributes')[0];
+                                var m2Attrs = m2Clone.getElementsByTagName('attributes')[0];
+                                if (tAttrs && !m2Attrs) {
+                                    m2Clone.insertBefore(tAttrs.cloneNode(true), m2Clone.firstChild);
+                                } else if (tAttrs && m2Attrs) {
+                                    for (var ch = 0; ch < tAttrs.children.length; ch++) {
+                                        var tag = tAttrs.children[ch].tagName;
+                                        if (tag === 'measure-style') continue; // already handled above
+                                        if (!m2Attrs.getElementsByTagName(tag)[0]) {
+                                            m2Attrs.appendChild(tAttrs.children[ch].cloneNode(true));
+                                        }
+                                    }
+                                }
+                                elem1.replaceChild(m2Clone, targetM1);
+                            }
+                        } else {
+                            elem1.appendChild(m2.cloneNode(true));
+                        }
+                    }
+                }
+
+                if (elem2.parentNode) elem2.parentNode.removeChild(elem2);
+                if (sp2 && sp2.parentNode) sp2.parentNode.removeChild(sp2);
+            }
+
+            // 5. Clef fallback: ensure every surviving part has a clef in measure 1
+            var finalParts = doc.getElementsByTagName('part');
+            for (var pIdx = 0; pIdx < finalParts.length; pIdx++) {
+                var fPart = finalParts[pIdx];
+                var fM1 = fPart.getElementsByTagName('measure')[0];
+                if (fM1) {
+                    var clefEl = fM1.querySelector('attributes > clef, clef');
+                    if (!clefEl) {
+                        var totalPitch = 0;
+                        var countPitch = 0;
+                        var stepToSemi = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+                        var allNotes = fPart.getElementsByTagName('note');
+                        for (var nIdx = 0; nIdx < allNotes.length; nIdx++) {
+                            var pEl = allNotes[nIdx].getElementsByTagName('pitch')[0];
+                            if (pEl) {
+                                var st = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                                var oc = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10);
+                                var semi = (oc + 1) * 12 + (stepToSemi[st] || 0);
+                                totalPitch += semi;
+                                countPitch++;
+                            }
+                        }
+                        var avgMidi = countPitch > 0 ? (totalPitch / countPitch) : 60;
+                        var attrsEl = fM1.getElementsByTagName('attributes')[0];
+                        if (!attrsEl) {
+                            attrsEl = doc.createElement('attributes');
+                            fM1.insertBefore(attrsEl, fM1.firstChild);
+                        }
+                        var newSign = doc.createElement('sign');
+                        var newLine = doc.createElement('line');
+                        var pNameLower = ((fPart.getAttribute('id') || '') + ' ' + (fPart.getElementsByTagName('part-name')[0] ? fPart.getElementsByTagName('part-name')[0].textContent : '')).toLowerCase();
+                        if (avgMidi < 60 || pNameLower.indexOf('bass') !== -1 || pNameLower.indexOf('tenor') !== -1 || pNameLower.indexOf('t/b') !== -1) {
+                            newSign.textContent = 'F';
+                            newLine.textContent = '4';
+                        } else {
+                            newSign.textContent = 'G';
+                            newLine.textContent = '2';
+                        }
+                        newClef.appendChild(newSign);
+                        newClef.appendChild(newLine);
+                        attrsEl.appendChild(newClef);
+                    }
+                }
+            }
+
+            // 6. Ensure any measure without notes has an explicit full-measure rest
+            for (var pIdx = 0; pIdx < finalParts.length; pIdx++) {
+                var fPart = finalParts[pIdx];
+                var fMeasures = fPart.getElementsByTagName('measure');
+                for (var mIdx = 0; mIdx < fMeasures.length; mIdx++) {
+                    var fM = fMeasures[mIdx];
+                    if (fM.getElementsByTagName('note').length === 0) {
+                        var restNote = doc.createElement('note');
+                        var restElem = doc.createElement('rest');
+                        restElem.setAttribute('measure', 'yes');
+                        var durElem = doc.createElement('duration');
+                        durElem.textContent = '12';
+                        var voiceElem = doc.createElement('voice');
+                        voiceElem.textContent = '1';
+                        restNote.appendChild(restElem);
+                        restNote.appendChild(durElem);
+                        restNote.appendChild(voiceElem);
+                        fM.appendChild(restNote);
+                    } else {
+                        // NOTE: Do NOT strip <measure-style> here. After voice merging,
+                        // a measure may legitimately have both pitched notes (from one voice)
+                        // and <multiple-rest> (from the other voice's rest). Stripping would
+                        // destroy valid H-bar rendering data.
+                    }
+                }
+            }
+
+        }
+
+        // ─── Utilities ──────────────────────────────────────────────────
+        function updateStatus(msg) {
+            statusText.textContent = msg;
+            console.log('[VoxSight]', msg);
+        }
+
+        // Handle window resize — invalidate layout only on real window/orientation changes
+        let lastWindowWidth = window.innerWidth;
+        let lastWindowHeight = window.innerHeight;
+        let resizeTimer = null;
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth === lastWindowWidth && window.innerHeight === lastWindowHeight) {
+                return;
+            }
+            lastWindowWidth = window.innerWidth;
+            lastWindowHeight = window.innerHeight;
+
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                resizeCanvas();
+                const newHash = computeLayoutHash();
+                if (newHash !== layoutHash && !window.__vx_is_internal_render) {
+                    layoutHash = newHash;
+                    extractNoteCoordinates();
+                    updateStatus('Layout changed — re-extracted coordinates');
+
+                    if (window.VoxSightBridge) {
+                        window.VoxSightBridge.onLayoutChanged(
+                            layoutHash,
+                            JSON.stringify(noteCoordinates)
+                        );
+                    }
+                }
+            }, 300);
+        });
+
+        // Initialize on load
+        initOSMD();
+
+        if (window.location.search.indexOf('score=') !== -1) {
+            var scoreParam = new URLSearchParams(window.location.search).get('score');
+            if (scoreParam) {
+                fetch(scoreParam).then(function(r) { return r.text(); }).then(function(xml) {
+                    loadScore(xml);
+                });
+            }
+        }
     </script>
 </body>
+
 </html>

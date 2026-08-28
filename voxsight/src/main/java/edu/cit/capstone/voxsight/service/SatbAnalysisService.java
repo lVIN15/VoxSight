@@ -62,11 +62,11 @@ public class SatbAnalysisService {
         log.info("[SATB Analysis] Starting analysis for: {}", musicXmlFile.getName());
 
         try {
-            // Read raw MusicXML content safely, extracting from MXL if necessary
-            String rawMusicXml = extractXmlContent(musicXmlFile);
-
-            // Run Python analyzer
+            // Run Python analyzer (which cleans and merges duplicate parts and lyrics)
             String jsonOutput = runPythonAnalyzer(musicXmlFile.getAbsolutePath());
+
+            // Read cleaned MusicXML content safely, extracting from MXL if necessary
+            String rawMusicXml = extractXmlContent(musicXmlFile);
 
             // Parse JSON output
             Map<String, Object> result = objectMapper.readValue(
