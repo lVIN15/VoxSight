@@ -145,10 +145,10 @@ fun NoteEditorBottomSheet(
                 voices.forEach { (id, name) ->
                     val isSelected = voiceId == id
                     val voiceColor = when (id) {
-                        1 -> Color(0xFF9C27B0) // Soprano - Purple
-                        2 -> Color(0xFFFF9800) // Alto - Orange
-                        3 -> Color(0xFF4CAF50) // Tenor - Green
-                        4 -> Color(0xFF2196F3) // Bass - Blue
+                        1 -> Color(0xFFE91E63) // Soprano - Pink
+                        2 -> Color(0xFF9C27B0) // Alto - Purple
+                        3 -> Color(0xFF2196F3) // Tenor - Blue
+                        4 -> Color(0xFF4CAF50) // Bass - Green
                         else -> VoxPurplePrimary
                     }
 

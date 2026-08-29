@@ -251,7 +251,12 @@
             if (el && svgs.indexOf(el) === -1) svgs.push(el);
         }
 
-        // 1. Isolate the specific notehead if in a chord / VexFlow stave note
+        var src = gNote.sourceNote || gNote.SourceNote;
+        var isRest = false;
+        if (src) {
+            isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest || src.IsRest || false);
+        }
+
         var vf = null;
         if (gNote.vfnote && gNote.vfnote.length > 0) vf = gNote.vfnote[0];
         else if (gNote.parentVoiceEntry && gNote.parentVoiceEntry.vfnote && gNote.parentVoiceEntry.vfnote.length > 0) {
@@ -265,25 +270,61 @@
             else if (vf.elem) vfG = vf.elem;
 
             if (vfG) {
-                var nhs = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-notehead') : [];
-                var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
-                if (nhs && nhs.length > nhIdx && nhs[nhIdx]) {
-                    addEl(nhs[nhIdx]);
-                    var paths = nhs[nhIdx].querySelectorAll ? nhs[nhIdx].querySelectorAll('path, ellipse') : [];
-                    for (let p = 0; p < paths.length; p++) addEl(paths[p]);
-                } else if (nhs && nhs.length === 1) {
-                    addEl(nhs[0]);
-                    var paths = nhs[0].querySelectorAll ? nhs[0].querySelectorAll('path, ellipse') : [];
-                    for (let p = 0; p < paths.length; p++) addEl(paths[p]);
+                if (isRest) {
+                    // Tag rest container and all its child path/glyph elements
+                    addEl(vfG);
+                    var restPaths = vfG.querySelectorAll ? vfG.querySelectorAll('path, polygon, rect') : [];
+                    for (let p = 0; p < restPaths.length; p++) addEl(restPaths[p]);
+                } else {
+                    var nhs = vfG.querySelectorAll ? Array.from(vfG.querySelectorAll('.vf-notehead')) : [];
+                    var targetNh = null;
+                    if (nhs.length > 1) {
+                        // Sort noteheads by screen top coordinate descending (bottom of screen = lowest pitch, top of screen = highest pitch)
+                        nhs.sort(function(a, b) {
+                            var rA = a.getBoundingClientRect();
+                            var rB = b.getBoundingClientRect();
+                            return rB.top - rA.top; // descending Y: lowest pitch first
+                        });
+                        var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
+                        targetNh = nhs[Math.min(nhIdx, nhs.length - 1)] || nhs[0];
+                    } else if (nhs.length === 1) {
+                        targetNh = nhs[0];
+                    }
+
+                    if (targetNh) {
+                        addEl(targetNh);
+                        var paths = targetNh.querySelectorAll ? targetNh.querySelectorAll('path, ellipse, polygon') : [];
+                        for (let p = 0; p < paths.length; p++) addEl(paths[p]);
+                    }
+
+                    // Stems (.vf-stem) - only tag if single note or base note (index 0)
+                    var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
+                    if (nhIdx === 0 || nhs.length <= 1) {
+                        var stems = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-stem, path.vf-stem, rect.vf-stem, [class*="stem"]') : [];
+                        for (let s = 0; s < stems.length; s++) addEl(stems[s]);
+
+                        var flags = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-flag, path.vf-flag, [class*="flag"]') : [];
+                        for (let f = 0; f < flags.length; f++) addEl(flags[f]);
+                    }
+
+                    // Modifiers (accidentals, dots)
+                    var mods = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-modifiers, .vf-accidental, [class*="accidental"], [class*="dot"]') : [];
+                    for (let m = 0; m < mods.length; m++) {
+                        addEl(mods[m]);
+                        var modPaths = mods[m].querySelectorAll ? mods[m].querySelectorAll('path') : [];
+                        for (let mp = 0; mp < modPaths.length; mp++) addEl(modPaths[mp]);
+                    }
                 }
             }
         }
 
-        // 2. Direct gNote getSVGGElement if it's a specific rest or single note (and not the entire stave container)
-        if (svgs.length === 0 && typeof gNote.getSVGGElement === 'function') {
+        // Direct gNote getSVGGElement fallback
+        if (typeof gNote.getSVGGElement === 'function') {
             var el = gNote.getSVGGElement();
-            if (el && (!el.classList || !el.classList.contains('vf-stavenote'))) {
+            if (el) {
                 addEl(el);
+                var subPaths = el.querySelectorAll ? el.querySelectorAll('path, ellipse, polygon') : [];
+                for (let sp = 0; sp < subPaths.length; sp++) addEl(subPaths[sp]);
             }
         }
 
@@ -561,6 +602,157 @@
         return 1;
     }
 
+    // ─── Vocal Part Color Coding Helper (SATB - Identical to Playback Mode) ─
+    function getVocalPartColor(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
+        // Explicit user override via data-vx-voice attribute
+        if (typeof customVoice === 'number' && customVoice >= 1 && customVoice <= 4) {
+            switch (customVoice) {
+                case 1: return '#E91E63'; // Soprano - Pink
+                case 2: return '#9C27B0'; // Alto - Purple
+                case 3: return '#2196F3'; // Tenor - Blue
+                case 4: return '#4CAF50'; // Bass - Green
+            }
+        }
+
+        // 4-part score (Soprano, Alto, Tenor, Bass separated by Part)
+        if (totalParts >= 4) {
+            var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
+            switch (p) {
+                case 0: return '#E91E63'; // Soprano - Pink
+                case 1: return '#9C27B0'; // Alto - Purple
+                case 2: return '#2196F3'; // Tenor - Blue
+                case 3: return '#4CAF50'; // Bass - Green
+                default: break;
+            }
+        }
+
+        // 2-part score or 2-staff score (Treble = S/A, Bass = T/B)
+        if (totalParts === 2 || staffIdx !== undefined) {
+            var isStaff1 = (staffIdx === 0 || partIdx === 0);
+            var isStaff2 = (staffIdx === 1 || partIdx === 1);
+
+            if (isStaff1) {
+                if (chordPos === 'bottom') return '#9C27B0'; // Alto - Purple
+                if (chordPos === 'top') return '#E91E63'; // Soprano - Pink
+                if (voiceNum === 2) return '#9C27B0'; // Alto - Purple
+                return '#E91E63'; // Soprano - Pink
+            } else if (isStaff2) {
+                if (chordPos === 'bottom') return '#4CAF50'; // Bass - Green
+                if (chordPos === 'top') return '#2196F3'; // Tenor - Blue
+                if (voiceNum === 2 || voiceNum === 4) return '#4CAF50'; // Bass - Green
+                return '#2196F3'; // Tenor - Blue
+            }
+        }
+
+        // Fallback based on voice number
+        switch (voiceNum) {
+            case 1: return '#E91E63'; // Soprano - Pink
+            case 2: return '#9C27B0'; // Alto - Purple
+            case 3: return '#2196F3'; // Tenor - Blue
+            case 4: return '#4CAF50'; // Bass - Green
+            default: return '#E91E63';
+        }
+    }
+
+    // ─── Color Notehead, Stem, Tail/Flag & Beam ─────────────────────
+    function applyNoteVoiceColor(gNote, voiceColor) {
+        if (!gNote || !voiceColor) return;
+
+        // Set OSMD source note properties
+        if (gNote.sourceNote) {
+            gNote.sourceNote.NoteheadColor = voiceColor;
+            gNote.sourceNote.StemColor = voiceColor;
+            gNote.sourceNote.Color = voiceColor;
+        }
+
+        var vf = null;
+        if (gNote.vfnote && gNote.vfnote.length > 0) vf = gNote.vfnote[0];
+        else if (gNote.parentVoiceEntry && gNote.parentVoiceEntry.vfnote && gNote.parentVoiceEntry.vfnote.length > 0) {
+            vf = gNote.parentVoiceEntry.vfnote[0];
+        }
+
+        if (vf) {
+            var vfG = null;
+            if (typeof vf.getSVGGElement === 'function') vfG = vf.getSVGGElement();
+            else if (vf.getAttribute && typeof vf.getAttribute === 'function') vfG = vf.getAttribute('el');
+            else if (vf.elem) vfG = vf.elem;
+
+            if (vfG) {
+                // 1. Color Notehead (.vf-notehead)
+                var nhs = vfG.querySelectorAll ? Array.from(vfG.querySelectorAll('.vf-notehead')) : [];
+                var targetNh = null;
+                if (nhs.length > 1) {
+                    nhs.sort(function(a, b) {
+                        var rA = a.getBoundingClientRect();
+                        var rB = b.getBoundingClientRect();
+                        return rB.top - rA.top; // descending Y: lowest pitch first
+                    });
+                    var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
+                    targetNh = nhs[Math.min(nhIdx, nhs.length - 1)] || nhs[0];
+                } else if (nhs.length === 1) {
+                    targetNh = nhs[0];
+                }
+
+                if (targetNh) {
+                    targetNh.style.fill = voiceColor;
+                    targetNh.style.stroke = voiceColor;
+                    targetNh.setAttribute('fill', voiceColor);
+                    targetNh.setAttribute('stroke', voiceColor);
+                    var paths = targetNh.querySelectorAll ? targetNh.querySelectorAll('path, ellipse, polygon') : [];
+                    for (let p = 0; p < paths.length; p++) {
+                        paths[p].style.fill = voiceColor;
+                        paths[p].style.stroke = voiceColor;
+                        paths[p].setAttribute('fill', voiceColor);
+                        paths[p].setAttribute('stroke', voiceColor);
+                    }
+                }
+
+                // 2. Color Stem (.vf-stem)
+                var stems = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-stem, path.vf-stem, rect.vf-stem, [class*="stem"]') : [];
+                for (let s = 0; s < stems.length; s++) {
+                    stems[s].style.stroke = voiceColor;
+                    stems[s].style.fill = voiceColor;
+                    stems[s].setAttribute('stroke', voiceColor);
+                    stems[s].setAttribute('fill', voiceColor);
+                }
+
+                // 3. Color Flag / Tail (.vf-flag)
+                var flags = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-flag, path.vf-flag, [class*="flag"]') : [];
+                for (let f = 0; f < flags.length; f++) {
+                    flags[f].style.stroke = voiceColor;
+                    flags[f].style.fill = voiceColor;
+                    flags[f].setAttribute('stroke', voiceColor);
+                    flags[f].setAttribute('fill', voiceColor);
+                    var fPaths = flags[f].querySelectorAll ? flags[f].querySelectorAll('path') : [];
+                    for (let fp = 0; fp < fPaths.length; fp++) {
+                        fPaths[fp].style.stroke = voiceColor;
+                        fPaths[fp].style.fill = voiceColor;
+                        fPaths[fp].setAttribute('stroke', voiceColor);
+                        fPaths[fp].setAttribute('fill', voiceColor);
+                    }
+                }
+
+                // 4. Color Beam if connected
+                if (vf.beam) {
+                    var beamG = (typeof vf.beam.getSVGGElement === 'function') ? vf.beam.getSVGGElement() : (vf.beam.elem || null);
+                    if (beamG) {
+                        beamG.style.fill = voiceColor;
+                        beamG.style.stroke = voiceColor;
+                        beamG.setAttribute('fill', voiceColor);
+                        beamG.setAttribute('stroke', voiceColor);
+                        var bPaths = beamG.querySelectorAll ? beamG.querySelectorAll('path, rect, polygon') : [];
+                        for (let bp = 0; bp < bPaths.length; bp++) {
+                            bPaths[bp].style.fill = voiceColor;
+                            bPaths[bp].style.stroke = voiceColor;
+                            bPaths[bp].setAttribute('fill', voiceColor);
+                            bPaths[bp].setAttribute('stroke', voiceColor);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // ─── Build Note Map (100% Deterministic Measure & Timestamp 1:1 Match) ──
     function buildNoteMap() {
         noteMap = new Map();
@@ -661,6 +853,8 @@
 
                         var vxIdStr = node.getAttribute('data-vx-id');
                         var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
+                        var customVoiceStr = node.getAttribute('data-vx-voice');
+                        var customVoice = customVoiceStr ? parseInt(customVoiceStr, 10) : null;
 
                         list.push({
                             el: node,
@@ -671,6 +865,7 @@
                             alter: alt,
                             midi: midi,
                             voice: voice,
+                            customVoice: customVoice,
                             staffLocal: staffLocal,
                             staffIdx: staffIdx,
                             trackKey: trackKey,
@@ -795,16 +990,37 @@
         osmdMeasureNotes.forEach(function(gList, mIdx) {
             var xmlList = xmlMeasureNotes.has(mIdx) ? xmlMeasureNotes.get(mIdx) : [];
 
-            // Sort gList strictly by trackKey ASC, then time ASC, then MIDI ASC
+            // Compute chordPos for all XML notes at the same (staffIdx, rounded startTime)
+            var tsGroups = new Map();
+            for (let x = 0; x < xmlList.length; x++) {
+                var xn = xmlList[x];
+                var key = xn.staffIdx + '_' + Math.round(xn.startTime * 100);
+                if (!tsGroups.has(key)) tsGroups.set(key, []);
+                tsGroups.get(key).push(xn);
+            }
+            tsGroups.forEach(function(group) {
+                if (group.length > 1) {
+                    group.sort(function(a, b) { return a.midi - b.midi; });
+                    for (let i = 0; i < group.length; i++) {
+                        if (i === 0) group[i].chordPos = 'bottom';
+                        else if (i === group.length - 1) group[i].chordPos = 'top';
+                        else group[i].chordPos = 'middle';
+                    }
+                } else if (group.length === 1) {
+                    group[0].chordPos = 'single';
+                }
+            });
+
+            // Sort gList strictly by staffIdx ASC, then time ASC, then MIDI ASC
             gList.sort(function(a, b) {
-                if (a.trackKey !== b.trackKey) return a.trackKey - b.trackKey;
+                if (a.staffIdx !== b.staffIdx) return a.staffIdx - b.staffIdx;
                 if (Math.abs(a.time - b.time) > 0.02) return a.time - b.time;
                 return a.midi - b.midi;
             });
 
-            // Sort xmlList strictly by trackKey ASC, then startTime ASC, then MIDI ASC
+            // Sort xmlList strictly by staffIdx ASC, then startTime ASC, then MIDI ASC
             xmlList.sort(function(a, b) {
-                if (a.trackKey !== b.trackKey) return a.trackKey - b.trackKey;
+                if (a.staffIdx !== b.staffIdx) return a.staffIdx - b.staffIdx;
                 if (Math.abs(a.startTime - b.startTime) > 0.02) return a.startTime - b.startTime;
                 return a.midi - b.midi;
             });
@@ -813,14 +1029,14 @@
             var assignedX = new Set();
             var matchedPairs = [];
 
-            // Pass 1: Strict TrackKey + Exact Time (<0.05) + Exact Pitch (midi) match
+            // Pass 1: Same staffIdx + Exact Time (<0.05) + Exact Pitch (midi) match
             for (let g = 0; g < gList.length; g++) {
                 if (assignedG.has(g)) continue;
                 var gn = gList[g];
                 for (let x = 0; x < xmlList.length; x++) {
                     if (assignedX.has(x)) continue;
                     var xn = xmlList[x];
-                    if (gn.trackKey === xn.trackKey && Math.abs(gn.time - xn.startTime) < 0.05 && gn.midi === xn.midi) {
+                    if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.05 && gn.midi === xn.midi) {
                         assignedG.add(g);
                         assignedX.add(x);
                         matchedPairs.push({ gItem: gn, xItem: xn });
@@ -829,14 +1045,14 @@
                 }
             }
 
-            // Pass 2: Strict TrackKey + Exact Time (<0.05) match (invariant to pitch edits)
+            // Pass 2: Same staffIdx + Exact Time (<0.05) match (invariant to pitch edits)
             for (let g = 0; g < gList.length; g++) {
                 if (assignedG.has(g)) continue;
                 var gn = gList[g];
                 for (let x = 0; x < xmlList.length; x++) {
                     if (assignedX.has(x)) continue;
                     var xn = xmlList[x];
-                    if (gn.trackKey === xn.trackKey && Math.abs(gn.time - xn.startTime) < 0.05) {
+                    if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.05) {
                         assignedG.add(g);
                         assignedX.add(x);
                         matchedPairs.push({ gItem: gn, xItem: xn });
@@ -845,14 +1061,14 @@
                 }
             }
 
-            // Pass 3: Strict TrackKey + Proximity Time (<0.25) match
+            // Pass 3: Same staffIdx + Proximity Time (<0.25) match
             for (let g = 0; g < gList.length; g++) {
                 if (assignedG.has(g)) continue;
                 var gn = gList[g];
                 for (let x = 0; x < xmlList.length; x++) {
                     if (assignedX.has(x)) continue;
                     var xn = xmlList[x];
-                    if (gn.trackKey === xn.trackKey && Math.abs(gn.time - xn.startTime) < 0.25) {
+                    if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.25) {
                         assignedG.add(g);
                         assignedX.add(x);
                         matchedPairs.push({ gItem: gn, xItem: xn });
@@ -861,23 +1077,7 @@
                 }
             }
 
-            // Pass 4: Fallback within the EXACT same TrackKey in strict sequential order
-            for (let g = 0; g < gList.length; g++) {
-                if (assignedG.has(g)) continue;
-                var gn = gList[g];
-                for (let x = 0; x < xmlList.length; x++) {
-                    if (assignedX.has(x)) continue;
-                    var xn = xmlList[x];
-                    if (gn.trackKey === xn.trackKey) {
-                        assignedG.add(g);
-                        assignedX.add(x);
-                        matchedPairs.push({ gItem: gn, xItem: xn });
-                        break;
-                    }
-                }
-            }
-
-            // Pass 5: Fallback within same staff
+            // Pass 4: Fallback within the exact same staff in strict sequential order
             for (let g = 0; g < gList.length; g++) {
                 if (assignedG.has(g)) continue;
                 var gn = gList[g];
@@ -893,7 +1093,7 @@
                 }
             }
 
-            // Pass 6: Fallback across remaining elements in measure
+            // Pass 5: Fallback across remaining elements in measure
             for (let g = 0; g < gList.length; g++) {
                 if (assignedG.has(g)) continue;
                 for (let x = 0; x < xmlList.length; x++) {
@@ -971,10 +1171,14 @@
                     staffIdx: gn.staffIdx,
                     measureIdx: mIdx,
                     measureNum: gn.mNum,
-                    voiceNum: xn.voice
+                    voiceNum: xn.voice,
+                    chordPos: xn.chordPos,
+                    customVoice: xn.customVoice
                 });
 
-                // Tag ONLY specific notehead SVG elements with exact data-vx-id
+                // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
+                var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice);
+
                 if (domEls.length > 0) {
                     for (let d = 0; d < domEls.length; d++) {
                         let el = domEls[d];
@@ -982,6 +1186,11 @@
                         el.setAttribute('data-vx-id', vxId.toString());
                         el.style.cursor = 'pointer';
                     }
+                }
+
+                // Apply Vocal-Part Color Coding (Notehead, Stem, Tail/Flag & Beam)
+                if (!xn.isRest) {
+                    applyNoteVoiceColor(gNote, voiceColor);
                 }
             }
         });
@@ -997,39 +1206,67 @@
         var clickTarget = document.getElementById('score-container');
         if (clickTarget) {
             clickTarget.onclick = function(e) {
-                // 1. Direct SVG hit test (100% exact notehead click!)
-                var targetEl = e.target;
-                if (targetEl) {
-                    var noteEl = targetEl.closest ? targetEl.closest('[data-vx-id]') : null;
-                    if (noteEl && noteEl.hasAttribute('data-vx-id')) {
-                        var clickedId = parseInt(noteEl.getAttribute('data-vx-id'), 10);
-                        if (!isNaN(clickedId) && noteMap.has(clickedId)) {
-                            selectNote(clickedId);
-                            return;
-                        }
-                    }
-                }
-
-                // 2. Nearest neighbor fallback in exact container scroll space
-                if (noteCoordinates.length === 0) return;
                 var containerRect = clickTarget.getBoundingClientRect();
                 var clickX = e.clientX - containerRect.left + clickTarget.scrollLeft;
                 var clickY = e.clientY - containerRect.top + clickTarget.scrollTop;
 
-                var closest = null;
-                var minDist = 45;
+                var candidates = [];
+                function addCandidate(id) {
+                    if (!isNaN(id) && noteMap.has(id) && candidates.indexOf(id) === -1) {
+                        candidates.push(id);
+                    }
+                }
+
+                // 1. Direct SVG target
+                var targetEl = e.target;
+                if (targetEl) {
+                    var noteEl = targetEl.closest ? targetEl.closest('[data-vx-id]') : null;
+                    if (noteEl && noteEl.hasAttribute('data-vx-id')) {
+                        addCandidate(parseInt(noteEl.getAttribute('data-vx-id'), 10));
+                    }
+                }
+
+                // 2. Multi-element point hit test (all overlapping SVG layers)
+                if (typeof document.elementsFromPoint === 'function') {
+                    var elements = document.elementsFromPoint(e.clientX, e.clientY);
+                    for (let i = 0; i < elements.length; i++) {
+                        var el = elements[i];
+                        var matchEl = el.closest ? el.closest('[data-vx-id]') : null;
+                        if (matchEl && matchEl.hasAttribute('data-vx-id')) {
+                            addCandidate(parseInt(matchEl.getAttribute('data-vx-id'), 10));
+                        }
+                    }
+                }
+
+                // 3. Proximity search from noteCoordinates within 45px radius
                 for (let i = 0; i < noteCoordinates.length; i++) {
                     var nc = noteCoordinates[i];
                     var dx = nc.cx - clickX;
                     var dy = nc.cy - clickY;
                     var dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closest = nc;
+                    if (dist < 45) {
+                        addCandidate(nc.id);
                     }
                 }
-                if (closest) {
-                    selectNote(closest.id);
+
+                // 4. Distance-weighted selection: pick candidate closest to tap coordinate
+                if (candidates.length > 0) {
+                    var bestId = candidates[0];
+                    var bestDist = Infinity;
+                    for (let i = 0; i < candidates.length; i++) {
+                        var cId = candidates[i];
+                        var entry = noteMap.get(cId);
+                        if (entry && entry.coord) {
+                            var dx = entry.coord.cx - clickX;
+                            var dy = entry.coord.cy - clickY;
+                            var d = Math.sqrt(dx * dx + dy * dy);
+                            if (d < bestDist) {
+                                bestDist = d;
+                                bestId = cId;
+                            }
+                        }
+                    }
+                    selectNote(bestId);
                 }
             };
         }
@@ -1341,8 +1578,23 @@
             }
 
             var voiceEl = xmlNoteEl.getElementsByTagName('voice')[0];
-            if (voiceEl && voiceEl.textContent.trim()) {
-                voiceId = parseInt(voiceEl.textContent.trim(), 10) || 1;
+            var parsedVoice = voiceEl ? (parseInt(voiceEl.textContent.trim(), 10) || 1) : 1;
+
+            // Check explicit override
+            var customVoiceStr = xmlNoteEl.getAttribute('data-vx-voice');
+            if (customVoiceStr) {
+                voiceId = parseInt(customVoiceStr, 10) || 1;
+            } else if (entry.staffIdx !== undefined && entry.chordPos) {
+                // In 2-part scores: determine SATB voice (1=S, 2=A, 3=T, 4=B)
+                if (entry.staffIdx === 0) {
+                    voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2) ? 2 : 1;
+                } else if (entry.staffIdx === 1) {
+                    voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2 || parsedVoice === 4) ? 4 : 3;
+                } else {
+                    voiceId = parsedVoice;
+                }
+            } else {
+                voiceId = parsedVoice;
             }
 
             var measEl = xmlNoteEl.parentNode;
@@ -1464,26 +1716,87 @@
             if (typeEl) noteEl.insertBefore(voiceEl, typeEl);
             else noteEl.appendChild(voiceEl);
         }
-        voiceEl.textContent = newVoice.toString();
 
-        // If the score is arranged as separate <part> elements for SATB, move note to the target part
         var parts = xmlDoc.getElementsByTagName('part');
-        var targetPartIdx = newVoice - 1; // 1->P1(Soprano), 2->P2(Alto), 3->P3(Tenor), 4->P4(Bass)
-        if (parts.length >= 4 && targetPartIdx >= 0 && targetPartIdx < parts.length) {
-            var currPart = noteEl.parentNode;
-            while (currPart && currPart.tagName !== 'part') currPart = currPart.parentNode;
+        var currPart = noteEl.parentNode;
+        while (currPart && currPart.tagName !== 'part') currPart = currPart.parentNode;
 
-            var currMeas = noteEl.parentNode;
-            while (currMeas && currMeas.tagName !== 'measure') currMeas = currMeas.parentNode;
+        var currMeas = noteEl.parentNode;
+        while (currMeas && currMeas.tagName !== 'measure') currMeas = currMeas.parentNode;
+
+        // 1. Four-part score (S=1, A=2, T=3, B=4 mapped to parts[0..3])
+        if (parts.length >= 4) {
+            var targetPartIdx = Math.max(0, Math.min(parts.length - 1, newVoice - 1));
+            voiceEl.textContent = '1';
+            noteEl.removeAttribute('data-vx-voice');
 
             if (currPart && currMeas && currPart !== parts[targetPartIdx]) {
-                var mNum = currMeas.getAttribute('number');
-                var targetMeas = parts[targetPartIdx].querySelector("measure[number='" + mNum + "']");
-                if (targetMeas) {
+                var currPartMeasures = currPart.getElementsByTagName('measure');
+                var mIdx = -1;
+                for (let i = 0; i < currPartMeasures.length; i++) {
+                    if (currPartMeasures[i] === currMeas) { mIdx = i; break; }
+                }
+
+                var targetPartMeasures = parts[targetPartIdx].getElementsByTagName('measure');
+                if (mIdx >= 0 && mIdx < targetPartMeasures.length) {
+                    var targetMeas = targetPartMeasures[mIdx];
+
+                    // If note was part of a chord, drop chord tag
+                    var chordTag = noteEl.getElementsByTagName('chord')[0];
+                    if (chordTag) noteEl.removeChild(chordTag);
+
                     noteEl.parentNode.removeChild(noteEl);
+
+                    // If target measure had only a dummy full-measure rest, remove the dummy rest
+                    var targetNotes = targetMeas.getElementsByTagName('note');
+                    if (targetNotes.length === 1 && targetNotes[0].getElementsByTagName('rest').length > 0) {
+                        targetMeas.removeChild(targetNotes[0]);
+                    }
                     targetMeas.appendChild(noteEl);
                 }
             }
+        }
+        // 2. Two-part score (Part 0 = Treble S/A: S=1, A=2; Part 1 = Bass T/B: T=3, B=4)
+        else if (parts.length === 2) {
+            var targetPartIdx = (newVoice <= 2) ? 0 : 1;
+            var localVoice = (newVoice <= 2) ? newVoice : (newVoice - 2); // 1 or 2
+
+            if (currPart && currMeas && currPart !== parts[targetPartIdx]) {
+                // Moving across parts (e.g. from Treble to Bass or vice versa)
+                var currPartMeasures = currPart.getElementsByTagName('measure');
+                var mIdx = -1;
+                for (let i = 0; i < currPartMeasures.length; i++) {
+                    if (currPartMeasures[i] === currMeas) { mIdx = i; break; }
+                }
+
+                var targetPartMeasures = parts[targetPartIdx].getElementsByTagName('measure');
+                if (mIdx >= 0 && mIdx < targetPartMeasures.length) {
+                    var targetMeas = targetPartMeasures[mIdx];
+
+                    // Remove chord tag if moving across parts
+                    var chordTag = noteEl.getElementsByTagName('chord')[0];
+                    if (chordTag) noteEl.removeChild(chordTag);
+
+                    voiceEl.textContent = localVoice.toString();
+                    noteEl.setAttribute('data-vx-voice', newVoice.toString());
+
+                    noteEl.parentNode.removeChild(noteEl);
+
+                    var targetNotes = targetMeas.getElementsByTagName('note');
+                    if (targetNotes.length === 1 && targetNotes[0].getElementsByTagName('rest').length > 0) {
+                        targetMeas.removeChild(targetNotes[0]);
+                    }
+                    targetMeas.appendChild(noteEl);
+                }
+            } else {
+                // Moving within the same part (e.g. Soprano <-> Alto in Part 0)
+                // Note: Keep MusicXML voice attribute safe while explicitly recording data-vx-voice
+                noteEl.setAttribute('data-vx-voice', newVoice.toString());
+            }
+        } else {
+            // Single part score
+            voiceEl.textContent = newVoice.toString();
+            noteEl.setAttribute('data-vx-voice', newVoice.toString());
         }
 
         reloadScore();
@@ -1919,29 +2232,32 @@
 
         var mergedPids = new Set();
         var mergePairs = [];
-        for (var i = 0; i < partInfo.length; i++) {
-            var p1 = partInfo[i];
-            if (mergedPids.has(p1.pid)) continue;
-            for (var j = i + 1; j < partInfo.length; j++) {
-                var p2 = partInfo[j];
-                if (mergedPids.has(p2.pid)) continue;
+        // CRITICAL GUARD: Only attempt part merging if the score has MORE than 4 parts
+        // (e.g. split Audiveris OMR systems). Never merge standard 1, 2, 3, or 4-part SATB scores!
+        if (partInfo.length > 4) {
+            for (var i = 0; i < partInfo.length; i++) {
+                var p1 = partInfo[i];
+                if (mergedPids.has(p1.pid)) continue;
+                for (var j = i + 1; j < partInfo.length; j++) {
+                    var p2 = partInfo[j];
+                    if (mergedPids.has(p2.pid)) continue;
 
-                var tierMatch = (p1.tier !== 0 && p1.tier === p2.tier);
-                var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || tierMatch || (partInfo.length === 8 && j === i + 4);
-                if (nameMatch) {
-                    var overlap = false;
-                    for (var mnum in p1.measures) {
-                        if (p2.measures[mnum] && p1.measures[mnum] > 0 && p2.measures[mnum] > 0) {
-                            overlap = true;
+                    var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || (partInfo.length === 8 && j === i + 4);
+                    if (nameMatch) {
+                        var overlap = false;
+                        for (var mnum in p1.measures) {
+                            if (p2.measures[mnum] && p1.measures[mnum] > 0 && p2.measures[mnum] > 0) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                        if (!overlap) {
+                            var compNames = getCompositePartNameAndAbbr(p1.rawName, p2.rawName);
+                            mergePairs.push({ p1: p1, p2: p2, canonName: compNames[0], canonAbbr: compNames[1] });
+                            mergedPids.add(p1.pid);
+                            mergedPids.add(p2.pid);
                             break;
                         }
-                    }
-                    if (!overlap) {
-                        var compNames = getCompositePartNameAndAbbr(p1.rawName, p2.rawName);
-                        mergePairs.push({ p1: p1, p2: p2, canonName: compNames[0], canonAbbr: compNames[1] });
-                        mergedPids.add(p1.pid);
-                        mergedPids.add(p2.pid);
-                        break;
                     }
                 }
             }
@@ -2117,7 +2433,8 @@
         return xmlString
             .replace(/\s+xmlns=""/g, '')
             .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')
-            .replace(/\s+data-vx-id="[^"]*"/g, '');
+            .replace(/\s+data-vx-id="[^"]*"/g, '')
+            .replace(/\s+data-vx-voice="[^"]*"/g, '');
     }
 
     function reloadScore() {

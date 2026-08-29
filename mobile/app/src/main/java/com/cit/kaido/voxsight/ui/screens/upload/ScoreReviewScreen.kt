@@ -7,8 +7,10 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +33,7 @@ import com.cit.kaido.voxsight.model.MusicalEvent
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlNote
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
+import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
@@ -194,7 +197,7 @@ fun ScoreReviewScreen(
                 color = VoxPurplePrimary.copy(alpha = 0.08f),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -207,6 +210,41 @@ fun ScoreReviewScreen(
                         color = VoxPurplePrimary,
                         lineHeight = 16.sp
                     )
+                }
+            }
+
+            // SATB Vocal Part Legend
+            Surface(
+                color = Color.White,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, VoxCardStroke)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Vocal Parts:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = VoxTextSubtitle
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        VoiceLegendItem("Soprano", Color(0xFFE91E63))
+                        VoiceLegendItem("Alto", Color(0xFF9C27B0))
+                        VoiceLegendItem("Tenor", Color(0xFF2196F3))
+                        VoiceLegendItem("Bass", Color(0xFF4CAF50))
+                    }
                 }
             }
 
@@ -526,4 +564,25 @@ fun ScoreInfoDialog(
         containerColor = Color.White,
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+@Composable
+private fun VoiceLegendItem(name: String, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Text(
+            text = name,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = color
+        )
+    }
 }
