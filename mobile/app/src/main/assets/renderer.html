@@ -519,7 +519,8 @@
                                 let entry = staffEntries[se];
                                 let gNotes = entry.findStaffEntryNotes ? entry.findStaffEntryNotes() : (entry.graphicalNotes || []);
                                 for (let gn = 0; gn < gNotes.length; gn++) {
-                                    let sn = gNotes[gn].sourceNote || gNotes[gn].SourceNote;
+                                    let gNote = gNotes[gn];
+                                    let sn = gNote.sourceNote || gNote.SourceNote;
                                     if (!sn) continue;
                                     let sId = sn.__vx_id;
                                     let m = colorMappingList.find(c => c.id === sId);
@@ -529,12 +530,42 @@
                                     let isDim = (currentVisualFocus !== null && currentVisualFocus !== pLab);
                                     let tCol = isDim ? (bCol.length === 7 ? bCol + "26" : "#00000026") : bCol;
 
-                                    let vfarr = gNotes[gn].vfnote ? (Array.isArray(gNotes[gn].vfnote) ? gNotes[gn].vfnote : [gNotes[gn].vfnote]) : [];
+                                    // 1. Color beam
+                                    let vfarr = gNote.vfnote ? (Array.isArray(gNote.vfnote) ? gNote.vfnote : [gNote.vfnote]) : [];
                                     for (let vi = 0; vi < vfarr.length; vi++) {
                                         let vfn = vfarr[vi];
                                         if (vfn && vfn.beam) {
                                             if (typeof vfn.beam.setStyle === 'function') {
                                                 vfn.beam.setStyle({ fillStyle: tCol, strokeStyle: tCol });
+                                            }
+                                        }
+                                    }
+
+                                    // 2. Direct SVG notehead path coloring for chord precision
+                                    let domEls = getSvgElements(gNote);
+                                    if (domEls.length > 0 && domEls[0]) {
+                                        let vfG = domEls[0];
+                                        let nhs = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-notehead') : [];
+                                        if (nhs.length === 1) {
+                                            let paths = nhs[0].querySelectorAll('path');
+                                            for (let p = 0; p < paths.length; p++) {
+                                                paths[p].style.fill = tCol;
+                                                paths[p].style.stroke = tCol;
+                                            }
+                                        } else if (nhs.length > 1) {
+                                            let nhArr = Array.from(nhs);
+                                            nhArr.sort(function(a, b) {
+                                                let rA = a.getBoundingClientRect();
+                                                let rB = b.getBoundingClientRect();
+                                                return rB.top - rA.top; // descending Y
+                                            });
+                                            let nhIdx = (gNote.vfnoteIndex !== undefined) ? gNote.vfnoteIndex : 0;
+                                            if (nhIdx >= 0 && nhIdx < nhArr.length) {
+                                                let paths = nhArr[nhIdx].querySelectorAll('path');
+                                                for (let p = 0; p < paths.length; p++) {
+                                                    paths[p].style.fill = tCol;
+                                                    paths[p].style.stroke = tCol;
+                                                }
                                             }
                                         }
                                     }
