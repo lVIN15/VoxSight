@@ -13,6 +13,7 @@ import com.cit.kaido.voxsight.ui.screens.auth.LandingScreen
 import com.cit.kaido.voxsight.ui.screens.auth.LoginScreen
 import com.cit.kaido.voxsight.ui.screens.auth.RegistrationScreen
 import com.cit.kaido.voxsight.ui.screens.profile.ProfileScreen
+import com.cit.kaido.voxsight.ui.screens.profile.PremiumUpgradeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.PauseMenuModal
 import com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen
@@ -172,7 +173,16 @@ fun AppNavigation() {
                     navController.navigate("landing") {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onUpgradeToPremiumClicked = {
+                    navController.navigate("premium_upgrade")
                 }
+            )
+        }
+
+        composable("premium_upgrade") {
+            PremiumUpgradeScreen(
+                onCancelClicked = { navController.popBackStack() }
             )
         }
 

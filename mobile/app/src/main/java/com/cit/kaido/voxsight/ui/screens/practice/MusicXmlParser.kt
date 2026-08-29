@@ -472,8 +472,6 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
 
     parts.forEach { part ->
         part.notes.forEach { note ->
-            if (note.isRest) return@forEach
-
             val satbVoiceStr = when (note.voice) {
                 1 -> "SOPRANO"
                 2 -> "ALTO"
@@ -488,8 +486,8 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
                 }
             }
 
-            val midi = calculateMidiNote(note.step, note.alter, note.octave)
-            val pitchName = formatPitchName(note.step, note.alter, note.octave)
+            val midi = if (note.isRest) 0 else calculateMidiNote(note.step, note.alter, note.octave)
+            val pitchName = if (note.isRest) "Rest" else formatPitchName(note.step, note.alter, note.octave)
             val eventId = "t${note.startTimeDivisions}-p${part.id}-c${eventIndex++}"
 
             eventsList.add(
@@ -505,7 +503,7 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
                     voiceSource = note.voice,
                     staffId = note.staff,
                     partId = part.id,
-                    isRest = false,
+                    isRest = note.isRest,
                     isChordMember = note.isChord,
                     satbVoice = satbVoiceStr,
                     satbConfidence = 1.0f,

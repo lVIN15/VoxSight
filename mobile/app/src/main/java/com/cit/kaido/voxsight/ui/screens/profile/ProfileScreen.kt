@@ -12,6 +12,8 @@ import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Crown
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -36,7 +38,8 @@ import com.cit.kaido.voxsight.ui.theme.VoxBackground
 fun ProfileScreen(
     username: String,
     onBackClicked: () -> Unit,
-    onLogoutClicked: () -> Unit
+    onLogoutClicked: () -> Unit,
+    onUpgradeToPremiumClicked: () -> Unit = {}
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     val topPurple = Color(0xFF38036B)
@@ -136,16 +139,14 @@ fun ProfileScreen(
                 onClick = {}
             )
 
-            // Custom icon for crown - using a star or similar if crown is not in standard icons
-            // For now, let's just use Edit as placeholder or try to find a crown. We'll use a generic icon.
-            // Material icons doesn't have a direct "crown" by default, using star.
+            // Custom icon for crown using Lucide icons
             ProfileCard(
                 title = "Upgrade to Premium",
                 subtitle = "Unlock infinite scores",
-                icon = Icons.Outlined.Edit, // Fallback
+                icon = Lucide.Crown,
                 iconBgColor = orangeLight,
                 iconColor = orangeDark,
-                onClick = {}
+                onClick = onUpgradeToPremiumClicked
             )
 
             ProfileCard(

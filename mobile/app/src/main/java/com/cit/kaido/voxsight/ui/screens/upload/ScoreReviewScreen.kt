@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -151,6 +152,8 @@ fun ScoreReviewScreen(
                             .weight(1f)
                             .height(48.dp)
                     ) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Cancel", tint = VoxTextSubtitle)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("CANCEL", fontWeight = FontWeight.Bold, color = VoxTextSubtitle)
                     }
 
@@ -173,14 +176,17 @@ fun ScoreReviewScreen(
                             } ?: onConfirm(musicXml)
                         },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = VoxPurplePrimary),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = VoxPurplePrimary,
+                            contentColor = Color.White
+                        ),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
                     ) {
-                        Icon(Icons.Outlined.Check, contentDescription = "Confirm")
+                        Icon(Icons.Outlined.Check, contentDescription = "Confirm", tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("CONFIRM & SAVE", fontWeight = FontWeight.Bold)
+                        Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -383,8 +389,6 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
 
     score.parts.forEach { part ->
         part.notes.forEach { note ->
-            if (note.isRest) return@forEach
-            
             val satbVoiceStr = when (note.voice) {
                 1 -> "SOPRANO"
                 2 -> "ALTO"
@@ -399,8 +403,8 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                 }
             }
             
-            val midi = calculateMidiNote(note.step, note.alter, note.octave)
-            val pitchName = formatPitchName(note.step, note.alter, note.octave)
+            val midi = if (note.isRest) 0 else calculateMidiNote(note.step, note.alter, note.octave)
+            val pitchName = if (note.isRest) "Rest" else formatPitchName(note.step, note.alter, note.octave)
             val eventId = "t${note.startTimeDivisions}-p${part.id}-c${eventIndex++}"
             
             eventsList.add(
@@ -416,7 +420,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     voiceSource = note.voice,
                     staffId = note.staff,
                     partId = part.id,
-                    isRest = false,
+                    isRest = note.isRest,
                     isChordMember = note.isChord,
                     satbVoice = satbVoiceStr,
                     satbConfidence = 1.0f,

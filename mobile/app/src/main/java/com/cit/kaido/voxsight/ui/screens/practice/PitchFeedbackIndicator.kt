@@ -63,177 +63,48 @@ fun PitchFeedbackIndicator(
     state: PitchUiState,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = VoxCardBackground,
-        border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-    ) {
-        Box(modifier = Modifier.height(110.dp), contentAlignment = Alignment.Center) {
-            when (state) {
-                is PitchUiState.Idle -> IdleContent()
-                is PitchUiState.Listening -> ListeningContent()
-                is PitchUiState.NoiseWarning -> NoiseWarningContent()
-                is PitchUiState.Active -> ActiveFeedbackContent(state)
-            }
-        }
+    val result = (state as? PitchUiState.Active)?.result
+    val isMatch = result?.isMatch == true
+
+    val targetColor = when (state) {
+        is PitchUiState.Active -> if (result!!.isMatch) GreenAccent else result.colorBand.toColor()
+        is PitchUiState.NoiseWarning -> YellowAccent
+        is PitchUiState.Listening -> Color(0xFF7E57C2) // VoxPurpleAccent
+        else -> VoxTextSubtitle
     }
-}
 
-@Composable
-private fun IdleContent() {
-    Text(
-        text = "Press play to start pitch tracking",
-        style = MaterialTheme.typography.labelMedium,
-        color = VoxTextSubtitle,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.padding(16.dp)
-    )
-}
-
-@Composable
-private fun ListeningContent() {
-    ListeningRow(label = "Listening for pitch...", color = VoxPurpleAccent)
-}
-
-// Ensure VoxPurpleAccent is defined or fallback
-private val VoxPurpleAccent = Color(0xFF7E57C2)
-
-@Composable
-private fun ListeningRow(label: String, color: Color) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        // Pulsing dot
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(color, CircleShape)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = VoxTextSubtitle
-        )
-    }
-}
-
-@Composable
-private fun NoiseWarningContent() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(YellowAccent, CircleShape)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "Noise warning — move to a quieter area",
-            style = MaterialTheme.typography.labelMedium,
-            color = VoxTextSubtitle
-        )
-    }
-}
-
-@Composable
-private fun ActiveFeedbackContent(state: PitchUiState.Active) {
-    val result = state.result
-
-    // Animate indicator colour transitions
-    val targetColor = if (result.isMatch) GreenAccent else result.colorBand.toColor()
     val animatedColor by animateColorAsState(
         targetValue = targetColor,
         animationSpec = tween(durationMillis = 200),
         label = "pitch_color"
     )
 
-    // Normalise deviation to ±1.0 for the needle position
-    // Clamp at ±200 cents so the needle never leaves the track.
-    val clampedCents = result.deviationCents.coerceIn(-200f, 200f)
+    val clampedCents = result?.deviationCents?.coerceIn(-200f, 200f) ?: 0f
     val normDeviation by animateFloatAsState(
-        targetValue = clampedCents / 200f,        // -1.0 … +1.0
+        targetValue = clampedCents / 200f,
         animationSpec = spring(stiffness = Spring.StiffnessMedium),
         label = "pitch_needle"
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = VoxCardBackground,
+        border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
     ) {
-        // ── Row 1: status label + note name ──────────────────────────
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            StatusLabel(result = result, color = animatedColor)
-
-            if (state.targetNoteName.isNotBlank()) {
-                Text(
-                    text = "Target: ${state.targetNoteName}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VoxTextSecondary
-                )
-            }
-        }
-
-        // ── Row 2: deviation meter ────────────────────────────────────
-        DeviationMeter(
-            normDeviation = normDeviation,
-            accentColor = animatedColor,
-            isMatch = result.isMatch
-        )
-
-        // ── Row 3: cents readout + direction label ────────────────────
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val centsText = when (result.direction) {
-                PitchDirection.ON_PITCH -> "On pitch ✓"
-                PitchDirection.SHARP    -> "+${abs(result.deviationCents).toInt()} ¢ sharp"
-                PitchDirection.FLAT     -> "−${abs(result.deviationCents).toInt()} ¢ flat"
-            }
-            Text(
-                text = centsText,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = animatedColor
-            )
-            Text(
-                text = "Tolerance ±${PitchComparator.TOLERANCE_CENTS.toInt()} ¢",
-                style = MaterialTheme.typography.labelSmall,
-                color = VoxTextSubtitle
+            DeviationMeter(
+                normDeviation = normDeviation,
+                accentColor = animatedColor,
+                isMatch = isMatch
             )
         }
     }
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-@Composable
-private fun StatusLabel(result: FeedbackResult, color: Color) {
-    val label = if (result.isMatch) "● Match" else "● Off pitch"
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp
-        ),
-        color = color
-    )
 }
 
 /**

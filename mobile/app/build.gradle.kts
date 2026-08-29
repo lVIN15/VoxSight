@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation("com.composables:icons-lucide:1.0.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     // OkHttp (used by OmrScreen)

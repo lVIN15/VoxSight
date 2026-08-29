@@ -324,11 +324,11 @@ fun Module2PracticeScreen(
     }
 }
 
-private enum class VoicePart(val label: String, val shortLabel: String) {
-    Soprano("Soprano", "S."),
-    Alto("Alto", "A."),
-    Tenor("Tenor", "T."),
-    Bass("Bass", "B.")
+private enum class VoicePart(val label: String, val shortLabel: String, val color: Color) {
+    Soprano("Soprano", "S.", Color(0xFFE91E63)),
+    Alto("Alto", "A.", Color(0xFF9C27B0)),
+    Tenor("Tenor", "T.", Color(0xFF2196F3)),
+    Bass("Bass", "B.", Color(0xFF4CAF50))
 }
 
 private data class StaffNote(
@@ -569,7 +569,7 @@ private fun PartSelectorUI(
                     .weight(1f)
                     .height(34.dp)
                     .clickable(enabled = enabled) { onPartSelected(part) },
-                color = if (isSelected) VoxPurplePrimary else Color.White,
+                color = if (isSelected) part.color else Color.White,
                 shape = RoundedCornerShape(999.dp),
                 border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
             ) {
@@ -934,51 +934,12 @@ private fun PlaybackControlBar(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ── Tempo (BPM) Stepper & Speed Multiplier Chips ──
+        // ── Speed Multiplier Chips ──
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.Center
         ) {
-            // BPM Stepper
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier
-                    .background(VoxCardBackground, RoundedCornerShape(20.dp))
-                    .border(1.dp, VoxCardStroke, RoundedCornerShape(20.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                IconButton(
-                    onClick = { onTempoChange((currentBpm - 5f).coerceAtLeast(40f)) },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Remove,
-                        contentDescription = "Decrease Tempo",
-                        tint = VoxPurplePrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Text(
-                    text = "♩ ${currentBpm.roundToInt()} BPM",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = VoxTextPrimary
-                )
-                IconButton(
-                    onClick = { onTempoChange((currentBpm + 5f).coerceAtMost(240f)) },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Add,
-                        contentDescription = "Increase Tempo",
-                        tint = VoxPurplePrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-
             // Speed Multiplier Chips
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
