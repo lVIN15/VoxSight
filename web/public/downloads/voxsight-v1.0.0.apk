@@ -1,0 +1,7 @@
+VoxSight Android Application Package (APK v1.0.0)
+Capstone Project: 2526-sem2-it332-51
+Build: Release v1.0.0
+Package Name: com.voxsight.app
+Target SDK: Android 34 (Android 14)
+Min SDK: Android 26 (Android 8.0)
+Features: Controlled OMR, Audio-Visual Selective Focus, Dynamic Score Tracking, Real-Time Pitch Feedback.
