@@ -188,6 +188,275 @@
         let colorMappingList = [];
         let currentVisualFocus = null;
 
+        // ─── Staff Index & Measure Number Helpers for OSMD GraphicalNotes ──────
+        function getStaffIndex(gNote) {
+            if (!gNote) return 0;
+            if (gNote.ParentStaffEntry && gNote.ParentStaffEntry.parentStaff && typeof gNote.ParentStaffEntry.parentStaff.idInMusicSheet === 'number') {
+                return gNote.ParentStaffEntry.parentStaff.idInMusicSheet;
+            }
+            if (gNote.parentStaffEntry && gNote.parentStaffEntry.parentStaff && typeof gNote.parentStaffEntry.parentStaff.idInMusicSheet === 'number') {
+                return gNote.parentStaffEntry.parentStaff.idInMusicSheet;
+            }
+            var src = gNote.sourceNote || gNote.SourceNote;
+            if (src) {
+                if (src.ParentStaffEntry && src.ParentStaffEntry.ParentStaff && typeof src.ParentStaffEntry.ParentStaff.idInMusicSheet === 'number') {
+                    return src.ParentStaffEntry.ParentStaff.idInMusicSheet;
+                }
+                if (src.parentStaffEntry && src.parentStaffEntry.parentStaff && typeof src.parentStaffEntry.parentStaff.idInMusicSheet === 'number') {
+                    return src.parentStaffEntry.parentStaff.idInMusicSheet;
+                }
+                if (src.ParentStaffEntry && src.ParentStaffEntry.ParentStaff && typeof src.ParentStaffEntry.ParentStaff.Id === 'number') {
+                    return src.ParentStaffEntry.ParentStaff.Id - 1;
+                }
+            }
+            return 0;
+        }
+
+        function getMeasureIndex(gNote) {
+            var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
+            if (src) {
+                var sm = src.SourceMeasure || src.sourceMeasure;
+                if (sm) {
+                    if (typeof sm.measureListIndex === 'number') return sm.measureListIndex;
+                    if (typeof sm.MeasureListIndex === 'number') return sm.MeasureListIndex;
+                }
+            }
+            if (gNote) {
+                var pm = gNote.parentMeasure || gNote.ParentMeasure;
+                if (pm) {
+                    if (typeof pm.measureListIndex === 'number') return pm.measureListIndex;
+                    if (typeof pm.MeasureListIndex === 'number') return pm.MeasureListIndex;
+                    var psm = pm.parentSourceMeasure || pm.ParentSourceMeasure;
+                    if (psm) {
+                        if (typeof psm.measureListIndex === 'number') return psm.measureListIndex;
+                        if (typeof psm.MeasureListIndex === 'number') return psm.MeasureListIndex;
+                    }
+                }
+                var pse = gNote.parentStaffEntry || gNote.ParentStaffEntry;
+                if (pse) {
+                    var pm2 = pse.parentMeasure || pse.ParentMeasure;
+                    if (pm2) {
+                        if (typeof pm2.measureListIndex === 'number') return pm2.measureListIndex;
+                        if (typeof pm2.MeasureListIndex === 'number') return pm2.MeasureListIndex;
+                        var psm2 = pm2.parentSourceMeasure || pm2.ParentSourceMeasure;
+                        if (psm2) {
+                            if (typeof psm2.measureListIndex === 'number') return psm2.measureListIndex;
+                            if (typeof psm2.MeasureListIndex === 'number') return psm2.MeasureListIndex;
+                        }
+                    }
+                }
+            }
+            return 0;
+        }
+
+        function getMeasureNumber(gNote) {
+            var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
+            if (src) {
+                if (src.SourceMeasure && typeof src.SourceMeasure.MeasureNumber === 'number') return src.SourceMeasure.MeasureNumber;
+                if (src.sourceMeasure && typeof src.sourceMeasure.MeasureNumber === 'number') return src.sourceMeasure.MeasureNumber;
+            }
+            if (gNote.parentStaffEntry && gNote.parentStaffEntry.parentMeasure) {
+                var m = gNote.parentStaffEntry.parentMeasure;
+                if (typeof m.MeasureNumber === 'number') return m.MeasureNumber;
+                if (m.ParentSourceMeasure && typeof m.ParentSourceMeasure.MeasureNumber === 'number') return m.ParentSourceMeasure.MeasureNumber;
+            }
+            return 1;
+        }
+
+        function getSourceNotePitchSignature(src) {
+            if (!src) return null;
+            if (typeof src.isRest === 'function' && src.isRest()) return 'REST';
+            if (src.isRest === true) return 'REST';
+
+            var pitchObj = src.Pitch || src.pitch;
+            if (pitchObj) {
+                var step = '';
+                if (typeof pitchObj.step === 'string') step = pitchObj.step.toUpperCase();
+                else if (typeof pitchObj.Step === 'string') step = pitchObj.Step.toUpperCase();
+                else if (typeof pitchObj.step === 'number') {
+                    var stepNames = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+                    step = stepNames[pitchObj.step % 7] || '';
+                }
+
+                var octave = (typeof pitchObj.octave === 'number') ? pitchObj.octave : ((typeof pitchObj.Octave === 'number') ? pitchObj.Octave : 4);
+                var alter = (typeof pitchObj.accidental === 'number') ? pitchObj.accidental : ((typeof pitchObj.Accidental === 'number') ? pitchObj.Accidental : 0);
+                var altStr = alter !== 0 ? (alter > 0 ? '#' : 'b') : '';
+                return step + altStr + octave;
+            }
+            return null;
+        }
+
+        function getVoiceNumber(gNote) {
+            var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
+            if (src) {
+                if (src.VoiceEntry && src.VoiceEntry.ParentVoice && src.VoiceEntry.ParentVoice.VoiceId !== undefined) {
+                    return parseInt(src.VoiceEntry.ParentVoice.VoiceId, 10) || 1;
+                }
+                if (src.voice && typeof src.voice === 'object' && (src.voice.VoiceId || src.voice.voiceId)) {
+                    return parseInt(src.voice.VoiceId || src.voice.voiceId, 10) || 1;
+                }
+                if (typeof src.voice === 'number') return src.voice;
+                if (src.ParentVoice && src.ParentVoice.VoiceId !== undefined) {
+                    return parseInt(src.ParentVoice.VoiceId, 10) || 1;
+                }
+            }
+            if (gNote && gNote.ParentStaffEntry && gNote.ParentStaffEntry.ParentVoice && gNote.ParentStaffEntry.ParentVoice.VoiceId !== undefined) {
+                return parseInt(gNote.ParentStaffEntry.ParentVoice.VoiceId, 10) || 1;
+            }
+            return 1;
+        }
+
+        // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
+        function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
+            // Priority 1: Explicit user override via data-vx-voice attribute
+            if (typeof customVoice === 'number' && customVoice >= 1 && customVoice <= 4) {
+                switch (customVoice) {
+                    case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                }
+            }
+
+            // 4-part score (Soprano, Alto, Tenor, Bass separated by Part)
+            if (totalParts >= 4) {
+                var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
+                switch (p) {
+                    case 0: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    case 1: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    case 2: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    case 3: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    default: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                }
+            }
+
+            // 2-part score or 2-staff score (Treble = S/A, Bass = T/B)
+            if (totalParts === 2 || staffIdx !== undefined) {
+                var isStaff1 = (staffIdx === 0 || partIdx === 0);
+                var isStaff2 = (staffIdx === 1 || partIdx === 1);
+
+                if (isStaff1) {
+                    if (chordPos === 'bottom') return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    if (chordPos === 'top') return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    if (voiceNum === 2) return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                } else if (isStaff2) {
+                    if (chordPos === 'bottom') return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    if (chordPos === 'top') return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    if (voiceNum === 2 || voiceNum === 4) return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                }
+            }
+
+            // Fallback based on voice number
+            switch (voiceNum) {
+                case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                default: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+            }
+        }
+
+        // ─── Direct SVG DOM Coloring (Parity with Editor) ───────────────
+        function applyNoteVoiceColor(gNote, voiceColor) {
+            if (!gNote || !voiceColor) return;
+
+            // Set OSMD source note properties
+            if (gNote.sourceNote) {
+                gNote.sourceNote.NoteheadColor = voiceColor;
+                gNote.sourceNote.StemColor = voiceColor;
+                gNote.sourceNote.Color = voiceColor;
+            }
+
+            var vf = null;
+            if (gNote.vfnote && gNote.vfnote.length > 0) vf = gNote.vfnote[0];
+            else if (gNote.parentVoiceEntry && gNote.parentVoiceEntry.vfnote && gNote.parentVoiceEntry.vfnote.length > 0) {
+                vf = gNote.parentVoiceEntry.vfnote[0];
+            }
+
+            if (vf) {
+                var vfG = null;
+                if (typeof vf.getSVGGElement === 'function') vfG = vf.getSVGGElement();
+                else if (vf.getAttribute && typeof vf.getAttribute === 'function') vfG = vf.getAttribute('el');
+                else if (vf.elem) vfG = vf.elem;
+
+                if (vfG) {
+                    // 1. Color Notehead (.vf-notehead)
+                    var nhs = vfG.querySelectorAll ? Array.from(vfG.querySelectorAll('.vf-notehead')) : [];
+                    var targetNh = null;
+                    if (nhs.length > 1) {
+                        nhs.sort(function(a, b) {
+                            var rA = a.getBoundingClientRect();
+                            var rB = b.getBoundingClientRect();
+                            return rB.top - rA.top;
+                        });
+                        var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
+                        targetNh = nhs[Math.min(nhIdx, nhs.length - 1)] || nhs[0];
+                    } else if (nhs.length === 1) {
+                        targetNh = nhs[0];
+                    }
+
+                    if (targetNh) {
+                        targetNh.style.fill = voiceColor;
+                        targetNh.style.stroke = voiceColor;
+                        targetNh.setAttribute('fill', voiceColor);
+                        targetNh.setAttribute('stroke', voiceColor);
+                        var paths = targetNh.querySelectorAll ? targetNh.querySelectorAll('path, ellipse, polygon') : [];
+                        for (let p = 0; p < paths.length; p++) {
+                            paths[p].style.fill = voiceColor;
+                            paths[p].style.stroke = voiceColor;
+                            paths[p].setAttribute('fill', voiceColor);
+                            paths[p].setAttribute('stroke', voiceColor);
+                        }
+                    }
+
+                    // 2. Color Stem (.vf-stem)
+                    var stems = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-stem, path.vf-stem, rect.vf-stem, [class*="stem"]') : [];
+                    for (let s = 0; s < stems.length; s++) {
+                        stems[s].style.stroke = voiceColor;
+                        stems[s].style.fill = voiceColor;
+                        stems[s].setAttribute('stroke', voiceColor);
+                        stems[s].setAttribute('fill', voiceColor);
+                    }
+
+                    // 3. Color Flag / Tail (.vf-flag)
+                    var flags = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-flag, path.vf-flag, [class*="flag"]') : [];
+                    for (let f = 0; f < flags.length; f++) {
+                        flags[f].style.stroke = voiceColor;
+                        flags[f].style.fill = voiceColor;
+                        flags[f].setAttribute('stroke', voiceColor);
+                        flags[f].setAttribute('fill', voiceColor);
+                        var fPaths = flags[f].querySelectorAll ? flags[f].querySelectorAll('path') : [];
+                        for (let fp = 0; fp < fPaths.length; fp++) {
+                            fPaths[fp].style.stroke = voiceColor;
+                            fPaths[fp].style.fill = voiceColor;
+                            fPaths[fp].setAttribute('stroke', voiceColor);
+                            fPaths[fp].setAttribute('fill', voiceColor);
+                        }
+                    }
+
+                    // 4. Color Beam if connected
+                    if (vf.beam) {
+                        var beamG = (typeof vf.beam.getSVGGElement === 'function') ? vf.beam.getSVGGElement() : (vf.beam.elem || null);
+                        if (beamG) {
+                            beamG.style.fill = voiceColor;
+                            beamG.style.stroke = voiceColor;
+                            beamG.setAttribute('fill', voiceColor);
+                            beamG.setAttribute('stroke', voiceColor);
+                            var bPaths = beamG.querySelectorAll ? beamG.querySelectorAll('path, rect, polygon') : [];
+                            for (let bp = 0; bp < bPaths.length; bp++) {
+                                bPaths[bp].style.fill = voiceColor;
+                                bPaths[bp].style.stroke = voiceColor;
+                                bPaths[bp].setAttribute('fill', voiceColor);
+                                bPaths[bp].setAttribute('stroke', voiceColor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         function findGraphicalNotes(obj, visited = new Set(), results = []) {
             if (!obj || typeof obj !== 'object') return results;
             if (visited.has(obj)) return results;
@@ -344,8 +613,8 @@
                 // Render authentic H-bar rests for multi-measure rest bars
                 renderHBarRests();
 
-                // Extract note coordinates for SyncManager
-                extractNoteCoordinates();
+                // Build note map & directly color 100% of noteheads, stems, flags, beams from XML
+                buildNoteMap();
 
                 // Compute layout hash
                 layoutHash = computeLayoutHash();
@@ -402,47 +671,20 @@
             updateColorsAndRender();
         };
 
-        let lastAppliedColorsJson = '';
-
         window.applySyncColors = function (colorsJson) {
-            try {
-                if (colorsJson === lastAppliedColorsJson) return;
-                lastAppliedColorsJson = colorsJson;
-                colorMappingList = JSON.parse(colorsJson);
-                if (!osmd) return;
+            // Visual notehead colors are already rendered from XML DOM in buildNoteMap.
+            if (currentVisualFocus !== null) {
                 updateColorsAndRender();
-            } catch (e) {
-                console.error('[VoxSight] applySyncColors failed:', e);
             }
         };
 
-        function getSvgElements(gNote) {
-            const svgs = [];
-            if (!gNote) return svgs;
-            const vfnotes = gNote.vfnote;
-            if (!vfnotes) return svgs;
-            const arr = Array.isArray(vfnotes) ? vfnotes : [vfnotes];
-            for (let i = 0; i < arr.length; i++) {
-                const vf = arr[i];
-                if (!vf) continue;
-                let el = null;
-                if (typeof vf.getSVGGElement === 'function') {
-                    el = vf.getSVGGElement();
-                } else if (vf.getAttribute && typeof vf.getAttribute === 'function') {
-                    el = vf.getAttribute('el');
-                }
-                if (el) svgs.push(el);
-            }
-            return svgs;
-        }
-
         /**
-         * Applies Visual Focus dimming and Sync Colors using OSMD's native note, stem, and beam coloring engine.
-         * Natively colors 100% of Noteheads, Stems, Flags, and Connected Note Beam Tails.
+         * Applies Visual Focus dimming using direct SVG DOM coloring.
+         * Colors 100% of Noteheads, Stems, Flags, and Connected Note Beam Tails.
          */
         function updateColorsAndRender() {
             try {
-                if (!osmd || !colorMappingList || colorMappingList.length === 0) return;
+                if (!osmd) return;
 
                 let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet;
                 let tempGraphicalNotes = [];
@@ -453,129 +695,14 @@
                     let srcNote = gNote.sourceNote || gNote.SourceNote;
                     if (!srcNote) continue;
 
-                    let gId = srcNote.__vx_id !== undefined ? srcNote.__vx_id : gNote.__vx_id;
-                    let match = colorMappingList.find(c => c.id === gId);
-                    if (!match) continue;
-
-                    let baseColor = match.color || "#000000";
-                    let partLabel = match.part || "S";
-                    srcNote.CustomSatbLabel = partLabel;
+                    let baseColor = gNote.__vx_baseColor || srcNote.NoteheadColor || "#000000";
+                    let partLabel = gNote.__vx_partLabel || srcNote.CustomSatbLabel || "S";
 
                     const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
                     const targetColor = isDimmed ? (baseColor.length === 7 ? baseColor + "26" : "#00000026") : baseColor;
 
-                    // 1. Set notehead and stem colors on SourceNote
-                    srcNote.NoteheadColor = targetColor;
-                    srcNote.NoteheadColorCurrentlyRendered = targetColor;
-                    srcNote.NoteheadColorXml = targetColor;
-                    srcNote.StemColor = targetColor;
-                    srcNote.StemColorXml = targetColor;
-
-                    // 2. Set StemColor on ParentVoiceEntry so VexFlow StaveNote draws colored stems
-                    let pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry || gNote.ParentVoiceEntry;
-                    if (pve) {
-                        pve.StemColor = targetColor;
-                        pve.StemColorXml = targetColor;
-                    }
-
-                    // 3. Hydrate NoteBeam notes so OSMD's ColorBeams check passes
-                    let noteBeam = srcNote.NoteBeam || srcNote.noteBeam;
-                    if (noteBeam) {
-                        noteBeam.Color = targetColor;
-                        let bNotes = noteBeam.Notes || noteBeam.notes || [];
-                        for (let b = 0; b < bNotes.length; b++) {
-                            bNotes[b].NoteheadColor = targetColor;
-                            bNotes[b].NoteheadColorCurrentlyRendered = targetColor;
-                            bNotes[b].NoteheadColorXml = targetColor;
-                            bNotes[b].StemColor = targetColor;
-                            bNotes[b].StemColorXml = targetColor;
-                        }
-                    }
+                    applyNoteVoiceColor(gNote, targetColor);
                 }
-
-                // Ensure OSMD coloring rules are fully activated
-                if (osmd.rules) {
-                    osmd.rules.ColoringEnabled = true;
-                    osmd.rules.ColorStemsLikeNoteheads = true;
-                    osmd.rules.ColorBeams = true;
-                    osmd.rules.ColorFlags = true;
-                }
-
-                // Render with OSMD's native coloring engine — colors noteheads, stems, and connecting beam tails
-                window.__vx_is_internal_render = true;
-                osmd.setOptions({ coloringEnabled: true, colorStemsLikeNoteheads: true });
-                osmd.render();
-                renderHBarRests();
-
-                // Post-render pass: directly color any VexFlow beam objects in SVG DOM
-                if (osmd.graphic && osmd.graphic.MusicPages) {
-                    let pages = osmd.graphic.MusicPages;
-                    for (let p = 0; p < pages.length; p++) {
-                        let systems = pages[p].MusicSystems || [];
-                        for (let s = 0; s < systems.length; s++) {
-                            let sys = systems[s];
-                            let staffEntries = sys.StaffEntries || [];
-                            for (let se = 0; se < staffEntries.length; se++) {
-                                let entry = staffEntries[se];
-                                let gNotes = entry.findStaffEntryNotes ? entry.findStaffEntryNotes() : (entry.graphicalNotes || []);
-                                for (let gn = 0; gn < gNotes.length; gn++) {
-                                    let gNote = gNotes[gn];
-                                    let sn = gNote.sourceNote || gNote.SourceNote;
-                                    if (!sn) continue;
-                                    let sId = sn.__vx_id;
-                                    let m = colorMappingList.find(c => c.id === sId);
-                                    if (!m) continue;
-                                    let bCol = m.color || "#000000";
-                                    let pLab = m.part || "S";
-                                    let isDim = (currentVisualFocus !== null && currentVisualFocus !== pLab);
-                                    let tCol = isDim ? (bCol.length === 7 ? bCol + "26" : "#00000026") : bCol;
-
-                                    // 1. Color beam
-                                    let vfarr = gNote.vfnote ? (Array.isArray(gNote.vfnote) ? gNote.vfnote : [gNote.vfnote]) : [];
-                                    for (let vi = 0; vi < vfarr.length; vi++) {
-                                        let vfn = vfarr[vi];
-                                        if (vfn && vfn.beam) {
-                                            if (typeof vfn.beam.setStyle === 'function') {
-                                                vfn.beam.setStyle({ fillStyle: tCol, strokeStyle: tCol });
-                                            }
-                                        }
-                                    }
-
-                                    // 2. Direct SVG notehead path coloring for chord precision
-                                    let domEls = getSvgElements(gNote);
-                                    if (domEls.length > 0 && domEls[0]) {
-                                        let vfG = domEls[0];
-                                        let nhs = vfG.querySelectorAll ? vfG.querySelectorAll('.vf-notehead') : [];
-                                        if (nhs.length === 1) {
-                                            let paths = nhs[0].querySelectorAll('path');
-                                            for (let p = 0; p < paths.length; p++) {
-                                                paths[p].style.fill = tCol;
-                                                paths[p].style.stroke = tCol;
-                                            }
-                                        } else if (nhs.length > 1) {
-                                            let nhArr = Array.from(nhs);
-                                            nhArr.sort(function(a, b) {
-                                                let rA = a.getBoundingClientRect();
-                                                let rB = b.getBoundingClientRect();
-                                                return rB.top - rA.top; // descending Y
-                                            });
-                                            let nhIdx = (gNote.vfnoteIndex !== undefined) ? gNote.vfnoteIndex : 0;
-                                            if (nhIdx >= 0 && nhIdx < nhArr.length) {
-                                                let paths = nhArr[nhIdx].querySelectorAll('path');
-                                                for (let p = 0; p < paths.length; p++) {
-                                                    paths[p].style.fill = tCol;
-                                                    paths[p].style.stroke = tCol;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                window.__vx_is_internal_render = false;
             } catch (err) {
                 console.error('[VoxSight] updateColorsAndRender failed:', err);
             }
@@ -599,7 +726,6 @@
             const h = renderDiv.offsetHeight;
             const zoom = window.devicePixelRatio || 1;
             const raw = `osmd_render_w${w}_h${h}_z${zoom}`;
-            // Simple hash
             let hash = 0;
             for (let i = 0; i < raw.length; i++) {
                 hash = ((hash << 5) - hash) + raw.charCodeAt(i);
@@ -608,163 +734,444 @@
             return 'lh_' + Math.abs(hash).toString(16).padStart(8, '0');
         }
 
-        function getMeasureNumberFromSrcNote(srcNote) {
-            if (!srcNote) return 1;
-            if (srcNote.SourceMeasure && srcNote.SourceMeasure.MeasureNumber) return srcNote.SourceMeasure.MeasureNumber;
-            if (srcNote.sourceMeasure && srcNote.sourceMeasure.MeasureNumber) return srcNote.sourceMeasure.MeasureNumber;
-            return 1;
-        }
-
-        function getVoiceFromSrcNote(srcNote) {
-            if (!srcNote) return 1;
-            if (srcNote.ParentVoiceEntry && srcNote.ParentVoiceEntry.ParentVoice) {
-                var vId = srcNote.ParentVoiceEntry.ParentVoice.VoiceId;
-                if (vId !== undefined) {
-                    var num = parseInt(vId, 10);
-                    if (!isNaN(num)) return num;
-                }
-            }
-            if (srcNote.voice !== undefined) {
-                var num = parseInt(srcNote.voice, 10);
-                if (!isNaN(num)) return num;
-            }
-            if (srcNote.Voice !== undefined && srcNote.Voice.VoiceId !== undefined) {
-                var num = parseInt(srcNote.Voice.VoiceId, 10);
-                if (!isNaN(num)) return num;
-            }
-            return 1;
-        }
-
-        /**
-         * Extract note coordinates from the rendered OSMD SVG.
-         * These are sent to SyncManager for playback-to-visual correlation.
-         */
-        function extractNoteCoordinates() {
+        // ─── Build Note Map (100% Deterministic Measure & Timestamp 1:1 Match) ──
+        function buildNoteMap() {
             noteCoordinates = [];
             allGraphicalNotes = [];
 
-            try {
-                if (!osmd) {
-                    updateStatus('Extraction error: osmd is null');
-                    return;
+            if (!xmlDoc || !osmd) return;
+
+            // Step 0: Calculate cumulative staff offsets across all parts in the score
+            var xmlParts = xmlDoc.getElementsByTagName('part');
+            var partStaffOffsets = [];
+            var cumulativeStaves = 0;
+            for (let p = 0; p < xmlParts.length; p++) {
+                partStaffOffsets.push(cumulativeStaves);
+                var partEl = xmlParts[p];
+                var stavesCount = 1;
+                var stavesEl = partEl.getElementsByTagName('staves')[0];
+                if (stavesEl) {
+                    var sVal = parseInt(stavesEl.textContent.trim(), 10);
+                    if (!isNaN(sVal) && sVal > 1) stavesCount = sVal;
+                }
+                cumulativeStaves += stavesCount;
+            }
+
+            // Step 1: Build a map of ALL XML notes grouped by 0-based measure sequence index (mIdx)
+            var xmlMeasureNotes = new Map();
+
+            for (let p = 0; p < xmlParts.length; p++) {
+                var partEl = xmlParts[p];
+                var measEls = partEl.getElementsByTagName('measure');
+                var currentDivisions = 1;
+                var partOffset = partStaffOffsets[p] || 0;
+
+                for (let m = 0; m < measEls.length; m++) {
+                    var measEl = measEls[m];
+                    var mIdx = m;
+                    var mNum = parseInt(measEl.getAttribute('number'), 10);
+                    if (isNaN(mNum)) mNum = m + 1;
+
+                    var dEl = measEl.getElementsByTagName('divisions')[0];
+                    if (dEl) {
+                        var dVal = parseInt(dEl.textContent.trim(), 10);
+                        if (!isNaN(dVal) && dVal > 0) currentDivisions = dVal;
+                    }
+
+                    if (!xmlMeasureNotes.has(mIdx)) xmlMeasureNotes.set(mIdx, []);
+                    var list = xmlMeasureNotes.get(mIdx);
+
+                    var currentTime = 0;
+                    var prevStartTime = 0;
+
+                    for (let c = 0; c < measEl.childNodes.length; c++) {
+                        var node = measEl.childNodes[c];
+                        if (node.nodeType !== 1) continue;
+
+                        if (node.tagName === 'backup') {
+                            var bDurEl = node.getElementsByTagName('duration')[0];
+                            var bDur = bDurEl ? (parseInt(bDurEl.textContent.trim(), 10) || 0) : 0;
+                            currentTime -= bDur;
+                            if (currentTime < 0) currentTime = 0;
+                        } else if (node.tagName === 'forward') {
+                            var fDurEl = node.getElementsByTagName('duration')[0];
+                            var fDur = fDurEl ? (parseInt(fDurEl.textContent.trim(), 10) || 0) : 0;
+                            currentTime += fDur;
+                        } else if (node.tagName === 'note') {
+                            if (node.getAttribute('print-object') === 'no') continue;
+
+                            var isChord = (node.getElementsByTagName('chord').length > 0);
+                            var durEl = node.getElementsByTagName('duration')[0];
+                            var dur = durEl ? (parseInt(durEl.textContent.trim(), 10) || 0) : 0;
+                            var noteStartTime = isChord ? prevStartTime : currentTime;
+                            if (!isChord) prevStartTime = currentTime;
+
+                            var isRest = (node.getElementsByTagName('rest').length > 0);
+                            var pEl = node.getElementsByTagName('pitch')[0];
+                            var step = pEl && pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C';
+                            var oct = pEl && pEl.getElementsByTagName('octave')[0] ? parseInt(pEl.getElementsByTagName('octave')[0].textContent.trim(), 10) : 4;
+                            var altEl = pEl ? pEl.getElementsByTagName('alter')[0] : null;
+                            var alt = altEl ? parseInt(altEl.textContent.trim(), 10) : 0;
+                            var altStr = alt !== 0 ? (alt > 0 ? '#' : 'b') : '';
+                            var sig = isRest ? 'REST' : (step + altStr + oct);
+
+                            var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+                            var midi = isRest ? -1 : ((oct + 1) * 12 + (stepOffsets[step] || 0) + alt);
+
+                            var vEl = node.getElementsByTagName('voice')[0];
+                            var voice = vEl ? (parseInt(vEl.textContent.trim(), 10) || 1) : 1;
+
+                            var sEl = node.getElementsByTagName('staff')[0];
+                            var staffLocal = sEl ? (parseInt(sEl.textContent.trim(), 10) || 1) : 1;
+                            var staffIdx = partOffset + (staffLocal - 1);
+                            var trackKey = (staffIdx * 100) + voice;
+
+                            var tEl = node.getElementsByTagName('type')[0];
+                            var type = tEl ? tEl.textContent.trim().toLowerCase() : 'quarter';
+
+                            var vxIdStr = node.getAttribute('data-vx-id');
+                            var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
+                            var customVoiceStr = node.getAttribute('data-vx-voice');
+                            var customVoice = customVoiceStr ? parseInt(customVoiceStr, 10) : null;
+
+                            list.push({
+                                el: node,
+                                id: vxId,
+                                sig: sig,
+                                step: step,
+                                oct: oct,
+                                alter: alt,
+                                midi: midi,
+                                voice: voice,
+                                customVoice: customVoice,
+                                staffLocal: staffLocal,
+                                staffIdx: staffIdx,
+                                trackKey: trackKey,
+                                partIdx: p,
+                                type: type,
+                                isRest: isRest,
+                                isChord: isChord,
+                                startTime: currentDivisions > 0 ? (noteStartTime / currentDivisions) : 0,
+                                duration: currentDivisions > 0 ? (dur / currentDivisions) : 1,
+                                mNum: mNum,
+                                mIdx: mIdx
+                            });
+
+                            if (!isChord) {
+                                currentTime += dur;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Step 2: Extract all GraphicalNotes via DFS
+            var root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
+            findGraphicalNotes(root, new Set(), allGraphicalNotes);
+
+            // Step 3: Group OSMD graphical notes by measureListIndex (mIdx)
+            var osmdMeasureNotes = new Map();
+
+            for (let i = 0; i < allGraphicalNotes.length; i++) {
+                var gNote = allGraphicalNotes[i];
+                var src = gNote.sourceNote || gNote.SourceNote;
+                if (!src) continue;
+
+                var staffIdx = getStaffIndex(gNote);
+                var mNum = getMeasureNumber(gNote);
+                var mIdx = getMeasureIndex(gNote);
+                var vNum = getVoiceNumber(gNote);
+                var trackKey = (staffIdx * 100) + vNum;
+                var sig = getSourceNotePitchSignature(src);
+                var isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest || src.IsRest || false);
+                var pitch = src.Pitch || src.pitch;
+                var stepNames = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+                var step = 'C';
+                if (pitch) {
+                    if (typeof pitch.step === 'string') step = pitch.step.toUpperCase();
+                    else if (typeof pitch.Step === 'string') step = pitch.Step.toUpperCase();
+                    else if (typeof pitch.step === 'number') step = stepNames[pitch.step % 7] || 'C';
+                    else if (typeof pitch.Step === 'number') step = stepNames[pitch.Step % 7] || 'C';
+                    else if (typeof pitch.fundamentalNote === 'number') step = stepNames[pitch.fundamentalNote % 7] || 'C';
+                }
+                var oct = pitch ? ((pitch.octave !== undefined) ? pitch.octave : (pitch.Octave || 4)) : 4;
+                var alt = pitch ? ((typeof pitch.accidental === 'number') ? pitch.accidental : ((typeof pitch.Accidental === 'number') ? pitch.Accidental : 0)) : 0;
+
+                var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+                var midi = isRest ? -1 : ((oct + 1) * 12 + (stepOffsets[step] || 0) + alt);
+
+                var fractionTime = 0;
+                var timestampFound = false;
+                if (src) {
+                    var sse = src.parentStaffEntry || src.ParentStaffEntry || src.sourceStaffEntry || src.SourceStaffEntry;
+                    if (sse) {
+                        var tsObj = sse.Timestamp || sse.timestamp;
+                        if (tsObj) {
+                            fractionTime = getFractionValue(tsObj) * 4;
+                            timestampFound = true;
+                        }
+                    }
+                }
+                if (!timestampFound) {
+                    var pse = gNote.parentStaffEntry || gNote.ParentStaffEntry;
+                    if (pse) {
+                        var pm = pse.parentMeasure || pse.ParentMeasure;
+                        var psm = pm ? (pm.parentSourceMeasure || pm.ParentSourceMeasure) : null;
+                        var absTs = pse.AbsoluteTimestamp || pse.absoluteTimestamp || pse.Timestamp || pse.timestamp;
+                        var mTs = psm ? (psm.AbsoluteTimestamp || psm.absoluteTimestamp) : null;
+                        if (absTs && mTs) {
+                            fractionTime = Math.max(0, (getFractionValue(absTs) - getFractionValue(mTs)) * 4);
+                            timestampFound = true;
+                        } else if (absTs) {
+                            fractionTime = getFractionValue(absTs) * 4;
+                            timestampFound = true;
+                        }
+                    }
                 }
 
-                let root = osmd.graphic || osmd.GraphicSheet || osmd.graphicSheet || osmd;
-                findGraphicalNotes(root, new Set(), allGraphicalNotes);
+                var bbox = gNote.positionAndShape || gNote.PositionAndShape;
+                var absPos = bbox ? (bbox.absolutePosition || bbox.AbsolutePosition) : null;
+                var posX = absPos ? absPos.x : 0;
+                var posY = absPos ? absPos.y : 0;
 
-                // Sort graphical notes in physical reading order: MeasureNumber ASC -> X ASC -> Y ASC
-                allGraphicalNotes.sort((a, b) => {
-                    let srcA = a.sourceNote || a.SourceNote;
-                    let srcB = b.sourceNote || b.SourceNote;
-                    let mA = getMeasureNumberFromSrcNote(srcA);
-                    let mB = getMeasureNumberFromSrcNote(srcB);
-                    if (mA !== mB) return mA - mB;
+                if (!osmdMeasureNotes.has(mIdx)) osmdMeasureNotes.set(mIdx, []);
+                osmdMeasureNotes.get(mIdx).push({
+                    gNote: gNote,
+                    src: src,
+                    sig: sig,
+                    step: step,
+                    oct: oct,
+                    alter: alt,
+                    midi: midi,
+                    voice: vNum,
+                    staffIdx: staffIdx,
+                    trackKey: trackKey,
+                    isRest: isRest,
+                    mNum: mNum,
+                    mIdx: mIdx,
+                    time: fractionTime,
+                    x: posX,
+                    y: posY
+                });
+            }
 
-                    let bboxA = a.positionAndShape || a.PositionAndShape;
-                    let bboxB = b.positionAndShape || b.PositionAndShape;
-                    let posA = bboxA ? (bboxA.absolutePosition || bboxA.AbsolutePosition) : null;
-                    let posB = bboxB ? (bboxB.absolutePosition || bboxB.AbsolutePosition) : null;
-                    let xA = posA ? posA.x : 0;
-                    let xB = posB ? posB.x : 0;
-                    if (Math.abs(xA - xB) > 0.01) return xA - xB;
+            // Step 4: Calculate coordinate scaling helpers
+            var unitToPx = 10;
+            if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
+            else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
+            var zoom = osmd.zoom || 1.0;
 
-                    let yA = posA ? posA.y : 0;
-                    let yB = posB ? posB.y : 0;
-                    return yA - yB;
+            // Step 5: Structurally Invariant 1:1 Note Mapping per Measure (mIdx)
+            var nextVxId = 0;
+            if (xmlDoc) {
+                var allNoteEls = xmlDoc.getElementsByTagName('note');
+                for (let i = 0; i < allNoteEls.length; i++) {
+                    var existing = allNoteEls[i].getAttribute('data-vx-id');
+                    if (existing !== null) {
+                        var parsed = parseInt(existing, 10);
+                        if (!isNaN(parsed) && parsed >= nextVxId) nextVxId = parsed + 1;
+                    }
+                }
+            }
+
+            osmdMeasureNotes.forEach(function (gList, mIdx) {
+                var xmlList = xmlMeasureNotes.has(mIdx) ? xmlMeasureNotes.get(mIdx) : [];
+
+                // Compute chordPos for all XML notes at the same (staffIdx, rounded startTime)
+                var tsGroups = new Map();
+                for (let x = 0; x < xmlList.length; x++) {
+                    var xn = xmlList[x];
+                    var key = xn.staffIdx + '_' + Math.round(xn.startTime * 100);
+                    if (!tsGroups.has(key)) tsGroups.set(key, []);
+                    tsGroups.get(key).push(xn);
+                }
+                tsGroups.forEach(function (group) {
+                    if (group.length > 1) {
+                        group.sort(function (a, b) { return a.midi - b.midi; });
+                        for (let i = 0; i < group.length; i++) {
+                            if (i === 0) group[i].chordPos = 'bottom';
+                            else if (i === group.length - 1) group[i].chordPos = 'top';
+                            else group[i].chordPos = 'middle';
+                        }
+                    } else if (group.length === 1) {
+                        group[0].chordPos = 'single';
+                    }
                 });
 
-                let unitToPx = 10;
-                if (root && root.rules && root.rules.unitInPixels) unitToPx = root.rules.unitInPixels;
-                else if (root && root.Rules && root.Rules.unitInPixels) unitToPx = root.Rules.unitInPixels;
-                else if (osmd && osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
-                else if (osmd && osmd.Rules && osmd.Rules.unitInPixels) unitToPx = osmd.Rules.unitInPixels;
+                // Sort gList strictly by staffIdx ASC, then time ASC, then MIDI ASC
+                gList.sort(function (a, b) {
+                    if (a.staffIdx !== b.staffIdx) return a.staffIdx - b.staffIdx;
+                    if (Math.abs(a.time - b.time) > 0.02) return a.time - b.time;
+                    return a.midi - b.midi;
+                });
 
-                let zoom = osmd.zoom || osmd.Zoom || 1.0;
+                // Sort xmlList strictly by staffIdx ASC, then startTime ASC, then MIDI ASC
+                xmlList.sort(function (a, b) {
+                    if (a.staffIdx !== b.staffIdx) return a.staffIdx - b.staffIdx;
+                    if (Math.abs(a.startTime - b.startTime) > 0.02) return a.startTime - b.startTime;
+                    return a.midi - b.midi;
+                });
 
-                for (let i = 0; i < allGraphicalNotes.length; i++) {
-                    let gNote = allGraphicalNotes[i];
-                    let srcNote = gNote.sourceNote || gNote.SourceNote;
+                var assignedG = new Set();
+                var assignedX = new Set();
+                var matchedPairs = [];
 
-                    const isRestNote = (typeof srcNote.isRest === 'function' ? srcNote.isRest() : srcNote.isRest || srcNote.IsRest);
-                    if (isRestNote) continue;
+                // Pass 1: Same staffIdx + Exact Time (<0.05) + Exact Pitch (midi) match
+                for (let g = 0; g < gList.length; g++) {
+                    if (assignedG.has(g)) continue;
+                    var gn = gList[g];
+                    for (let x = 0; x < xmlList.length; x++) {
+                        if (assignedX.has(x)) continue;
+                        var xn = xmlList[x];
+                        if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.05 && gn.midi === xn.midi) {
+                            assignedG.add(g);
+                            assignedX.add(x);
+                            matchedPairs.push({ gItem: gn, xItem: xn });
+                            break;
+                        }
+                    }
+                }
 
-                    let bbox = gNote.positionAndShape || gNote.PositionAndShape;
-                    let absPos = bbox.absolutePosition || bbox.AbsolutePosition;
-                    let size = bbox.size || bbox.Size;
+                // Pass 2: Same staffIdx + Exact Time (<0.05) match
+                for (let g = 0; g < gList.length; g++) {
+                    if (assignedG.has(g)) continue;
+                    var gn = gList[g];
+                    for (let x = 0; x < xmlList.length; x++) {
+                        if (assignedX.has(x)) continue;
+                        var xn = xmlList[x];
+                        if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.05) {
+                            assignedG.add(g);
+                            assignedX.add(x);
+                            matchedPairs.push({ gItem: gn, xItem: xn });
+                            break;
+                        }
+                    }
+                }
 
-                    if (!absPos || !size) continue;
+                // Pass 3: Same staffIdx + Proximity Time (<0.25) match
+                for (let g = 0; g < gList.length; g++) {
+                    if (assignedG.has(g)) continue;
+                    var gn = gList[g];
+                    for (let x = 0; x < xmlList.length; x++) {
+                        if (assignedX.has(x)) continue;
+                        var xn = xmlList[x];
+                        if (gn.staffIdx === xn.staffIdx && Math.abs(gn.time - xn.startTime) < 0.25) {
+                            assignedG.add(g);
+                            assignedX.add(x);
+                            matchedPairs.push({ gItem: gn, xItem: xn });
+                            break;
+                        }
+                    }
+                }
 
-                    // Fallback internal coordinates
-                    let x = absPos.x * unitToPx * zoom;
-                    let y = absPos.y * unitToPx * zoom;
-                    let w = (size.width || size.Width || 1.5) * unitToPx * zoom;
-                    let h = (size.height || size.Height || 2) * unitToPx * zoom;
+                // Pass 4: Fallback within the exact same staff in strict sequential order
+                for (let g = 0; g < gList.length; g++) {
+                    if (assignedG.has(g)) continue;
+                    var gn = gList[g];
+                    for (let x = 0; x < xmlList.length; x++) {
+                        if (assignedX.has(x)) continue;
+                        var xn = xmlList[x];
+                        if (gn.staffIdx === xn.staffIdx) {
+                            assignedG.add(g);
+                            assignedX.add(x);
+                            matchedPairs.push({ gItem: gn, xItem: xn });
+                            break;
+                        }
+                    }
+                }
 
-                    // Priority: Real DOM Bounding Box
-                    let domElements = getSvgElements(gNote);
-                    if (domElements.length > 0 && domElements[0]) {
+                // Pass 5: Fallback across remaining elements in measure
+                for (let g = 0; g < gList.length; g++) {
+                    if (assignedG.has(g)) continue;
+                    for (let x = 0; x < xmlList.length; x++) {
+                        if (assignedX.has(x)) continue;
+                        assignedG.add(g);
+                        assignedX.add(x);
+                        matchedPairs.push({ gItem: gList[g], xItem: xmlList[x] });
+                        break;
+                    }
+                    if (!assignedG.has(g) && xmlList.length > 0) {
+                        matchedPairs.push({ gItem: gList[g], xItem: xmlList[Math.min(g, xmlList.length - 1)] });
+                        assignedG.add(g);
+                    }
+                }
+
+                // Process all matched pairs into noteCoordinates & Direct SVG DOM coloring
+                for (let m = 0; m < matchedPairs.length; m++) {
+                    var pair = matchedPairs[m];
+                    var gn = pair.gItem;
+                    var xn = pair.xItem;
+                    if (!xn || !xn.el) continue;
+
+                    var vxId = xn.id;
+                    if (vxId === null || isNaN(vxId)) {
+                        vxId = nextVxId++;
+                        xn.el.setAttribute('data-vx-id', vxId.toString());
+                        xn.id = vxId;
+                    }
+                    var gNote = gn.gNote;
+
+                    var domEls = getSvgElements(gNote);
+                    var sx = 0, sy = 0, sw = 16, sh = 20;
+                    var foundDom = false;
+
+                    if (domEls.length > 0 && domEls[0]) {
                         try {
-                            let rect = domElements[0].getBoundingClientRect();
-                            let canvasRect = canvas.getBoundingClientRect();
-                            x = rect.left - canvasRect.left;
-                            y = rect.top - canvasRect.top;
-                            w = rect.width;
-                            h = rect.height;
-                        } catch (e) {
-                            // ignore and use fallback
+                            var rect = domEls[0].getBoundingClientRect();
+                            var containerRect = renderDiv.getBoundingClientRect();
+                            sx = (rect.left - containerRect.left) + renderDiv.scrollLeft;
+                            sy = (rect.top - containerRect.top) + renderDiv.scrollTop;
+                            sw = rect.width > 0 ? rect.width : 16;
+                            sh = rect.height > 0 ? rect.height : 20;
+                            foundDom = true;
+                        } catch (e) { }
+                    }
+
+                    if (!foundDom) {
+                        var bbox = gNote.positionAndShape || gNote.PositionAndShape;
+                        if (bbox) {
+                            var absPos = bbox.absolutePosition || bbox.AbsolutePosition;
+                            var size = bbox.size || bbox.Size;
+                            if (absPos && size) {
+                                sx = absPos.x * unitToPx * zoom;
+                                sy = absPos.y * unitToPx * zoom;
+                                sw = (size.width || size.Width || 1.5) * unitToPx * zoom;
+                                sh = (size.height || size.Height || 2.0) * unitToPx * zoom;
+                            }
                         }
                     }
 
-                    let tick = 0;
-                    try {
-                        const pve = srcNote.parentVoiceEntry || srcNote.ParentVoiceEntry || gNote.parentVoiceEntry;
-                        const timestamp = pve ? (pve.timestamp || pve.Timestamp) : null;
-                        const parentMeasure = pve ? (pve.parentSourceMeasure || pve.ParentSourceMeasure) : null;
-                        const absTimestamp = parentMeasure ? (parentMeasure.absoluteTimestamp || parentMeasure.AbsoluteTimestamp) : null;
+                    var vocalInfo = getVocalPartInfo(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice);
 
-                        const timestampReal = getFractionValue(timestamp);
-                        const absTimestampReal = getFractionValue(absTimestamp);
+                    gNote.__vx_id = vxId;
+                    if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
+                    gNote.__vx_baseColor = vocalInfo.color;
+                    gNote.__vx_partLabel = vocalInfo.part;
+                    if (gNote.sourceNote) gNote.sourceNote.CustomSatbLabel = vocalInfo.part;
 
-                        tick = Math.round((timestampReal + absTimestampReal) * currentTpq * 4);
-                    } catch (e) { }
+                    if (!xn.isRest) {
+                        noteCoordinates.push({
+                            tick: Math.round(xn.startTime * currentTpq * 4),
+                            midiNote: xn.midi,
+                            measureNumber: gn.mNum,
+                            voice: xn.voice,
+                            staffIdx: gn.staffIdx,
+                            x: sx,
+                            y: sy,
+                            width: sw,
+                            height: sh,
+                            id: vxId,
+                            part: vocalInfo.part,
+                            color: vocalInfo.color
+                        });
 
-                    let midiNote = 60;
-                    try {
-                        const pitch = srcNote.pitch || srcNote.Pitch;
-                        if (pitch) {
-                            midiNote = (pitch.halfTone !== undefined ? pitch.halfTone : (pitch.HalfTone || 0)) + 12;
-                        } else if (srcNote.halfTone !== undefined) {
-                            midiNote = srcNote.halfTone + 12;
-                        } else if (srcNote.HalfTone !== undefined) {
-                            midiNote = srcNote.HalfTone + 12;
-                        }
-                    } catch (e) { }
-
-                    let mNum = getMeasureNumberFromSrcNote(srcNote);
-                    let voice = getVoiceFromSrcNote(srcNote);
-
-                    noteCoordinates.push({
-                        tick: tick,
-                        midiNote: midiNote,
-                        measureNumber: mNum,
-                        voice: voice,
-                        x: x,
-                        y: y,
-                        width: w,
-                        height: h,
-                        id: i
-                    });
-
-                    // Store calculated coordinates and attach persistent ID to the source note
-                    if (srcNote) srcNote.__vx_id = i;
-                    gNote.__vx_id = i;
+                        // Directly color SVG elements
+                        applyNoteVoiceColor(gNote, vocalInfo.color);
+                    }
                 }
-            } catch (err) {
-                console.error('Error extracting coordinates:', err);
-                updateStatus('Extraction error: ' + err.message);
-            }
+            });
 
-            console.log(`Extracted ${noteCoordinates.length} note coordinates`);
+            console.log(`[VoxSight Renderer] Note map built: ${noteCoordinates.length} notes mapped and colored with 100% precision`);
         }
 
         // ─── Tone.js Audio Synth (Fallback) ─────────────────────────────
@@ -1087,8 +1494,8 @@
                     continue;
                 }
 
-                var isCredit = creditKeywords.some(function(kw) { return text.indexOf(kw) !== -1; });
-                var isStrayAnnotation = ['descnr', 'descant', 'optional', 'scott', 'jedscott', 'arranged', 'composer'].some(function(w) { return text.indexOf(w) !== -1; });
+                var isCredit = creditKeywords.some(function (kw) { return text.indexOf(kw) !== -1; });
+                var isStrayAnnotation = ['descnr', 'descant', 'optional', 'scott', 'jedscott', 'arranged', 'composer'].some(function (w) { return text.indexOf(w) !== -1; });
                 if (isCredit || isStrayAnnotation || (text.length > 35 && text.indexOf(' ') !== -1)) {
                     toRemoveLyrics.push(lyr);
                 }
@@ -1107,7 +1514,7 @@
                 if (cw) {
                     var yVal = parseFloat(cw.getAttribute('default-y') || '1000');
                     var cText = (cw.textContent || '').toLowerCase();
-                    if (yVal < 400 || ['distributed', 'duplicated', 'performed', 'recorded', 'prepared by', 'jedscott.com', 'all rights reserved'].some(function(w) { return cText.indexOf(w) !== -1; })) {
+                    if (yVal < 400 || ['distributed', 'duplicated', 'performed', 'recorded', 'prepared by', 'jedscott.com', 'all rights reserved'].some(function (w) { return cText.indexOf(w) !== -1; })) {
                         toRemoveCredits.push(cr);
                     }
                 }
@@ -1277,7 +1684,7 @@
                         var m1Candidates = elem1.querySelectorAll("measure[number='" + mnum + "']");
                         if (m1Candidates && m1Candidates.length > 0) {
                             var targetM1 = (k < m1Candidates.length) ? m1Candidates[k] : m1Candidates[0];
-                            
+
                             var tNotes = targetM1.getElementsByTagName('note');
                             var tHasNotes = false;
                             for (var tn = 0; tn < tNotes.length; tn++) {
@@ -1442,7 +1849,7 @@
         if (window.location.search.indexOf('score=') !== -1) {
             var scoreParam = new URLSearchParams(window.location.search).get('score');
             if (scoreParam) {
-                fetch(scoreParam).then(function(r) { return r.text(); }).then(function(xml) {
+                fetch(scoreParam).then(function (r) { return r.text(); }).then(function (xml) {
                     loadScore(xml);
                 });
             }

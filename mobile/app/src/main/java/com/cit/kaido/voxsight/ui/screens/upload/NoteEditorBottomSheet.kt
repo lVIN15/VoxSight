@@ -358,6 +358,9 @@ fun NoteEditorBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // State for Choose Placement Dialog
+            var pendingAddType by remember { mutableStateOf<String?>(null) }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -388,10 +391,19 @@ fun NoteEditorBottomSheet(
                     FilterChip(
                         selected = isDurSelected,
                         onClick = { onDurationChanged(type, isDotted) },
-                        label = { Text(label, fontSize = 12.sp) },
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = if (isDurSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isDurSelected) Color.White else VoxTextPrimary
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = VoxPurplePrimary,
-                            selectedLabelColor = Color.White
+                            selectedLabelColor = Color.White,
+                            containerColor = VoxPurpleIconBg,
+                            labelColor = VoxPurplePrimary
                         )
                     )
                 }
@@ -436,9 +448,7 @@ fun NoteEditorBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
-                    onClick = {
-                        onAddNote("after", pitchStep.ifBlank { "C" }, alter, octave, durationType.ifBlank { "quarter" }, isDotted)
-                    },
+                    onClick = { pendingAddType = "note" },
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, VoxPurplePrimary)
@@ -449,9 +459,7 @@ fun NoteEditorBottomSheet(
                 }
 
                 OutlinedButton(
-                    onClick = {
-                        onAddRest("after", durationType.ifBlank { "quarter" }, isDotted)
-                    },
+                    onClick = { pendingAddType = "rest" },
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFF673AB7))
@@ -486,6 +494,81 @@ fun NoteEditorBottomSheet(
                     text = if (isRest) "DELETE REST" else "DELETE NOTE",
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
+                )
+            }
+
+            // 7. Choose Placement Modal Dialog
+            if (pendingAddType != null) {
+                val isAddingNote = (pendingAddType == "note")
+                AlertDialog(
+                    onDismissRequest = { pendingAddType = null },
+                    shape = RoundedCornerShape(20.dp),
+                    containerColor = Color.White,
+                    title = {
+                        Text(
+                            text = "Choose Placement",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = VoxTextPrimary
+                        )
+                    },
+                    text = {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Where relative to the selected note would you like to insert it?",
+                                fontSize = 14.sp,
+                                color = VoxTextSubtitle
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Button 1: Insert Before (Left)
+                            Button(
+                                onClick = {
+                                    val pos = "before"
+                                    if (isAddingNote) {
+                                        onAddNote(pos, pitchStep.ifBlank { "C" }, alter, if (octave in 1..8) octave else 4, durationType.ifBlank { "quarter" }, isDotted)
+                                    } else {
+                                        onAddRest(pos, durationType.ifBlank { "quarter" }, isDotted)
+                                    }
+                                    pendingAddType = null
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = VoxPurplePrimary)
+                            ) {
+                                Text("◀  Insert Before (Left)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                            }
+
+                            // Button 2: Insert After (Right)
+                            Button(
+                                onClick = {
+                                    val pos = "after"
+                                    if (isAddingNote) {
+                                        onAddNote(pos, pitchStep.ifBlank { "C" }, alter, if (octave in 1..8) octave else 4, durationType.ifBlank { "quarter" }, isDotted)
+                                    } else {
+                                        onAddRest(pos, durationType.ifBlank { "quarter" }, isDotted)
+                                    }
+                                    pendingAddType = null
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF673AB7))
+                            ) {
+                                Text("Insert After (Right)  ▶", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                            }
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(
+                            onClick = { pendingAddType = null }
+                        ) {
+                            Text("Cancel", color = VoxTextSubtitle, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 )
             }
         }

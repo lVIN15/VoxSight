@@ -214,8 +214,23 @@ class SyncManager {
             compareBy<MusicalEvent>({ it.measureNumber }, { it.tickPosition }, { it.staffId }, { it.voiceSource }, { -it.pitchMidi })
         )
 
-        // PASS 1: Strict Same-Measure + Same-Pitch Match (left-to-right visual order)
+        // PASS 1A: Strict Same-Measure + Same-Staff + Same-Pitch Match (left-to-right visual order)
         for (event in sortedEvents) {
+            val candidate = osmdElements.firstOrNull { elem ->
+                !usedOsmdIds.contains(elem.id) &&
+                elem.measureNumber == event.measureNumber &&
+                elem.staffIdx == event.staffId &&
+                elem.midiNote == event.pitchMidi
+            }
+            if (candidate != null) {
+                usedOsmdIds.add(candidate.id)
+                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+            }
+        }
+
+        // PASS 1B: Strict Same-Measure + Same-Pitch Match
+        for (event in sortedEvents) {
+            if (coords.containsKey(event.eventId)) continue
             val candidate = osmdElements.firstOrNull { elem ->
                 !usedOsmdIds.contains(elem.id) &&
                 elem.measureNumber == event.measureNumber &&
@@ -326,6 +341,9 @@ class SyncManager {
         val midiNote: Int = 60,
         val measureNumber: Int = 1,
         val voice: Int = 1,
+        val staffIdx: Int = 0,
+        val part: String = "S",
+        val color: String = "#E91E63",
         val x: Float = 0f,
         val y: Float = 0f,
         val width: Float = 0f,

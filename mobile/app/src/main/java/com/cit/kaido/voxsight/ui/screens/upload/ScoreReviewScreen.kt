@@ -389,18 +389,37 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
 
     score.parts.forEach { part ->
         part.notes.forEach { note ->
-            val satbVoiceStr = when (note.voice) {
-                1 -> "SOPRANO"
-                2 -> "ALTO"
-                3 -> "TENOR"
-                4 -> "BASS"
-                else -> when (part.id) {
+            // Priority 1: Explicit user override from data-vx-voice (customVoice)
+            // Priority 2: Voice assigned by MusicXmlParser (1=Soprano, 2=Alto, 3=Tenor, 4=Bass)
+            // Priority 3: Fallback based on part structure
+            val satbVoiceStr = when {
+                note.customVoice != null && note.customVoice in 1..4 -> when (note.customVoice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
                     3 -> "TENOR"
                     4 -> "BASS"
-                    else -> "UNKNOWN"
+                    else -> "SOPRANO"
                 }
+                note.voice in 1..4 -> when (note.voice) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "SOPRANO"
+                }
+                score.parts.size >= 4 -> when (part.id) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "SOPRANO"
+                }
+                score.parts.size == 2 -> when (part.id) {
+                    1 -> if (note.originalVoice == 2) "ALTO" else "SOPRANO"
+                    2 -> if (note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
+                    else -> "SOPRANO"
+                }
+                else -> "SOPRANO"
             }
             
             val midi = if (note.isRest) 0 else calculateMidiNote(note.step, note.alter, note.octave)

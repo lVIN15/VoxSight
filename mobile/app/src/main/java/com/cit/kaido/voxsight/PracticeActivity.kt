@@ -574,8 +574,11 @@ class PracticeActivity : AppCompatActivity(),
 
                 val osmdElements = rawCoords.map { raw ->
                     SyncManager.OsmdNoteElement(
+                        id = (raw["id"] as? Number)?.toInt() ?: 0,
                         tick = (raw["tick"] as? Number)?.toInt() ?: 0,
                         midiNote = (raw["midiNote"] as? Number)?.toInt() ?: 0,
+                        measureNumber = (raw["measureNumber"] as? Number)?.toInt() ?: 1,
+                        voice = (raw["voice"] as? Number)?.toInt() ?: 1,
                         x = (raw["x"] as? Number)?.toFloat() ?: 0f,
                         y = (raw["y"] as? Number)?.toFloat() ?: 0f,
                         width = (raw["width"] as? Number)?.toFloat() ?: 0f,
