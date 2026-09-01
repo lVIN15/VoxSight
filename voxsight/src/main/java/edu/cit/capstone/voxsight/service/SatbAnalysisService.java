@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -35,6 +36,9 @@ public class SatbAnalysisService {
     private static final int TIMEOUT_SECONDS = 120;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Value("${python.path:python}")
+    private String pythonPath;
+
     /**
      * The path to the Python analyzer script, relative to the working directory.
      * This is set to the scripts/ folder in the voxsight backend root.
@@ -45,6 +49,13 @@ public class SatbAnalysisService {
         // Resolve script path relative to working directory
         String userDir = System.getProperty("user.dir");
         this.scriptPath = new File(userDir, "scripts/satb_analyzer.py").getAbsolutePath();
+    }
+
+    /**
+     * Set pythonPath manually if needed (e.g. for testing)
+     */
+    public void setPythonPath(String pythonPath) {
+        this.pythonPath = pythonPath;
     }
 
     /**
@@ -112,7 +123,7 @@ public class SatbAnalysisService {
      */
     private String runPythonAnalyzer(String xmlPath) throws SatbAnalysisException {
         try {
-            ProcessBuilder pb = new ProcessBuilder("python", "-X", "utf8", scriptPath, xmlPath);
+            ProcessBuilder pb = new ProcessBuilder(pythonPath, "-X", "utf8", scriptPath, xmlPath);
             pb.environment().put("PYTHONIOENCODING", "UTF-8");
             pb.environment().put("PYTHONUTF8", "1");
             pb.redirectErrorStream(false); // Keep stderr separate for logging

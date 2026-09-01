@@ -3,6 +3,7 @@ package edu.cit.capstone.voxsight.controller;
 import edu.cit.capstone.voxsight.dto.ProcessedMusicXmlDto;
 import edu.cit.capstone.voxsight.service.MusicXmlProcessingService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,18 +19,42 @@ import java.util.List;
 public class MusicXmlController {
 
     private final MusicXmlProcessingService processingService;
-    private final String outputsDir;
+
+    @Value("${voxsight.storage.outputs-dir:}")
+    private String configuredOutputsDir;
 
     @Autowired
     public MusicXmlController(MusicXmlProcessingService processingService) {
         this.processingService = processingService;
-        // Assuming the application is started from the project root where 'outputs' folder exists
-        String userDir = System.getProperty("user.dir");
-        this.outputsDir = new File(userDir, "outputs").getAbsolutePath();
+    }
+
+    private File getOutputsDir() {
+        File dir;
+        if (configuredOutputsDir != null && !configuredOutputsDir.isBlank()) {
+            dir = new File(configuredOutputsDir);
+        } else {
+            String userDir = System.getProperty("user.dir");
+            dir = new File(userDir, "outputs");
+        }
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return dir;
+    }
+
+    private String sanitizeId(String id) {
+        if (id == null) return "";
+        return new File(id).getName().replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     @GetMapping("/{id}/processed")
-    public ResponseEntity<ProcessedMusicXmlDto> getProcessed(@PathVariable String id) {
+    public ResponseEntity<ProcessedMusicXmlDto> getProcessed(@PathVariable String rawId) {
+        String id = sanitizeId(rawId);
+        if (id.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        File outputsDir = getOutputsDir();
         File tempXmlFile = null;
         try {
             // Locate the MusicXML file – check .xml, .mxl, and .musicxml
@@ -88,3 +113,4 @@ public class MusicXmlController {
         throw new java.io.IOException("No valid XML file found in MXL container");
     }
 }
+
