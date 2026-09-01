@@ -274,11 +274,9 @@ class NativePlaybackEngine(private val context: Context) {
 
     fun seek(progressFraction: Float) {
         val clamped = progressFraction.coerceIn(0f, 1f)
-        val targetTick = if (playbackQueue.isNotEmpty()) {
-            (playbackQueue.last().tickPosition * clamped).toInt()
-        } else {
-            0
-        }
+        val totalTicks = events.maxOfOrNull { it.tickPosition + it.durationTicks }
+            ?: (if (playbackQueue.isNotEmpty()) playbackQueue.last().tickPosition else 0)
+        val targetTick = (totalTicks * clamped).toInt()
         
         // Find the index of the first event that is at or after the target tick
         var newIdx = 0
@@ -352,7 +350,32 @@ class NativePlaybackEngine(private val context: Context) {
             return
         }
 
-        var expectedWallTimeNs = System.nanoTime()
+        val totalTicks = events.maxOfOrNull { it.tickPosition + it.durationTicks }
+            ?: (playbackQueue.last().tickPosition + playbackQueue.last().durationTicks)
+
+        // Paced initial rest handling for measure 1 rests (e.g. pickup measure silence before beat 4)
+        if (idx == 0 && playbackQueue.isNotEmpty() && playbackQueue[0].tickPosition > 0) {
+            val initialRestTicks = playbackQueue[0].tickPosition
+            val initialRestMs = ticksToMs(initialRestTicks)
+
+            dispatcherScope.launch(Dispatchers.Main) {
+                listener?.onPlaybackProgress(0, totalTicks, emptyList())
+            }
+
+            if (initialRestMs > 0 && isPlaying.get()) {
+                val stepMs = 50L
+                var elapsedMs = 0L
+                while (elapsedMs < initialRestMs && isPlaying.get()) {
+                    val waitSlice = minOf(stepMs, initialRestMs - elapsedMs)
+                    delay(waitSlice)
+                    elapsedMs += waitSlice
+                    val curRestTick = (initialRestTicks * (elapsedMs.toFloat() / initialRestMs.toFloat())).toInt()
+                    dispatcherScope.launch(Dispatchers.Main) {
+                        listener?.onPlaybackProgress(curRestTick, totalTicks, emptyList())
+                    }
+                }
+            }
+        }
 
         while (isPlaying.get() && idx < playbackQueue.size) {
             // ─── STEP 1: COLLECT events for next window ────────────
@@ -379,8 +402,6 @@ class NativePlaybackEngine(private val context: Context) {
 
             // Update progress on main thread asynchronously so we don't block the audio pacing loop
             val progressTick = currentTick
-            val totalTicks = if (playbackQueue.isNotEmpty())
-                playbackQueue.last().tickPosition else 1
             val activeEventIds = batch.map { it.eventId }
             
             dispatcherScope.launch(Dispatchers.Main) {
@@ -407,8 +428,13 @@ class NativePlaybackEngine(private val context: Context) {
             checkStuckNotes()
         }
 
-        // Playback complete
+        // Playback complete - wait for last notes to finish sustaining before stopping
         if (idx >= playbackQueue.size) {
+            val lastNote = playbackQueue.lastOrNull()
+            val remainingMs = if (lastNote != null) ticksToMs(lastNote.durationTicks) else 500L
+            if (remainingMs > 0 && isPlaying.get()) {
+                delay(remainingMs)
+            }
             withContext(Dispatchers.Main) {
                 state = PlaybackState.STOPPED
                 currentEventIndex.set(0)

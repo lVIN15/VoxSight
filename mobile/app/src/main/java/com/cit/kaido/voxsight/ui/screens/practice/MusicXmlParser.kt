@@ -61,6 +61,7 @@ data class MusicXmlNote(
     val originalVoice: Int = 1,
     val isChord: Boolean = false,
     val measureNumber: Int = 1,
+    val measureIndex: Int = 0,
     val customVoice: Int? = null
 )
 
@@ -88,6 +89,7 @@ fun parseMusicXmlScoreFromText(
     val partNotesMap = mutableMapOf<Int, MutableList<MusicXmlNote>>()
     val partMeasuresMap = mutableMapOf<Int, MutableList<MusicXmlMeasure>>()
     var currentMeasureNumber = 1
+    var currentMeasureIndex = 0
     var currentMeasureNotes = mutableListOf<MusicXmlNote>()
     var title: String? = null
     var composer: String? = null
@@ -152,6 +154,7 @@ fun parseMusicXmlScoreFromText(
                         }
                         "measure" -> {
                             currentMeasureNumber = parser.getAttributeValue(null, "number")?.toIntOrNull() ?: 1
+                            currentMeasureIndex = partMeasuresMap.getOrDefault(currentPartIndex, emptyList()).size
                             currentMeasureNotes = mutableListOf<MusicXmlNote>()
                         }
                         "work-title",
@@ -271,9 +274,9 @@ fun parseMusicXmlScoreFromText(
 
                             val actualVoice = when {
                                 customVoice != null && customVoice in 1..4 -> customVoice
+                                voice != null && voice in 1..4 -> voice!!
                                 staff != null && staff in 1..4 -> staff!!
                                 currentPartIndex > 0 -> currentPartIndex
-                                voice != null -> voice!!
                                 else -> 1
                             }
 
@@ -291,6 +294,7 @@ fun parseMusicXmlScoreFromText(
                                 originalVoice = voice ?: 1,
                                 isChord = isChord,
                                 measureNumber = currentMeasureNumber,
+                                measureIndex = currentMeasureIndex,
                                 customVoice = customVoice
                             )
                             notes.add(note)
@@ -472,18 +476,36 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
 
     parts.forEach { part ->
         part.notes.forEach { note ->
-            val satbVoiceStr = when (note.voice) {
-                1 -> "SOPRANO"
-                2 -> "ALTO"
-                3 -> "TENOR"
-                4 -> "BASS"
-                else -> when (part.id) {
+            val satbVoiceStr = when {
+                note.customVoice != null && note.customVoice in 1..4 -> when (note.customVoice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
                     3 -> "TENOR"
                     4 -> "BASS"
-                    else -> "UNKNOWN"
+                    else -> "SOPRANO"
                 }
+                parts.size >= 4 -> when (part.id) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "SOPRANO"
+                }
+                parts.size == 2 -> when (part.id) {
+                    1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                    2 -> if (note.voice == 2 || note.originalVoice == 2 || note.voice == 4) "BASS" else "TENOR"
+                    else -> "SOPRANO"
+                }
+                note.staff == 2 -> if (note.voice == 2 || note.originalVoice == 2 || note.voice == 4) "BASS" else "TENOR"
+                note.staff == 1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                note.voice in 1..4 -> when (note.voice) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
+                    else -> "SOPRANO"
+                }
+                else -> "SOPRANO"
             }
 
             val midi = if (note.isRest) 0 else calculateMidiNote(note.step, note.alter, note.octave)
@@ -494,6 +516,7 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
                 MusicalEvent(
                     eventId = eventId,
                     measureNumber = note.measureNumber,
+                    measureIndex = note.measureIndex,
                     tickPosition = note.startTimeDivisions,
                     ticksPerQuarter = safeTpq,
                     pitchMidi = midi,

@@ -678,6 +678,20 @@
             }
         };
 
+        function getOriginalVoiceColor(gNote) {
+            if (gNote && gNote.__vx_baseColor && gNote.__vx_baseColor.length === 7) return gNote.__vx_baseColor;
+            var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
+            if (src && src.__vx_baseColor && src.__vx_baseColor.length === 7) return src.__vx_baseColor;
+            var partLabel = (gNote && gNote.__vx_partLabel) || (src ? src.CustomSatbLabel : "S");
+            switch (partLabel) {
+                case "S": return "#E91E63";
+                case "A": return "#9C27B0";
+                case "T": return "#2196F3";
+                case "B": return "#4CAF50";
+                default: return "#000000";
+            }
+        }
+
         /**
          * Applies Visual Focus dimming using direct SVG DOM coloring.
          * Colors 100% of Noteheads, Stems, Flags, and Connected Note Beam Tails.
@@ -695,11 +709,11 @@
                     let srcNote = gNote.sourceNote || gNote.SourceNote;
                     if (!srcNote) continue;
 
-                    let baseColor = gNote.__vx_baseColor || srcNote.NoteheadColor || "#000000";
+                    let baseColor = getOriginalVoiceColor(gNote);
                     let partLabel = gNote.__vx_partLabel || srcNote.CustomSatbLabel || "S";
 
                     const isDimmed = (currentVisualFocus !== null && currentVisualFocus !== partLabel);
-                    const targetColor = isDimmed ? (baseColor.length === 7 ? baseColor + "26" : "#00000026") : baseColor;
+                    const targetColor = isDimmed ? (baseColor + "26") : baseColor;
 
                     applyNoteVoiceColor(gNote, targetColor);
                 }
@@ -1147,13 +1161,17 @@
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
                     gNote.__vx_baseColor = vocalInfo.color;
                     gNote.__vx_partLabel = vocalInfo.part;
-                    if (gNote.sourceNote) gNote.sourceNote.CustomSatbLabel = vocalInfo.part;
+                    if (gNote.sourceNote) {
+                        gNote.sourceNote.__vx_baseColor = vocalInfo.color;
+                        gNote.sourceNote.CustomSatbLabel = vocalInfo.part;
+                    }
 
                     if (!xn.isRest) {
                         noteCoordinates.push({
-                            tick: Math.round(xn.startTime * currentTpq * 4),
+                            tick: Math.round(xn.startTime * currentTpq),
                             midiNote: xn.midi,
                             measureNumber: gn.mNum,
+                            measureIndex: mIdx,
                             voice: xn.voice,
                             staffIdx: gn.staffIdx,
                             x: sx,
@@ -1394,6 +1412,18 @@
                 cancelAnimationFrame(overlayRafId);
             }
             overlayRafId = requestAnimationFrame(renderPitchOverlay);
+        };
+
+        window.highlightNotes = function (notesJson) {
+            try {
+                const notes = typeof notesJson === 'string' ? JSON.parse(notesJson) : notesJson;
+                window.updatePitchOverlay({
+                    version: (window.currentPitchOverlay.version || 0) + 1,
+                    notes: Array.isArray(notes) ? notes : []
+                });
+            } catch (e) {
+                console.error("highlightNotes error:", e);
+            }
         };
 
         /**

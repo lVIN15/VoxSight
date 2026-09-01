@@ -214,12 +214,98 @@ class SyncManager {
             compareBy<MusicalEvent>({ it.measureNumber }, { it.tickPosition }, { it.staffId }, { it.voiceSource }, { -it.pitchMidi })
         )
 
-        // PASS 1A: Strict Same-Measure + Same-Staff + Same-Pitch Match (left-to-right visual order)
+        // 1. Group events and OSMD elements by 0-based measure index (mIdx)
+        val eventsByMeasure = activeEvents.groupBy { it.measureIndex }
+        val osmdByMeasure = osmdElements.groupBy { it.measureIndex }
+
+        val allMeasureIndices = (eventsByMeasure.keys + osmdByMeasure.keys).distinct().sorted()
+
+        for (mIdx in allMeasureIndices) {
+            val measEvents = eventsByMeasure[mIdx] ?: emptyList()
+            val measOsmd = osmdByMeasure[mIdx] ?: emptyList()
+
+            // Group by staff (0-indexed matching OSMD staffIdx)
+            val staffEvents = measEvents.groupBy { event ->
+                if (event.partId > 1 && event.staffId <= 1) {
+                    event.partId - 1
+                } else if (event.staffId > 0) {
+                    event.staffId - 1
+                } else {
+                    (event.partId - 1).coerceAtLeast(0)
+                }
+            }
+            val staffOsmd = measOsmd.groupBy { it.staffIdx }
+
+            val allStaves = (staffEvents.keys + staffOsmd.keys).distinct().sorted()
+
+            for (staffIdx in allStaves) {
+                val sEvents = (staffEvents[staffIdx] ?: emptyList())
+                    .sortedWith(compareBy<MusicalEvent>({ it.tickPosition }, { -it.pitchMidi }))
+                val sOsmd = (staffOsmd[staffIdx] ?: emptyList())
+                    .sortedWith(compareBy<OsmdNoteElement>({ it.x }, { -it.midiNote }))
+
+                // PASS 1: Exact SATB Voice + Exact Pitch in chronological visual order on this staff
+                for (event in sEvents) {
+                    if (coords.containsKey(event.eventId)) continue
+                    val eventPart = event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    val candidate = sOsmd.firstOrNull { elem ->
+                        !usedOsmdIds.contains(elem.id) &&
+                        elem.part.uppercase() == eventPart &&
+                        elem.midiNote == event.pitchMidi
+                    }
+                    if (candidate != null) {
+                        usedOsmdIds.add(candidate.id)
+                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+                    }
+                }
+
+                // PASS 2: Exact Pitch on this staff (if SATB label had slight variant)
+                for (event in sEvents) {
+                    if (coords.containsKey(event.eventId)) continue
+                    val candidate = sOsmd.firstOrNull { elem ->
+                        !usedOsmdIds.contains(elem.id) &&
+                        elem.midiNote == event.pitchMidi
+                    }
+                    if (candidate != null) {
+                        usedOsmdIds.add(candidate.id)
+                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+                    }
+                }
+
+                // PASS 3: Exact SATB Voice positional 1-to-1 match on this staff
+                for (event in sEvents) {
+                    if (coords.containsKey(event.eventId)) continue
+                    val eventPart = event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    val candidate = sOsmd.firstOrNull { elem ->
+                        !usedOsmdIds.contains(elem.id) &&
+                        elem.part.uppercase() == eventPart
+                    }
+                    if (candidate != null) {
+                        usedOsmdIds.add(candidate.id)
+                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+                    }
+                }
+
+                // PASS 4: Positional 1-to-1 match on this staff
+                for (event in sEvents) {
+                    if (coords.containsKey(event.eventId)) continue
+                    val candidate = sOsmd.firstOrNull { elem -> !usedOsmdIds.contains(elem.id) }
+                    if (candidate != null) {
+                        usedOsmdIds.add(candidate.id)
+                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+                    }
+                }
+            }
+        }
+
+        // PASS 3: Global Nearby Measure Index (+/- 1) + Same Staff + Same Pitch
         for (event in sortedEvents) {
+            if (coords.containsKey(event.eventId)) continue
+            val eventStaffIdx = if (event.partId > 1 && event.staffId <= 1) event.partId - 1 else if (event.staffId > 0) event.staffId - 1 else (event.partId - 1).coerceAtLeast(0)
             val candidate = osmdElements.firstOrNull { elem ->
                 !usedOsmdIds.contains(elem.id) &&
-                elem.measureNumber == event.measureNumber &&
-                elem.staffIdx == event.staffId &&
+                kotlin.math.abs(elem.measureIndex - event.measureIndex) <= 1 &&
+                elem.staffIdx == eventStaffIdx &&
                 elem.midiNote == event.pitchMidi
             }
             if (candidate != null) {
@@ -228,12 +314,12 @@ class SyncManager {
             }
         }
 
-        // PASS 1B: Strict Same-Measure + Same-Pitch Match
+        // PASS 4: Same Measure Index + Same Pitch (Staff Fallback)
         for (event in sortedEvents) {
             if (coords.containsKey(event.eventId)) continue
             val candidate = osmdElements.firstOrNull { elem ->
                 !usedOsmdIds.contains(elem.id) &&
-                elem.measureNumber == event.measureNumber &&
+                elem.measureIndex == event.measureIndex &&
                 elem.midiNote == event.pitchMidi
             }
             if (candidate != null) {
@@ -242,21 +328,7 @@ class SyncManager {
             }
         }
 
-        // PASS 2: Nearby Measure (+/- 1 measure tolerance for pickup / anacrusis measure numbering offsets)
-        for (event in sortedEvents) {
-            if (coords.containsKey(event.eventId)) continue
-            val candidate = osmdElements.firstOrNull { elem ->
-                !usedOsmdIds.contains(elem.id) &&
-                kotlin.math.abs(elem.measureNumber - event.measureNumber) <= 1 &&
-                elem.midiNote == event.pitchMidi
-            }
-            if (candidate != null) {
-                usedOsmdIds.add(candidate.id)
-                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-            }
-        }
-
-        // PASS 3: Global Pitch Match (Chronological order)
+        // PASS 5: Global Pitch Match (Chronological order)
         for (event in sortedEvents) {
             if (coords.containsKey(event.eventId)) continue
             val candidate = osmdElements.firstOrNull { elem ->
@@ -340,6 +412,7 @@ class SyncManager {
         val tick: Int = 0,
         val midiNote: Int = 60,
         val measureNumber: Int = 1,
+        val measureIndex: Int = 0,
         val voice: Int = 1,
         val staffIdx: Int = 0,
         val part: String = "S",

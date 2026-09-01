@@ -222,6 +222,8 @@ fun Module2PracticeScreen(
                 MidiPlaybackEngine(
                     score = resolvedScore,
                     tempo = 120,
+                    isMicEnabled = isMicEnabled,
+                    selectedVoicePart = selectedPart.shortLabel.first().toString().uppercase(),
                     pitchAttempts = pitchAttempts,
                     onReady = { controller ->
                         midiController = controller
@@ -231,6 +233,8 @@ fun Module2PracticeScreen(
                         }
                         if (visualFocusEnabled) {
                             controller.setVisualFocus(selectedPart.shortLabel.first().toString())
+                        } else {
+                            controller.clearVisualFocus()
                         }
                     },
                     onScoreLoaded = {

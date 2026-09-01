@@ -146,6 +146,7 @@ class PracticeViewModel : ViewModel() {
 
     fun endPitchSession() {
         pitchEngine.stop()
+        _activeTargets.value = emptyList()
         _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
     }
 

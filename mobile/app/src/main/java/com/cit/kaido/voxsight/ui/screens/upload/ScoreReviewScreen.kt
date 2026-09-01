@@ -400,13 +400,6 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     4 -> "BASS"
                     else -> "SOPRANO"
                 }
-                note.voice in 1..4 -> when (note.voice) {
-                    1 -> "SOPRANO"
-                    2 -> "ALTO"
-                    3 -> "TENOR"
-                    4 -> "BASS"
-                    else -> "SOPRANO"
-                }
                 score.parts.size >= 4 -> when (part.id) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
@@ -415,8 +408,17 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     else -> "SOPRANO"
                 }
                 score.parts.size == 2 -> when (part.id) {
-                    1 -> if (note.originalVoice == 2) "ALTO" else "SOPRANO"
-                    2 -> if (note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
+                    1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                    2 -> if (note.voice == 2 || note.originalVoice == 2 || note.voice == 4) "BASS" else "TENOR"
+                    else -> "SOPRANO"
+                }
+                note.staff == 2 -> if (note.voice == 2 || note.originalVoice == 2 || note.voice == 4) "BASS" else "TENOR"
+                note.staff == 1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                note.voice in 1..4 -> when (note.voice) {
+                    1 -> "SOPRANO"
+                    2 -> "ALTO"
+                    3 -> "TENOR"
+                    4 -> "BASS"
                     else -> "SOPRANO"
                 }
                 else -> "SOPRANO"
@@ -430,6 +432,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                 MusicalEvent(
                     eventId = eventId,
                     measureNumber = note.measureNumber,
+                    measureIndex = note.measureIndex,
                     tickPosition = note.startTimeDivisions,
                     ticksPerQuarter = tpq,
                     pitchMidi = midi,

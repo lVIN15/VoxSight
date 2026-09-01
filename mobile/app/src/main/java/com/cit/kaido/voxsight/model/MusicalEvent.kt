@@ -32,6 +32,7 @@ data class MusicalEvent(
     @SerializedName("event_id") val eventId: String,
     @SerializedName("debug_identity") val debugIdentity: DebugIdentity? = null,
     @SerializedName("measure_number") val measureNumber: Int,
+    @SerializedName("measure_index") val measureIndex: Int = 0,
     @SerializedName("tick_position") val tickPosition: Int,
     @SerializedName("ticks_per_quarter") val ticksPerQuarter: Int = 960,
     @SerializedName("pitch_midi") val pitchMidi: Int,

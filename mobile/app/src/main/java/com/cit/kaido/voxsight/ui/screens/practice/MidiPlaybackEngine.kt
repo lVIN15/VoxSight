@@ -28,6 +28,8 @@ import kotlin.math.roundToInt
 fun MidiPlaybackEngine(
     score: MusicXmlScore?,
     tempo: Int = 120,
+    isMicEnabled: Boolean = false,
+    selectedVoicePart: String? = null,
     pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList(),
     onReady: (MidiPlayerController) -> Unit,
     onScoreLoaded: (Int) -> Unit = {},
@@ -44,6 +46,8 @@ fun MidiPlaybackEngine(
         MidiPlayerController(context)
     }
 
+    controller.isMicEnabled = isMicEnabled
+    controller.selectedVoicePart = selectedVoicePart
     controller.pitchAttempts = pitchAttempts
 
     // Update callbacks when they change
@@ -56,8 +60,10 @@ fun MidiPlaybackEngine(
         onDispose { }
     }
 
-    // Refresh highlights dynamically when pitchAttempts change
-    LaunchedEffect(pitchAttempts) {
+    // Refresh highlights dynamically when isMicEnabled, selectedVoicePart, or pitchAttempts change
+    LaunchedEffect(isMicEnabled, selectedVoicePart, pitchAttempts) {
+        controller.isMicEnabled = isMicEnabled
+        controller.selectedVoicePart = selectedVoicePart
         controller.pitchAttempts = pitchAttempts
         controller.refreshHighlights()
     }
@@ -114,6 +120,8 @@ open class MidiPlayerController(
     var playbackState by mutableStateOf("IDLE")
     var lastMidiEvent by mutableStateOf<String?>(null)
     var mutedVoicesList by mutableStateOf(listOf<String>())
+    var isMicEnabled by mutableStateOf(false)
+    var selectedVoicePart by mutableStateOf<String?>(null)
     var pitchAttempts by mutableStateOf(listOf<com.cit.kaido.voxsight.pitch.PitchAttempt>())
     
     private var eventStream: EventStream = EventStream.empty()
@@ -425,13 +433,19 @@ open class MidiPlayerController(
     }
 
     private fun renderHighlights() {
+        val targetFilterPart = if (isMicEnabled) {
+            selectedVoicePart?.firstOrNull()?.toString()?.uppercase() ?: visualFocusPart
+        } else {
+            visualFocusPart
+        }
+
         // Inject colors based on SATB part mapping
         val coloredNotes = lastHighlights.mapNotNull { highlight ->
             val event = eventStream.find { it.eventId == highlight.eventId }
             val part = event?.satbVoice?.firstOrNull()?.toString()?.uppercase() ?: "S"
             
-            // Visual Focus Filtering: skip non-focused parts if focus is enabled
-            if (visualFocusPart != null && part != visualFocusPart) {
+            // Visual Focus / Active singing voice filtering
+            if (targetFilterPart != null && part != targetFilterPart) {
                 return@mapNotNull null // Skip drawing this highlight
             }
             
@@ -443,10 +457,12 @@ open class MidiPlayerController(
                 else -> "#6366f1" // Indigo fallback
             }
 
-            // Apply Pitch Tracking feedback colors
-            val attempt = pitchAttempts.findLast { it.eventId == event?.eventId }
-            if (attempt != null) {
-                hexColor = if (attempt.isMatch) "#00E676" else "#E53935" // Bright Green for Match, Red for Miss
+            // Apply Pitch Tracking feedback colors ONLY when mic / pitch test mode is active
+            if (isMicEnabled) {
+                val attempt = pitchAttempts.findLast { it.eventId == event?.eventId }
+                if (attempt != null) {
+                    hexColor = if (attempt.isMatch) "#00E676" else "#E53935" // Bright Green for Match, Red for Miss
+                }
             }
             
             mapOf(
@@ -517,7 +533,11 @@ open class MidiPlayerController(
                         tick = (raw["tick"] as? Number)?.toInt() ?: 0,
                         midiNote = (raw["midiNote"] as? Number)?.toInt() ?: 0,
                         measureNumber = (raw["measureNumber"] as? Number)?.toInt() ?: 1,
+                        measureIndex = (raw["measureIndex"] as? Number)?.toInt() ?: (((raw["measureNumber"] as? Number)?.toInt() ?: 1) - 1),
                         voice = (raw["voice"] as? Number)?.toInt() ?: 1,
+                        staffIdx = (raw["staffIdx"] as? Number)?.toInt() ?: 0,
+                        part = (raw["part"] as? String) ?: "S",
+                        color = (raw["color"] as? String) ?: "#E91E63",
                         x = (raw["x"] as? Number)?.toFloat() ?: 0f,
                         y = (raw["y"] as? Number)?.toFloat() ?: 0f,
                         width = (raw["width"] as? Number)?.toFloat() ?: 0f,

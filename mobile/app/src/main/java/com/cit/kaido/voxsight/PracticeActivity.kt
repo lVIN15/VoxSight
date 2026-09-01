@@ -366,13 +366,22 @@ class PracticeActivity : AppCompatActivity(),
     // ─── SyncListener Implementation ───────────────────────────────────
     override fun onHighlightNotes(highlights: List<SyncManager.NoteHighlightData>) {
         val coloredNotes = highlights.map { highlight ->
+            val event = eventStream.find { it.eventId == highlight.eventId }
+            val part = event?.satbVoice?.firstOrNull()?.toString()?.uppercase() ?: "S"
+            val hexColor = when (part) {
+                "S" -> "#E91E63"
+                "A" -> "#9C27B0"
+                "T" -> "#2196F3"
+                "B" -> "#4CAF50"
+                else -> "#6366f1"
+            }
             mapOf(
                 "eventId" to highlight.eventId,
                 "x" to highlight.x,
                 "y" to highlight.y,
                 "width" to highlight.width,
                 "height" to highlight.height,
-                "color" to "#6366f1"
+                "color" to hexColor
             )
         }
         val json = gson.toJson(coloredNotes)
@@ -578,7 +587,11 @@ class PracticeActivity : AppCompatActivity(),
                         tick = (raw["tick"] as? Number)?.toInt() ?: 0,
                         midiNote = (raw["midiNote"] as? Number)?.toInt() ?: 0,
                         measureNumber = (raw["measureNumber"] as? Number)?.toInt() ?: 1,
+                        measureIndex = (raw["measureIndex"] as? Number)?.toInt() ?: (((raw["measureNumber"] as? Number)?.toInt() ?: 1) - 1),
                         voice = (raw["voice"] as? Number)?.toInt() ?: 1,
+                        staffIdx = (raw["staffIdx"] as? Number)?.toInt() ?: 0,
+                        part = (raw["part"] as? String) ?: "S",
+                        color = (raw["color"] as? String) ?: "#E91E63",
                         x = (raw["x"] as? Number)?.toFloat() ?: 0f,
                         y = (raw["y"] as? Number)?.toFloat() ?: 0f,
                         width = (raw["width"] as? Number)?.toFloat() ?: 0f,
