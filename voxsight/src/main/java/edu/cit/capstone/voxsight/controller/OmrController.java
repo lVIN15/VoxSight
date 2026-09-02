@@ -83,15 +83,25 @@ public class OmrController {
                 if (lowercaseFallback.exists()) {
                     return lowercaseFallback.getAbsolutePath();
                 }
+                File uppercaseFallback = new File(specified.getParentFile(), "Audiveris");
+                if (uppercaseFallback.exists()) {
+                    return uppercaseFallback.getAbsolutePath();
+                }
             }
         }
-        File defaultLinuxLower = new File("/opt/audiveris/bin/audiveris");
-        if (defaultLinuxLower.exists()) {
-            return defaultLinuxLower.getAbsolutePath();
-        }
-        File defaultLinuxCap = new File("/opt/audiveris/bin/Audiveris");
-        if (defaultLinuxCap.exists()) {
-            return defaultLinuxCap.getAbsolutePath();
+        String[] candidates = {
+            "/usr/bin/audiveris",
+            "/usr/local/bin/audiveris",
+            "/opt/audiveris/bin/Audiveris",
+            "/opt/audiveris/bin/audiveris",
+            "/opt/Audiveris/bin/Audiveris",
+            "/opt/Audiveris/bin/audiveris"
+        };
+        for (String candidate : candidates) {
+            File f = new File(candidate);
+            if (f.exists()) {
+                return f.getAbsolutePath();
+            }
         }
         return (audiverisPath != null && !audiverisPath.isBlank()) ? audiverisPath : "audiveris";
     }

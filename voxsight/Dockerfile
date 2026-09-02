@@ -36,15 +36,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python music21 library
 RUN pip3 install --no-cache-dir music21
 
-# Download & Install Audiveris OMR Engine
+# Download & Install Audiveris OMR Engine (.deb for Ubuntu 22.04)
 WORKDIR /tmp
-RUN wget -q https://github.com/Audiveris/audiveris/releases/download/v5.3.1/audiveris-5.3.1.zip -O audiveris.zip \
-    && unzip -q audiveris.zip -d /opt \
-    && rm -f audiveris.zip \
-    && mv /opt/audiveris-5.3.1 /opt/audiveris \
-    && chmod -R +x /opt/audiveris/bin \
-    && (ln -s /opt/audiveris/bin/audiveris /opt/audiveris/bin/Audiveris || true) \
-    || mkdir -p /opt/audiveris/bin
+RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.11.0/Audiveris-5.11.0-ubuntu22.04-x86_64.deb -O audiveris.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ./audiveris.deb \
+    && rm -f audiveris.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    && (chmod -R +x /opt/audiveris/bin || true) \
+    && (ln -sf /opt/audiveris/bin/Audiveris /usr/bin/audiveris || true) \
+    && (ln -sf /opt/audiveris/bin/Audiveris /opt/audiveris/bin/audiveris || true)
 
 # Create application directory
 WORKDIR /app
