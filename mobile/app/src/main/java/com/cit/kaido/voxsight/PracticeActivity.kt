@@ -136,7 +136,7 @@ class PracticeActivity : AppCompatActivity(),
         val passedEventsJson = intent.getStringExtra(EXTRA_EVENTS_JSON)
         val fileUri = intent.getStringExtra(EXTRA_FILE_URI)
         val fileName = intent.getStringExtra(EXTRA_FILE_NAME)
-        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: "http://10.202.26.27:8080"
+        val backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL) ?: com.cit.kaido.voxsight.network.ApiClient.getBaseUrl(this)
 
         if (passedMusicXml != null && passedEventsJson != null) {
             // Data already available (passed from OmrScreen after /api/analyze)

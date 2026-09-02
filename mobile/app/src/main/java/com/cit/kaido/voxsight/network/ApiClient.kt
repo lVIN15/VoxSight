@@ -1,6 +1,7 @@
 package com.cit.kaido.voxsight.network
 
 import android.content.Context
+import com.cit.kaido.voxsight.BuildConfig
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -9,16 +10,17 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
     private const val PREFS_NAME = "voxsight_prefs"
     private const val KEY_BASE_URL = "backend_base_url"
-    private const val DEFAULT_BASE_URL = "http://192.168.1.56:8080/"
+    
+    val DEFAULT_BASE_URL: String = BuildConfig.BASE_URL
 
     private var activeUrl = DEFAULT_BASE_URL
     private var cachedRetrofit: Retrofit? = null
     private var cachedService: OmrService? = null
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(900, TimeUnit.SECONDS) // Audiveris takes time
-        .readTimeout(900, TimeUnit.SECONDS)
-        .writeTimeout(900, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS) // Render cold-start handling (~45s)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(180, TimeUnit.SECONDS)
         .build()
 
     /**
@@ -42,7 +44,11 @@ object ApiClient {
                 formattedUrl += "/"
             }
             if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
-                formattedUrl = "http://$formattedUrl"
+                formattedUrl = if (formattedUrl.contains("onrender.com") || formattedUrl.contains(".com") || formattedUrl.contains(".io")) {
+                    "https://$formattedUrl"
+                } else {
+                    "http://$formattedUrl"
+                }
             }
         } else {
             formattedUrl = DEFAULT_BASE_URL
@@ -80,3 +86,4 @@ object ApiClient {
             }
         }
 }
+

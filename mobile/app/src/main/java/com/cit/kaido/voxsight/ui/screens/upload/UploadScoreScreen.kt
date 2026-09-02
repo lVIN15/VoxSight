@@ -390,7 +390,7 @@ fun UploadScoreScreen(
             text = {
                 Column {
                     Text(
-                        text = "Set the backend server URL (e.g., http://10.149.87.27:8080):",
+                        text = "Set the backend server URL (Default: ${ApiClient.DEFAULT_BASE_URL}):",
                         style = MaterialTheme.typography.bodyMedium,
                         color = VoxTextSubtitle
                     )
@@ -412,7 +412,7 @@ fun UploadScoreScreen(
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = {
-                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { "http://192.168.1.56:8080" })
+                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { ApiClient.DEFAULT_BASE_URL })
                         showSettingsDialog = false
                     }
                 ) {
