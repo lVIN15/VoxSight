@@ -69,8 +69,8 @@ ENV PORT=8080 \
     AUDIVERIS_PATH=/opt/audiveris/bin/audiveris \
     PYTHON_PATH=/usr/bin/python3 \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata \
-    JAVA_OPTS="-Djava.awt.headless=true" \
-    JAVA_TOOL_OPTIONS="-Djava.awt.headless=true" \
+    JAVA_OPTS="-Xms64m -Xmx192m -XX:+UseSerialGC -Djava.awt.headless=true" \
+    JAVA_TOOL_OPTIONS="-Xms64m -Xmx192m -XX:+UseSerialGC -Djava.awt.headless=true" \
     UPLOADS_DIR=/tmp/uploads \
     OUTPUTS_DIR=/tmp/outputs \
     CORS_ALLOWED_ORIGINS=*

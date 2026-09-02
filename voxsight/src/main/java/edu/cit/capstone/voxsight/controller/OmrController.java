@@ -14,14 +14,26 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api")
 public class OmrController {
 
     private static final Logger log = LoggerFactory.getLogger(OmrController.class);
+
+    // Concurrency lock: guarantees only 1 Audiveris conversion runs at a time to stay safely within 512MB RAM
+    private static final Semaphore OMR_SEMAPHORE = new Semaphore(1, true);
+
+    // In-memory cache for instant responses (0.05s) on repeated or shared song uploads
+    private static final Map<String, OmrAnalysisResponse> ANALYSIS_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, OmrResponse> CONVERT_CACHE = new ConcurrentHashMap<>();
 
     @Value("${audiveris.path:C:\\Program Files\\Audiveris\\Audiveris.exe}")
     private String audiverisPath;
@@ -42,6 +54,22 @@ public class OmrController {
 
     public OmrController(SatbAnalysisService satbAnalysisService) {
         this.satbAnalysisService = satbAnalysisService;
+    }
+
+    private String calculateSha256(byte[] data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(data);
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            return String.valueOf(java.util.Arrays.hashCode(data));
+        }
     }
 
     private File getUploadsDir() {
@@ -107,19 +135,31 @@ public class OmrController {
     }
 
     private void configureTessdataEnvironment(ProcessBuilder pb) {
-        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true");
-        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true");
+        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true -Xms64m -Xmx220m -XX:+UseSerialGC");
+        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true -Xms64m -Xmx220m -XX:+UseSerialGC");
         String resolvedTessdata = tessdataPrefix;
-        if (resolvedTessdata == null || resolvedTessdata.isBlank()) {
+        if (resolvedTessdata == null || resolvedTessdata.isBlank() || !new File(resolvedTessdata).exists()) {
             String os = System.getProperty("os.name").toLowerCase();
             if (os.contains("win")) {
                 resolvedTessdata = System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Roaming" + File.separator + "AudiverisLtd" + File.separator + "audiveris" + File.separator + "config" + File.separator + "tessdata";
             } else {
-                resolvedTessdata = "/usr/share/tessdata";
+                String[] linuxCandidates = {
+                    "/usr/share/tesseract-ocr/5/tessdata",
+                    "/usr/share/tesseract-ocr/4.00/tessdata",
+                    "/usr/share/tesseract-ocr/tessdata",
+                    "/usr/share/tessdata"
+                };
+                for (String candidate : linuxCandidates) {
+                    if (new File(candidate).exists()) {
+                        resolvedTessdata = candidate;
+                        break;
+                    }
+                }
             }
         }
-        if (new File(resolvedTessdata).exists()) {
+        if (resolvedTessdata != null && new File(resolvedTessdata).exists()) {
             pb.environment().put("TESSDATA_PREFIX", resolvedTessdata);
+            log.info("[OMR Tessdata] Set TESSDATA_PREFIX to: {}", resolvedTessdata);
         }
     }
 
@@ -144,104 +184,134 @@ public class OmrController {
             return ResponseEntity.badRequest().body(OmrResponse.ofError("Filename is missing"));
         }
 
-        String originalFilename = sanitizeFilename(rawFilename);
-        log.info("[Job Started] Processing {} with Audiveris...", originalFilename);
-
-        File uploadsDir = getUploadsDir();
-        File outputsDir = getOutputsDir();
-
-        // Save file to uploads/ with unique timestamp to prevent collisions
-        String uniqueName = System.currentTimeMillis() + "-" + originalFilename;
-        File uploadedFile = new File(uploadsDir, uniqueName);
+        byte[] fileBytes;
         try {
-            file.transferTo(uploadedFile);
+            fileBytes = file.getBytes();
         } catch (IOException e) {
-            log.error("Failed to save uploaded file: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError("Failed to save uploaded file: " + e.getMessage()));
+                    .body(OmrResponse.ofError("Failed to read uploaded file"));
         }
 
-        String resolvedExecutable = getResolvedAudiverisPath();
-        File execFile = new File(resolvedExecutable);
-        log.info("[Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
-                resolvedExecutable, execFile.exists(), execFile.canExecute());
-
-        if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
-            log.error("[Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+        // Check SHA-256 Cache for instant response (0.05s)
+        String fileHash = calculateSha256(fileBytes);
+        OmrResponse cached = CONVERT_CACHE.get(fileHash);
+        if (cached != null) {
+            log.info("[OMR Cache HIT] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
+            return ResponseEntity.ok(cached);
         }
 
-        // Run Audiveris
-        StringBuilder audiverisLog = new StringBuilder();
+        // Acquire Concurrency Lock (Ensures max 1 Audiveris conversion at a time to prevent RAM exhaustion)
+        boolean acquired = false;
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    resolvedExecutable,
-                    "-batch",
-                    "-export",
-                    "-output",
-                    uploadsDir.getAbsolutePath(),
-                    uploadedFile.getAbsolutePath()
-            );
-            configureTessdataEnvironment(pb);
-            pb.redirectErrorStream(true); // Merge stdout and stderr
-            Process process = pb.start();
-
-            // Read output logs in real-time and capture for error analysis
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.contains("Exit forced. Failure")) {
-                        continue; // Misleading non-fatal warning on completion
-                    }
-                    log.info("[Audiveris Log] {}", line);
-                    audiverisLog.append(line).append("\n");
-                }
+            acquired = OMR_SEMAPHORE.tryAcquire(120, TimeUnit.SECONDS);
+            if (!acquired) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(OmrResponse.ofError("The server is currently processing other scores. Please try again in a moment."));
             }
 
-            int exitCode = process.waitFor();
-            log.info("Audiveris finished with exit code: {}", exitCode);
+            String originalFilename = sanitizeFilename(rawFilename);
+            log.info("[Job Started] Processing {} with Audiveris (Lock Acquired)...", originalFilename);
 
-        } catch (Exception e) {
-            log.error("Error executing Audiveris process: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError("Something went wrong while processing your file. Please try again."));
-        }
+            File uploadsDir = getUploadsDir();
+            File outputsDir = getOutputsDir();
 
-        // Search for output files
-        String baseName = getBaseName(uniqueName);
-        File resultFile = locateOutputFile(baseName, uploadsDir);
-
-        if (resultFile != null && resultFile.exists()) {
-            String extension = getExtension(resultFile.getName());
-            File targetFile = new File(outputsDir, baseName + extension);
-
-            try {
-                // Move result to the outputs folder
-                Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                log.info("[Success] Moved {} to {}", resultFile.getName(), targetFile.getAbsolutePath());
-
-                // Post-process MusicXML to merge duplicate/split parts and clean misplaced credits
-                cleanMusicXml(targetFile);
-
-                String fileUrl = "/outputs/" + baseName + extension;
-                return ResponseEntity.ok(OmrResponse.ofSuccess(fileUrl, baseName + extension));
+            String uniqueName = System.currentTimeMillis() + "-" + originalFilename;
+            File uploadedFile = new File(uploadsDir, uniqueName);
+            try (FileOutputStream fos = new FileOutputStream(uploadedFile)) {
+                fos.write(fileBytes);
             } catch (IOException e) {
-                log.error("Failed to move output file: ", e);
+                log.error("Failed to save uploaded file: ", e);
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrResponse.ofError("The file was converted but couldn't be saved. Please try again."));
+                        .body(OmrResponse.ofError("Failed to save uploaded file: " + e.getMessage()));
             }
-        } else {
-            // Analyze Audiveris log for user-friendly error
-            String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
-            log.error("[Error] Audiveris finished but output not found for baseName: {}. Friendly error: {}", baseName, friendlyError);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrResponse.ofError(friendlyError));
+
+            String resolvedExecutable = getResolvedAudiverisPath();
+            File execFile = new File(resolvedExecutable);
+            log.info("[Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
+                    resolvedExecutable, execFile.exists(), execFile.canExecute());
+
+            if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
+                log.error("[Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+            }
+
+            StringBuilder audiverisLog = new StringBuilder();
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        resolvedExecutable,
+                        "-batch",
+                        "-export",
+                        "-output",
+                        uploadsDir.getAbsolutePath(),
+                        uploadedFile.getAbsolutePath()
+                );
+                configureTessdataEnvironment(pb);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.contains("Exit forced. Failure")) {
+                            continue;
+                        }
+                        log.info("[Audiveris Log] {}", line);
+                        audiverisLog.append(line).append("\n");
+                    }
+                }
+
+                int exitCode = process.waitFor();
+                log.info("Audiveris finished with exit code: {}", exitCode);
+
+            } catch (Exception e) {
+                log.error("Error executing Audiveris process: ", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrResponse.ofError("Something went wrong while processing your file. Please try again."));
+            }
+
+            // Search for output files
+            String baseName = getBaseName(uniqueName);
+            File resultFile = locateOutputFile(baseName, uploadsDir);
+
+            if (resultFile != null && resultFile.exists()) {
+                String extension = getExtension(resultFile.getName());
+                File targetFile = new File(outputsDir, baseName + extension);
+
+                try {
+                    Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    log.info("[Success] Moved {} to {}", resultFile.getName(), targetFile.getAbsolutePath());
+
+                    cleanMusicXml(targetFile);
+
+                    String fileUrl = "/outputs/" + baseName + extension;
+                    OmrResponse response = OmrResponse.ofSuccess(fileUrl, baseName + extension);
+                    CONVERT_CACHE.put(fileHash, response);
+                    return ResponseEntity.ok(response);
+                } catch (IOException e) {
+                    log.error("Failed to move output file: ", e);
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(OmrResponse.ofError("The file was converted but couldn't be saved. Please try again."));
+                }
+            } else {
+                String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
+                log.error("[Error] Audiveris finished but output not found for baseName: {}. Friendly error: {}", baseName, friendlyError);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrResponse.ofError(friendlyError));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(OmrResponse.ofError("Server request was interrupted."));
+        } finally {
+            if (acquired) {
+                OMR_SEMAPHORE.release();
+            }
         }
     }
 
     /**
-     * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline.
+     * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline with Concurrency Lock & Caching.
      */
     @PostMapping("/analyze")
     public ResponseEntity<OmrAnalysisResponse> analyze(@RequestParam("musicFile") MultipartFile file) {
@@ -254,113 +324,150 @@ public class OmrController {
             return ResponseEntity.badRequest().body(OmrAnalysisResponse.ofError("Filename is missing"));
         }
 
-        String originalFilename = sanitizeFilename(rawFilename);
-        log.info("[Analyze] Starting full pipeline for: {}", originalFilename);
-
-        File uploadsDir = getUploadsDir();
-        File outputsDir = getOutputsDir();
-
-        // Step 1: Save uploaded file
-        String uniqueName = System.currentTimeMillis() + "-" + originalFilename;
-        File uploadedFile = new File(uploadsDir, uniqueName);
+        byte[] fileBytes;
         try {
-            file.transferTo(uploadedFile);
+            fileBytes = file.getBytes();
         } catch (IOException e) {
-            log.error("Failed to save uploaded file: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrAnalysisResponse.ofError("Failed to save uploaded file"));
+                    .body(OmrAnalysisResponse.ofError("Failed to read uploaded file"));
         }
 
-        // Step 2: Run Audiveris
-        String resolvedExecutable = getResolvedAudiverisPath();
-        File execFile = new File(resolvedExecutable);
-        log.info("[Analyze Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
-                resolvedExecutable, execFile.exists(), execFile.canExecute());
-
-        if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
-            log.error("[Analyze Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrAnalysisResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+        // Check SHA-256 Cache for instant response (0.05s)
+        String fileHash = calculateSha256(fileBytes);
+        OmrAnalysisResponse cached = ANALYSIS_CACHE.get(fileHash);
+        if (cached != null) {
+            log.info("[OMR Cache HIT] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
+            return ResponseEntity.ok(cached);
         }
 
-        StringBuilder audiverisLog = new StringBuilder();
+        // Acquire Concurrency Lock (Ensures max 1 Audiveris conversion at a time to stay safely within 512MB RAM)
+        boolean acquired = false;
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    resolvedExecutable, "-batch", "-export",
-                    "-output", uploadsDir.getAbsolutePath(), uploadedFile.getAbsolutePath()
-            );
-            configureTessdataEnvironment(pb);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.contains("Exit forced. Failure")) {
-                        continue; // Misleading non-fatal warning on completion
+            acquired = OMR_SEMAPHORE.tryAcquire(120, TimeUnit.SECONDS);
+            if (!acquired) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(OmrAnalysisResponse.ofError("The server is currently processing other scores. Please try again in a moment."));
+            }
+
+            String originalFilename = sanitizeFilename(rawFilename);
+            log.info("[Analyze] Starting full pipeline for: {} (Lock Acquired)", originalFilename);
+
+            File uploadsDir = getUploadsDir();
+            File outputsDir = getOutputsDir();
+
+            // Step 1: Save uploaded file
+            String uniqueName = System.currentTimeMillis() + "-" + originalFilename;
+            File uploadedFile = new File(uploadsDir, uniqueName);
+            try (FileOutputStream fos = new FileOutputStream(uploadedFile)) {
+                fos.write(fileBytes);
+            } catch (IOException e) {
+                log.error("Failed to save uploaded file: ", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("Failed to save uploaded file"));
+            }
+
+            // Step 2: Run Audiveris
+            String resolvedExecutable = getResolvedAudiverisPath();
+            File execFile = new File(resolvedExecutable);
+            log.info("[Analyze Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
+                    resolvedExecutable, execFile.exists(), execFile.canExecute());
+
+            if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
+                log.error("[Analyze Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+            }
+
+            StringBuilder audiverisLog = new StringBuilder();
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        resolvedExecutable, "-batch", "-export",
+                        "-output", uploadsDir.getAbsolutePath(), uploadedFile.getAbsolutePath()
+                );
+                configureTessdataEnvironment(pb);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.contains("Exit forced. Failure")) {
+                            continue;
+                        }
+                        log.info("[Audiveris] {}", line);
+                        audiverisLog.append(line).append("\n");
                     }
-                    log.info("[Audiveris] {}", line);
-                    audiverisLog.append(line).append("\n");
+                }
+                int exitCode = process.waitFor();
+                log.info("[Analyze Audiveris Exit Code] {}", exitCode);
+            } catch (Exception e) {
+                log.error("Error executing Audiveris: ", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("Audiveris processing failed"));
+            }
+
+            // Step 3: Locate MusicXML output
+            String baseName = getBaseName(uniqueName);
+            File resultFile = locateOutputFile(baseName, uploadsDir);
+
+            if (resultFile == null || !resultFile.exists()) {
+                String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError(friendlyError));
+            }
+
+            // Step 4: Move to outputs folder
+            String extension = getExtension(resultFile.getName());
+            File targetFile = new File(outputsDir, baseName + extension);
+            try {
+                Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                cleanMusicXml(targetFile);
+            } catch (IOException e) {
+                log.error("Failed to move output: ", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("Failed to save converted file"));
+            }
+
+            // Step 5: Run SATB Analysis (music21 via Python)
+            try {
+                SatbAnalysisService.SatbAnalysisResult analysis = satbAnalysisService.analyze(targetFile);
+
+                log.info("[Analyze] Pipeline complete. Events: {}, Schema: {}",
+                        analysis.events().size(), analysis.schemaVersion());
+
+                OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
+                        analysis.rawMusicXml(),
+                        analysis.scoreMetadata(),
+                        analysis.events(),
+                        analysis.schemaVersion()
+                );
+                ANALYSIS_CACHE.put(fileHash, response);
+                return ResponseEntity.ok(response);
+
+            } catch (SatbAnalysisService.SatbAnalysisException e) {
+                log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
+                try {
+                    String rawXml = extractXmlContent(targetFile);
+                    OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
+                            rawXml, java.util.Map.of(
+                                "structure_type", "UNCERTAIN",
+                                "satb_confidence", 0.0,
+                                "validation_passed", false
+                            ), java.util.List.of(), "1.0"
+                    );
+                    ANALYSIS_CACHE.put(fileHash, response);
+                    return ResponseEntity.ok(response);
+                } catch (IOException ioe) {
+                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
                 }
             }
-            process.waitFor();
-        } catch (Exception e) {
-            log.error("Error executing Audiveris: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrAnalysisResponse.ofError("Audiveris processing failed"));
-        }
-
-        // Step 3: Locate MusicXML output
-        String baseName = getBaseName(uniqueName);
-        File resultFile = locateOutputFile(baseName, uploadsDir);
-
-        if (resultFile == null || !resultFile.exists()) {
-            String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrAnalysisResponse.ofError(friendlyError));
-        }
-
-        // Step 4: Move to outputs folder
-        String extension = getExtension(resultFile.getName());
-        File targetFile = new File(outputsDir, baseName + extension);
-        try {
-            Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            // Post-process MusicXML to merge duplicate/split parts and clean misplaced credits
-            cleanMusicXml(targetFile);
-        } catch (IOException e) {
-            log.error("Failed to move output: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(OmrAnalysisResponse.ofError("Failed to save converted file"));
-        }
-
-        // Step 5: Run SATB Analysis (music21 via Python)
-        try {
-            SatbAnalysisService.SatbAnalysisResult analysis = satbAnalysisService.analyze(targetFile);
-
-            log.info("[Analyze] Pipeline complete. Events: {}, Schema: {}",
-                    analysis.events().size(), analysis.schemaVersion());
-
-            return ResponseEntity.ok(OmrAnalysisResponse.ofSuccess(
-                    analysis.rawMusicXml(),
-                    analysis.scoreMetadata(),
-                    analysis.events(),
-                    analysis.schemaVersion()
-            ));
-
-        } catch (SatbAnalysisService.SatbAnalysisException e) {
-            log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
-            // Fallback: return success with MusicXML but no analysis
-            try {
-                String rawXml = extractXmlContent(targetFile);
-                return ResponseEntity.ok(OmrAnalysisResponse.ofSuccess(
-                        rawXml, java.util.Map.of(
-                            "structure_type", "UNCERTAIN",
-                            "satb_confidence", 0.0,
-                            "validation_passed", false
-                        ), java.util.List.of(), "1.0"
-                ));
-            } catch (IOException ioe) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(OmrAnalysisResponse.ofError("Server request was interrupted."));
+        } finally {
+            if (acquired) {
+                OMR_SEMAPHORE.release();
             }
         }
     }
