@@ -20,7 +20,7 @@ FROM ubuntu:22.04 AS runner
 # Prevent interactive prompts during apt install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Java 17, Python 3, Tesseract OCR, Ghostscript (for 300 DPI PDF rendering), and required runtime libraries
+# Install Java 17, Python 3, Tesseract OCR, Ghostscript, GTK-3 (for Audiveris JNA HiDPI), and required runtime libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     python3 \
@@ -30,16 +30,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ghostscript \
     poppler-utils \
     fonts-dejavu-core \
+    libgtk-3-0 \
+    libgtk-3-dev \
+    libgdk-pixbuf2.0-0 \
+    libglib2.0-0 \
     libasound2 \
     libfreetype6 \
     libfontconfig1 \
     libxrender1 \
     libxtst6 \
     libxi6 \
+    libxext6 \
+    libx11-6 \
     curl \
     wget \
     unzip \
     ca-certificates \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgtk-3.so.0 /usr/lib/x86_64-linux-gnu/libgtk-3.so \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgtk-3.so.0 /usr/lib/libgtk-3.so \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python music21 library
