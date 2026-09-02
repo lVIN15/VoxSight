@@ -4,18 +4,15 @@ WORKDIR /build
 
 # Copy Maven POM and source files
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
-RUN chmod +x mvnw
 
 # Download dependencies (caching layer)
-RUN ./mvnw dependency:go-offline -B || true
+RUN mvn dependency:go-offline -B || true
 
 # Copy application source code
 COPY src src
 
 # Build executable JAR archive
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Stage 2: Production Runtime Environment
 FROM ubuntu:22.04 AS runner
