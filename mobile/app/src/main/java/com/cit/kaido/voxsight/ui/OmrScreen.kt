@@ -59,7 +59,6 @@ fun OmrScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var backendUrl by remember { mutableStateOf(com.cit.kaido.voxsight.network.ApiClient.getBaseUrl(context)) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     
@@ -128,48 +127,6 @@ fun OmrScreen(onBack: () -> Unit = {}) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            // Configuration Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardBgColor),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Server Configuration",
-                        color = AccentColor,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = backendUrl,
-                        onValueChange = { backendUrl = it },
-                        label = { Text("Backend URL", color = TextMutedColor) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextLightColor,
-                            unfocusedTextColor = TextLightColor,
-                            focusedBorderColor = AccentColor,
-                            unfocusedBorderColor = TextMutedColor
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Uri,
-                            imeAction = ImeAction.Done
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Default backend: ${com.cit.kaido.voxsight.network.ApiClient.DEFAULT_BASE_URL}",
-                        color = TextMutedColor,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
             // File Selection & Action Area
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardBgColor),
@@ -241,7 +198,6 @@ fun OmrScreen(onBack: () -> Unit = {}) {
                                     scope.launch {
                                         uploadAndAnalyze(
                                             context,
-                                            backendUrl,
                                             selectedUri!!,
                                             selectedFileName!!,
                                             onStart = {
@@ -337,7 +293,6 @@ fun OmrScreen(onBack: () -> Unit = {}) {
                                     putExtra(PracticeActivity.EXTRA_MUSICXML, analysisMusic)
                                     putExtra(PracticeActivity.EXTRA_EVENTS_JSON, analysisEvents)
                                     putExtra(PracticeActivity.EXTRA_METADATA_JSON, analysisMetadata)
-                                    putExtra(PracticeActivity.EXTRA_BACKEND_URL, backendUrl)
                                 }
                                 context.startActivity(intent)
                             },
@@ -421,7 +376,6 @@ private fun getFileName(context: Context, uri: Uri): String {
  */
 private suspend fun uploadAndAnalyze(
     context: Context,
-    baseUrl: String,
     uri: Uri,
     filename: String,
     onStart: () -> Unit,
@@ -439,9 +393,9 @@ private suspend fun uploadAndAnalyze(
             val fileBytes = inputStream.use { it.readBytes() }
 
             val client = OkHttpClient.Builder()
-                .connectTimeout(900, TimeUnit.SECONDS) // Audiveris can take up to 15 minutes for multi-page PDFs
-                .readTimeout(900, TimeUnit.SECONDS)
-                .writeTimeout(900, TimeUnit.SECONDS)
+                .connectTimeout(90, TimeUnit.SECONDS)
+                .readTimeout(180, TimeUnit.SECONDS)
+                .writeTimeout(180, TimeUnit.SECONDS)
                 .build()
 
             val requestBody = MultipartBody.Builder()
@@ -454,7 +408,7 @@ private suspend fun uploadAndAnalyze(
                 .build()
 
             val request = Request.Builder()
-                .url("$baseUrl/api/analyze")
+                .url("${com.cit.kaido.voxsight.network.ApiClient.BASE_URL}api/analyze")
                 .post(requestBody)
                 .build()
 
