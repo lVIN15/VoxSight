@@ -20,13 +20,19 @@ FROM ubuntu:22.04 AS runner
 # Prevent interactive prompts during apt install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Java 17, Python 3, Tesseract OCR, and required utilities
+# Install Java 17, Python 3, Tesseract OCR, and required runtime libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     python3 \
     python3-pip \
     tesseract-ocr \
     tesseract-ocr-eng \
+    libasound2 \
+    libfreetype6 \
+    libfontconfig1 \
+    libxrender1 \
+    libxtst6 \
+    libxi6 \
     curl \
     wget \
     unzip \
@@ -38,10 +44,10 @@ RUN pip3 install --no-cache-dir music21
 
 # Download & Install Audiveris OMR Engine (.deb for Ubuntu 22.04)
 WORKDIR /tmp
-RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.11.0/Audiveris-5.11.0-ubuntu22.04-x86_64.deb -O audiveris.deb \
+RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.11.0/Audiveris-5.11.0-ubuntu22.04-x86_64.deb -O /tmp/audiveris.deb \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ./audiveris.deb \
-    && rm -f audiveris.deb \
+    && (dpkg -i /tmp/audiveris.deb || apt-get install -f -y) \
+    && rm -f /tmp/audiveris.deb \
     && rm -rf /var/lib/apt/lists/* \
     && (chmod -R +x /opt/audiveris/bin || true) \
     && (ln -sf /opt/audiveris/bin/Audiveris /usr/bin/audiveris || true) \
