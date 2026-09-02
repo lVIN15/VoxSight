@@ -54,11 +54,12 @@ class MusicPlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_music_player)
 
-        // Read score ID from intent extras
+        // Read score ID and backend URL from intent extras
         val scoreId = intent.getStringExtra("SCORE_ID") ?: "sample"
+        val backendUrl = intent.getStringExtra("BACKEND_URL") ?: com.cit.kaido.voxsight.network.ApiClient.getBaseUrl(this)
 
         val retrofit = Retrofit.Builder()
-            .baseUrl(com.cit.kaido.voxsight.network.ApiClient.BASE_URL)
+            .baseUrl("$backendUrl/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         val service = retrofit.create(MusicService::class.java)
