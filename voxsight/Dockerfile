@@ -42,14 +42,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python music21 library
 RUN pip3 install --no-cache-dir music21
 
-# Download & Install Audiveris OMR Engine (.deb for Ubuntu 22.04)
+# Download & Extract Audiveris OMR Engine (.deb for Ubuntu 22.04)
 WORKDIR /tmp
 RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.11.0/Audiveris-5.11.0-ubuntu22.04-x86_64.deb -O /tmp/audiveris.deb \
-    && apt-get update \
-    && (dpkg -i /tmp/audiveris.deb || apt-get install -f -y) \
+    && dpkg-deb -x /tmp/audiveris.deb / \
     && rm -f /tmp/audiveris.deb \
-    && rm -rf /var/lib/apt/lists/* \
     && (chmod -R +x /opt/audiveris/bin || true) \
+    && (chmod -R +x /opt/Audiveris/bin || true) \
     && (ln -sf /opt/audiveris/bin/Audiveris /usr/bin/audiveris || true) \
     && (ln -sf /opt/audiveris/bin/Audiveris /opt/audiveris/bin/audiveris || true)
 
