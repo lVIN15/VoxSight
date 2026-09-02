@@ -42,6 +42,8 @@ RUN wget -q https://github.com/Audiveris/audiveris/releases/download/v5.3.1/audi
     && unzip -q audiveris.zip -d /opt \
     && rm -f audiveris.zip \
     && mv /opt/audiveris-5.3.1 /opt/audiveris \
+    && chmod -R +x /opt/audiveris/bin \
+    && (ln -s /opt/audiveris/bin/audiveris /opt/audiveris/bin/Audiveris || true) \
     || mkdir -p /opt/audiveris/bin
 
 # Create application directory
@@ -58,9 +60,11 @@ COPY scripts/ /app/scripts/
 
 # Default Environment Variables for Production Container
 ENV PORT=8080 \
-    AUDIVERIS_PATH=/opt/audiveris/bin/Audiveris \
+    AUDIVERIS_PATH=/opt/audiveris/bin/audiveris \
     PYTHON_PATH=/usr/bin/python3 \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata \
+    JAVA_OPTS="-Djava.awt.headless=true" \
+    JAVA_TOOL_OPTIONS="-Djava.awt.headless=true" \
     UPLOADS_DIR=/tmp/uploads \
     OUTPUTS_DIR=/tmp/outputs \
     CORS_ALLOWED_ORIGINS=*

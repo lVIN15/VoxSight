@@ -72,7 +72,33 @@ public class OmrController {
         return dir;
     }
 
+    private String getResolvedAudiverisPath() {
+        if (audiverisPath != null && !audiverisPath.isBlank()) {
+            File specified = new File(audiverisPath);
+            if (specified.exists()) {
+                return specified.getAbsolutePath();
+            }
+            if (specified.getParentFile() != null) {
+                File lowercaseFallback = new File(specified.getParentFile(), "audiveris");
+                if (lowercaseFallback.exists()) {
+                    return lowercaseFallback.getAbsolutePath();
+                }
+            }
+        }
+        File defaultLinuxLower = new File("/opt/audiveris/bin/audiveris");
+        if (defaultLinuxLower.exists()) {
+            return defaultLinuxLower.getAbsolutePath();
+        }
+        File defaultLinuxCap = new File("/opt/audiveris/bin/Audiveris");
+        if (defaultLinuxCap.exists()) {
+            return defaultLinuxCap.getAbsolutePath();
+        }
+        return (audiverisPath != null && !audiverisPath.isBlank()) ? audiverisPath : "audiveris";
+    }
+
     private void configureTessdataEnvironment(ProcessBuilder pb) {
+        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true");
+        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true");
         String resolvedTessdata = tessdataPrefix;
         if (resolvedTessdata == null || resolvedTessdata.isBlank()) {
             String os = System.getProperty("os.name").toLowerCase();
@@ -125,11 +151,22 @@ public class OmrController {
                     .body(OmrResponse.ofError("Failed to save uploaded file: " + e.getMessage()));
         }
 
+        String resolvedExecutable = getResolvedAudiverisPath();
+        File execFile = new File(resolvedExecutable);
+        log.info("[Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
+                resolvedExecutable, execFile.exists(), execFile.canExecute());
+
+        if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
+            log.error("[Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+        }
+
         // Run Audiveris
         StringBuilder audiverisLog = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    audiverisPath,
+                    resolvedExecutable,
                     "-batch",
                     "-export",
                     "MusicXML",
@@ -157,7 +194,7 @@ public class OmrController {
             log.info("Audiveris finished with exit code: {}", exitCode);
 
         } catch (Exception e) {
-            log.error("Error executing Audiveris: ", e);
+            log.error("Error executing Audiveris process: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(OmrResponse.ofError("Something went wrong while processing your file. Please try again."));
         }
@@ -226,10 +263,21 @@ public class OmrController {
         }
 
         // Step 2: Run Audiveris
+        String resolvedExecutable = getResolvedAudiverisPath();
+        File execFile = new File(resolvedExecutable);
+        log.info("[Analyze Audiveris Diagnostics] Executable path: '{}', exists: {}, canExecute: {}",
+                resolvedExecutable, execFile.exists(), execFile.canExecute());
+
+        if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
+            log.error("[Analyze Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+        }
+
         StringBuilder audiverisLog = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    audiverisPath, "-batch", "-export", "MusicXML",
+                    resolvedExecutable, "-batch", "-export", "MusicXML",
                     "-output", uploadsDir.getAbsolutePath(), uploadedFile.getAbsolutePath()
             );
             configureTessdataEnvironment(pb);
