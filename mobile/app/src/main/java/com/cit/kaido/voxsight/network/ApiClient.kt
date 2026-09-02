@@ -19,8 +19,9 @@ object ApiClient {
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS) // Render cold-start handling (~45s)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(180, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS) // 10 min timeout for OMR conversion on cloud
+        .writeTimeout(300, TimeUnit.SECONDS)
+        .callTimeout(600, TimeUnit.SECONDS)
         .build()
 
     /**
