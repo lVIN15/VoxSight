@@ -28,7 +28,12 @@ object ApiClient {
      */
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val storedUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+        var storedUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+        // Auto-migrate legacy local emulator IPs (10.0.2.2 / 192.168.x.x) on physical devices to Render
+        if (storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.")) {
+            storedUrl = DEFAULT_BASE_URL
+            prefs.edit().putString(KEY_BASE_URL, storedUrl).apply()
+        }
         updateBaseUrl(context, storedUrl)
     }
 
