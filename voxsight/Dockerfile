@@ -20,13 +20,16 @@ FROM ubuntu:22.04 AS runner
 # Prevent interactive prompts during apt install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Java 17, Python 3, Tesseract OCR, and required runtime libraries
+# Install Java 17, Python 3, Tesseract OCR, Ghostscript (for 300 DPI PDF rendering), and required runtime libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     python3 \
     python3-pip \
     tesseract-ocr \
     tesseract-ocr-eng \
+    ghostscript \
+    poppler-utils \
+    fonts-dejavu-core \
     libasound2 \
     libfreetype6 \
     libfontconfig1 \

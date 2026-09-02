@@ -173,6 +173,47 @@ public class OmrController {
         return cleanName.isBlank() ? "uploaded_score" : cleanName;
     }
 
+    /**
+     * Pre-processes uploaded PDFs into high-resolution (300 DPI) images
+     * to guarantee crystal-sharp staff recognition and eliminate blurry errors.
+     */
+    private File prepareScoreForOmr(File inputFile, File uploadsDir) {
+        String name = inputFile.getName().toLowerCase();
+        if (name.endsWith(".pdf")) {
+            String base = getBaseName(inputFile.getName());
+            File outPrefix = new File(uploadsDir, base + "-page");
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                    "pdftoppm", "-png", "-r", "300", "-f", "1", "-l", "1",
+                    inputFile.getAbsolutePath(), outPrefix.getAbsolutePath()
+                );
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                int exit = p.waitFor();
+                if (exit == 0) {
+                    File candidate1 = new File(uploadsDir, base + "-page-1.png");
+                    File candidate2 = new File(uploadsDir, base + "-page-01.png");
+                    File candidate3 = new File(uploadsDir, base + "-page.png");
+                    if (candidate1.exists()) {
+                        log.info("[PDF Preprocessor] Successfully rendered PDF to 300 DPI PNG: {}", candidate1.getName());
+                        return candidate1;
+                    }
+                    if (candidate2.exists()) {
+                        log.info("[PDF Preprocessor] Successfully rendered PDF to 300 DPI PNG: {}", candidate2.getName());
+                        return candidate2;
+                    }
+                    if (candidate3.exists()) {
+                        log.info("[PDF Preprocessor] Successfully rendered PDF to 300 DPI PNG: {}", candidate3.getName());
+                        return candidate3;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[PDF Preprocessor] pdftoppm not available: {}. Falling back to Ghostscript / original PDF.", e.getMessage());
+            }
+        }
+        return inputFile;
+    }
+
     @PostMapping("/convert")
     public ResponseEntity<OmrResponse> convert(@RequestParam("musicFile") MultipartFile file) {
         if (file.isEmpty()) {
@@ -236,6 +277,8 @@ public class OmrController {
                         .body(OmrResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
             }
 
+            File scoreToProcess = prepareScoreForOmr(uploadedFile, uploadsDir);
+
             StringBuilder audiverisLog = new StringBuilder();
             try {
                 ProcessBuilder pb = new ProcessBuilder(
@@ -244,7 +287,7 @@ public class OmrController {
                         "-export",
                         "-output",
                         uploadsDir.getAbsolutePath(),
-                        uploadedFile.getAbsolutePath()
+                        scoreToProcess.getAbsolutePath()
                 );
                 configureTessdataEnvironment(pb);
                 pb.redirectErrorStream(true);
@@ -273,6 +316,9 @@ public class OmrController {
             // Search for output files
             String baseName = getBaseName(uniqueName);
             File resultFile = locateOutputFile(baseName, uploadsDir);
+            if (resultFile == null && !scoreToProcess.equals(uploadedFile)) {
+                resultFile = locateOutputFile(getBaseName(scoreToProcess.getName()), uploadsDir);
+            }
 
             if (resultFile != null && resultFile.exists()) {
                 String extension = getExtension(resultFile.getName());
@@ -378,11 +424,13 @@ public class OmrController {
                         .body(OmrAnalysisResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
             }
 
+            File scoreToProcess = prepareScoreForOmr(uploadedFile, uploadsDir);
+
             StringBuilder audiverisLog = new StringBuilder();
             try {
                 ProcessBuilder pb = new ProcessBuilder(
                         resolvedExecutable, "-batch", "-export",
-                        "-output", uploadsDir.getAbsolutePath(), uploadedFile.getAbsolutePath()
+                        "-output", uploadsDir.getAbsolutePath(), scoreToProcess.getAbsolutePath()
                 );
                 configureTessdataEnvironment(pb);
                 pb.redirectErrorStream(true);
@@ -408,6 +456,9 @@ public class OmrController {
             // Step 3: Locate MusicXML output
             String baseName = getBaseName(uniqueName);
             File resultFile = locateOutputFile(baseName, uploadsDir);
+            if (resultFile == null && !scoreToProcess.equals(uploadedFile)) {
+                resultFile = locateOutputFile(getBaseName(scoreToProcess.getName()), uploadsDir);
+            }
 
             if (resultFile == null || !resultFile.exists()) {
                 String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
