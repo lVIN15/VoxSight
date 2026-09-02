@@ -35,6 +35,13 @@ public class OmrController {
     private static final Map<String, OmrAnalysisResponse> ANALYSIS_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, OmrResponse> CONVERT_CACHE = new ConcurrentHashMap<>();
 
+    private static volatile String lastOmrDiagnostics = "No OMR job executed yet.";
+
+    @GetMapping("/diagnostics/last-omr-log")
+    public ResponseEntity<String> getLastOmrLog() {
+        return ResponseEntity.ok(lastOmrDiagnostics);
+    }
+
     @Value("${audiveris.path:C:\\Program Files\\Audiveris\\Audiveris.exe}")
     private String audiverisPath;
 
@@ -429,6 +436,7 @@ public class OmrController {
             File scoreToProcess = prepareScoreForOmr(uploadedFile, uploadsDir);
 
             StringBuilder audiverisLog = new StringBuilder();
+            int exitCode = -1;
             try {
                 ProcessBuilder pb = new ProcessBuilder(
                         resolvedExecutable, "-batch", "-transcribe", "-export",
@@ -447,7 +455,7 @@ public class OmrController {
                         audiverisLog.append(line).append("\n");
                     }
                 }
-                int exitCode = process.waitFor();
+                exitCode = process.waitFor();
                 log.info("[Analyze Audiveris Exit Code] {}", exitCode);
             } catch (Exception e) {
                 log.error("Error executing Audiveris: ", e);
@@ -461,6 +469,14 @@ public class OmrController {
             if (resultFile == null && !scoreToProcess.equals(uploadedFile)) {
                 resultFile = locateOutputFile(getBaseName(scoreToProcess.getName()), uploadsDir);
             }
+
+            lastOmrDiagnostics = "=== LAST OMR JOB ===\n"
+                    + "Timestamp: " + new java.util.Date() + "\n"
+                    + "Filename: " + rawFilename + "\n"
+                    + "Processed Path: " + scoreToProcess.getAbsolutePath() + "\n"
+                    + "Exit Code: " + exitCode + "\n"
+                    + "Found Output: " + (resultFile != null ? resultFile.getAbsolutePath() : "NOT FOUND") + "\n\n"
+                    + "--- Audiveris Full Logs ---\n" + audiverisLog;
 
             if (resultFile == null || !resultFile.exists()) {
                 String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
