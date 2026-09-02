@@ -135,8 +135,8 @@ public class OmrController {
     }
 
     private void configureTessdataEnvironment(ProcessBuilder pb) {
-        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true -Xms64m -Xmx220m -XX:+UseSerialGC");
-        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true -Xms64m -Xmx220m -XX:+UseSerialGC");
+        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true -Xms64m -Xmx350m -XX:+UseSerialGC");
+        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true -Xms64m -Xmx350m -XX:+UseSerialGC");
         String resolvedTessdata = tessdataPrefix;
         if (resolvedTessdata == null || resolvedTessdata.isBlank() || !new File(resolvedTessdata).exists()) {
             String os = System.getProperty("os.name").toLowerCase();
@@ -284,9 +284,11 @@ public class OmrController {
                 ProcessBuilder pb = new ProcessBuilder(
                         resolvedExecutable,
                         "-batch",
+                        "-transcribe",
                         "-export",
                         "-output",
                         uploadsDir.getAbsolutePath(),
+                        "--",
                         scoreToProcess.getAbsolutePath()
                 );
                 configureTessdataEnvironment(pb);
@@ -429,8 +431,8 @@ public class OmrController {
             StringBuilder audiverisLog = new StringBuilder();
             try {
                 ProcessBuilder pb = new ProcessBuilder(
-                        resolvedExecutable, "-batch", "-export",
-                        "-output", uploadsDir.getAbsolutePath(), scoreToProcess.getAbsolutePath()
+                        resolvedExecutable, "-batch", "-transcribe", "-export",
+                        "-output", uploadsDir.getAbsolutePath(), "--", scoreToProcess.getAbsolutePath()
                 );
                 configureTessdataEnvironment(pb);
                 pb.redirectErrorStream(true);
