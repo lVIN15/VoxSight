@@ -462,6 +462,7 @@ public class OmrController {
 
             if (resultFile == null || !resultFile.exists()) {
                 String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
+                log.error("[Analyze Error] Audiveris output not found for baseName: {}. Friendly error: {}. Full Audiveris Logs:\n{}", baseName, friendlyError, audiverisLog);
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .body(OmrAnalysisResponse.ofError(friendlyError));
             }
@@ -550,10 +551,11 @@ public class OmrController {
         List<File> searchPaths = new ArrayList<>();
 
         for (String ext : possibleExtensions) {
-            // Check direct file: uploads/<baseName><ext>
             searchPaths.add(new File(uploadsDir, baseName + ext));
-            // Check nested folder: uploads/<baseName>/<baseName><ext>
             searchPaths.add(new File(new File(uploadsDir, baseName), baseName + ext));
+            searchPaths.add(new File(new File(uploadsDir, baseName + "-page-1"), baseName + "-page-1" + ext));
+            searchPaths.add(new File(new File(uploadsDir, baseName + "-page-01"), baseName + "-page-01" + ext));
+            searchPaths.add(new File(new File(uploadsDir, baseName + "-page"), baseName + "-page" + ext));
         }
 
         for (File path : searchPaths) {
@@ -563,19 +565,54 @@ public class OmrController {
             }
         }
 
-        // Also check if Audiveris created a folder matching baseName and wrote ANY .mxl or .xml file
-        File subFolder = new File(uploadsDir, baseName);
-        if (subFolder.exists() && subFolder.isDirectory()) {
-            File[] files = subFolder.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    String name = f.getName().toLowerCase();
-                    if (name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) {
-                        log.info("Found OMR output inside subfolder: {}", f.getAbsolutePath());
-                        return f;
+        // Check any folder inside uploadsDir containing baseName
+        File[] allEntries = uploadsDir.listFiles();
+        if (allEntries != null) {
+            for (File d : allEntries) {
+                if (d.isDirectory() && (d.getName().contains(baseName) || baseName.contains(d.getName()))) {
+                    File[] subFiles = d.listFiles();
+                    if (subFiles != null) {
+                        for (File f : subFiles) {
+                            String name = f.getName().toLowerCase();
+                            if (name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) {
+                                log.info("Found OMR output in subfolder matching baseName: {}", f.getAbsolutePath());
+                                return f;
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        // Deep fallback: Find the newest .mxl/.musicxml/.xml created inside uploadsDir
+        File newestResult = null;
+        long newestTime = 0;
+        if (allEntries != null) {
+            for (File item : allEntries) {
+                if (item.isFile()) {
+                    String name = item.getName().toLowerCase();
+                    if ((name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) && item.lastModified() > newestTime) {
+                        newestTime = item.lastModified();
+                        newestResult = item;
+                    }
+                } else if (item.isDirectory()) {
+                    File[] subFiles = item.listFiles();
+                    if (subFiles != null) {
+                        for (File f : subFiles) {
+                            String name = f.getName().toLowerCase();
+                            if ((name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) && f.lastModified() > newestTime) {
+                                newestTime = f.lastModified();
+                                newestResult = f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (newestResult != null && (System.currentTimeMillis() - newestTime < 180000)) { // created within 3 minutes
+            log.info("Found newly generated OMR output via timestamp fallback: {}", newestResult.getAbsolutePath());
+            return newestResult;
         }
 
         return null;
