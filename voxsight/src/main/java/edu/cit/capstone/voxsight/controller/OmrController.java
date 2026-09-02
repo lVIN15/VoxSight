@@ -179,7 +179,6 @@ public class OmrController {
                     resolvedExecutable,
                     "-batch",
                     "-export",
-                    "MusicXML",
                     "-output",
                     uploadsDir.getAbsolutePath(),
                     uploadedFile.getAbsolutePath()
@@ -287,7 +286,7 @@ public class OmrController {
         StringBuilder audiverisLog = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    resolvedExecutable, "-batch", "-export", "MusicXML",
+                    resolvedExecutable, "-batch", "-export",
                     "-output", uploadsDir.getAbsolutePath(), uploadedFile.getAbsolutePath()
             );
             configureTessdataEnvironment(pb);
@@ -403,6 +402,21 @@ public class OmrController {
             log.debug("Checking path for OMR output: {}", path.getAbsolutePath());
             if (path.exists() && path.isFile()) {
                 return path;
+            }
+        }
+
+        // Also check if Audiveris created a folder matching baseName and wrote ANY .mxl or .xml file
+        File subFolder = new File(uploadsDir, baseName);
+        if (subFolder.exists() && subFolder.isDirectory()) {
+            File[] files = subFolder.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    String name = f.getName().toLowerCase();
+                    if (name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) {
+                        log.info("Found OMR output inside subfolder: {}", f.getAbsolutePath());
+                        return f;
+                    }
+                }
             }
         }
 
