@@ -153,6 +153,142 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
+    # 2b. Prune Non-SATB Staves: Piano/Instrumental Accompaniment
+    # ─────────────────────────────────────────────────────────────────────────
+    ACCOMPANIMENT_NAMES = {
+        'piano', 'pno', 'pno.', 'keyboard', 'kbd', 'organ', 'org', 'org.',
+        'accompaniment', 'acc', 'acc.', 'accomp', 'guitar', 'gtr', 'gtr.',
+        'strings', 'orchestra', 'orch', 'harp', 'harpsichord', 'celesta',
+        'synthesizer', 'synth'
+    }
+    part_list = root.find('part-list')
+    parts = root.findall('part')
+
+    if part_list is not None and len(parts) > 1:
+        parts_to_remove = []
+        for p in parts:
+            pid = p.get('id')
+            sp = root.find(f".//score-part[@id='{pid}']")
+            raw_name = ''
+            if sp is not None:
+                pn = sp.find('part-name')
+                raw_name = (pn.text or '').strip() if pn is not None else ''
+
+            name_lower = raw_name.lower()
+
+            # Check if part name matches known accompaniment instruments
+            is_accompaniment_name = name_lower in ACCOMPANIMENT_NAMES or any(
+                name_lower.startswith(prefix) for prefix in ['piano', 'pno', 'keyboard', 'organ', 'accomp', 'guitar']
+            )
+
+            # Check for grand-staff indicator (<staves>2</staves>) typical of piano
+            has_grand_staff = False
+            staves_elem = p.find('.//attributes/staves')
+            if staves_elem is not None and staves_elem.text and int(staves_elem.text) >= 2:
+                has_grand_staff = True
+
+            # Check if part has any lyrics at all (vocal parts always have lyrics)
+            has_lyrics = len(p.findall('.//lyric')) > 0
+
+            # Prune if: (name matches accompaniment) OR (grand-staff with zero lyrics)
+            if is_accompaniment_name or (has_grand_staff and not has_lyrics):
+                parts_to_remove.append((p, sp, raw_name))
+
+        for p, sp, raw_name in parts_to_remove:
+            if p in list(root):
+                root.remove(p)
+                modified = True
+            if sp is not None and sp in list(part_list):
+                part_list.remove(sp)
+                modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2c. Prune Non-SATB Staves: Solo / Cantor (only when choir parts exist)
+    # ─────────────────────────────────────────────────────────────────────────
+    SOLO_NAMES = {
+        'solo', 'soloist', 'cantor', 'leader', 'duet', 'descant', 'obbligato',
+        'solo voice', 'solo vocal', 'melody'
+    }
+    VOCAL_NAMES = {
+        's', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto',
+        't', 'ten', 'tenor', 'b', 'bas', 'bass',
+        's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto',
+        't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass',
+        'women', 'treble', 'men'
+    }
+
+    parts = root.findall('part')  # Re-fetch after possible removal above
+    if part_list is not None and len(parts) > 2:
+        # Count how many remaining parts look like choir vocal staves
+        vocal_count = 0
+        solo_parts = []
+        for p in parts:
+            pid = p.get('id')
+            sp = root.find(f".//score-part[@id='{pid}']")
+            raw_name = ''
+            if sp is not None:
+                pn = sp.find('part-name')
+                raw_name = (pn.text or '').strip() if pn is not None else ''
+
+            name_lower = raw_name.lower()
+
+            if name_lower in VOCAL_NAMES or name_lower in NAME_MAP:
+                vocal_count += 1
+            elif name_lower in SOLO_NAMES or any(name_lower.startswith(s) for s in ['solo', 'cantor', 'leader']):
+                solo_parts.append((p, sp, raw_name))
+
+        # Only prune solo staves if there are enough choir vocal parts remaining
+        if vocal_count >= 2 and solo_parts:
+            for p, sp, raw_name in solo_parts:
+                if p in list(root):
+                    root.remove(p)
+                    modified = True
+                if sp is not None and sp in list(part_list):
+                    part_list.remove(sp)
+                    modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2d. Strip Dynamics (direction elements containing <dynamics>)
+    # ─────────────────────────────────────────────────────────────────────────
+    for part in root.findall('part'):
+        for measure in part.findall('measure'):
+            for direction in list(measure.findall('direction')):
+                has_dynamics = direction.find('.//dynamics') is not None
+                if has_dynamics:
+                    measure.remove(direction)
+                    modified = True
+
+            # Also strip <sound dynamics="..."/> attributes
+            for sound in measure.findall('.//sound'):
+                if sound.get('dynamics') is not None:
+                    del sound.attrib['dynamics']
+                    modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2e. Strip Ornaments / Trills / Turns / Mordents from <notations>
+    # ─────────────────────────────────────────────────────────────────────────
+    ORNAMENT_TAGS = {'ornaments', 'trill-mark', 'turn', 'inverted-turn',
+                     'delayed-turn', 'mordent', 'inverted-mordent', 'shake',
+                     'wavy-line', 'tremolo', 'schleifer'}
+    for note in root.findall('.//note'):
+        for notations in note.findall('notations'):
+            for child in list(notations):
+                if child.tag in ORNAMENT_TAGS:
+                    notations.remove(child)
+                    modified = True
+            # Remove empty <notations> elements
+            if len(notations) == 0:
+                note.remove(notations)
+                modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2f. Strip All Remaining <credit> Tags (reclaim vertical space on mobile)
+    # ─────────────────────────────────────────────────────────────────────────
+    for credit in list(root.findall('credit')):
+        root.remove(credit)
+        modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
     # 3. Detect & merge split / complementary parts (e.g. S/A + Alto, T/B + Bass)
     # ─────────────────────────────────────────────────────────────────────────
     part_list = root.find('part-list')

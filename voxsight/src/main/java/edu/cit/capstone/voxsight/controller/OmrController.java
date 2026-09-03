@@ -142,8 +142,10 @@ public class OmrController {
     }
 
     private void configureTessdataEnvironment(ProcessBuilder pb) {
-        pb.environment().put("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true -Xms64m -Xmx200m -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=32m -Xss512k -XX:+UseSerialGC");
-        pb.environment().put("JAVA_OPTS", "-Djava.awt.headless=true -Xms64m -Xmx200m -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=32m -Xss512k -XX:+UseSerialGC");
+        // Production-grade JVM settings for Audiveris: 3GB heap with G1GC for up to 10-page scores
+        String audiverisJvmOpts = "-Djava.awt.headless=true -Xms512m -Xmx3072m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Xss1m -XX:+UseG1GC";
+        pb.environment().put("JAVA_TOOL_OPTIONS", audiverisJvmOpts);
+        pb.environment().put("JAVA_OPTS", audiverisJvmOpts);
         String resolvedTessdata = tessdataPrefix;
         if (resolvedTessdata == null || resolvedTessdata.isBlank() || !new File(resolvedTessdata).exists()) {
             String os = System.getProperty("os.name").toLowerCase();
@@ -151,10 +153,10 @@ public class OmrController {
                 resolvedTessdata = System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Roaming" + File.separator + "AudiverisLtd" + File.separator + "audiveris" + File.separator + "config" + File.separator + "tessdata";
             } else {
                 String[] linuxCandidates = {
+                    "/usr/share/tessdata",
                     "/usr/share/tesseract-ocr/5/tessdata",
                     "/usr/share/tesseract-ocr/4.00/tessdata",
-                    "/usr/share/tesseract-ocr/tessdata",
-                    "/usr/share/tessdata"
+                    "/usr/share/tesseract-ocr/tessdata"
                 };
                 for (String candidate : linuxCandidates) {
                     if (new File(candidate).exists()) {
@@ -181,42 +183,18 @@ public class OmrController {
     }
 
     /**
-     * Pre-processes uploaded PDFs into high-resolution (200 DPI Grayscale) images
-     * to guarantee crystal-sharp staff recognition while reducing memory overhead by 90%.
+     * Pre-processes uploaded scores for Audiveris OMR.
+     * PDFs are passed directly to Audiveris which handles multi-page rendering
+     * internally via PDFBox at full 300 DPI resolution, supporting up to 10 pages.
+     * Non-PDF images are passed through unchanged.
      */
     private File prepareScoreForOmr(File inputFile, File uploadsDir) {
         String name = inputFile.getName().toLowerCase();
         if (name.endsWith(".pdf")) {
-            String base = getBaseName(inputFile.getName());
-            File outPrefix = new File(uploadsDir, base + "-page");
-            try {
-                ProcessBuilder pb = new ProcessBuilder(
-                    "pdftoppm", "-png", "-r", "200", "-gray", "-f", "1", "-l", "1",
-                    inputFile.getAbsolutePath(), outPrefix.getAbsolutePath()
-                );
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                int exit = p.waitFor();
-                if (exit == 0) {
-                    File candidate1 = new File(uploadsDir, base + "-page-1.png");
-                    File candidate2 = new File(uploadsDir, base + "-page-01.png");
-                    File candidate3 = new File(uploadsDir, base + "-page.png");
-                    if (candidate1.exists()) {
-                        log.info("[PDF Preprocessor] Successfully rendered PDF to 200 DPI Grayscale PNG: {}", candidate1.getName());
-                        return candidate1;
-                    }
-                    if (candidate2.exists()) {
-                        log.info("[PDF Preprocessor] Successfully rendered PDF to 200 DPI Grayscale PNG: {}", candidate2.getName());
-                        return candidate2;
-                    }
-                    if (candidate3.exists()) {
-                        log.info("[PDF Preprocessor] Successfully rendered PDF to 200 DPI Grayscale PNG: {}", candidate3.getName());
-                        return candidate3;
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[PDF Preprocessor] pdftoppm not available: {}. Falling back to Ghostscript / original PDF.", e.getMessage());
-            }
+            // Pass the original multi-page PDF directly to Audiveris.
+            // Audiveris uses its built-in PDFBox renderer at 300 DPI,
+            // processing all pages (up to 10) without truncation.
+            log.info("[PDF Preprocessor] Passing full multi-page PDF directly to Audiveris for native 300 DPI rendering: {}", inputFile.getName());
         }
         return inputFile;
     }

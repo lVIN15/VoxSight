@@ -105,6 +105,15 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* Suppress dynamics/ornament SVG glyphs (defense-in-depth) */
+        .vf-dynamics, .vf-ornament,
+        [class*="dynamics"], [class*="ornament"],
+        [class*="trill"], [class*="mordent"],
+        [class*="turn"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
     </style>
 </head>
 
@@ -503,7 +512,7 @@
                 drawMeasureNumbers: true,
                 drawLyrics: true,
                 drawSlurs: true,
-                drawCredits: true,
+                drawCredits: false,
                 drawFingerings: true,
                 drawDynamics: false,
                 drawOrnaments: false,
@@ -521,6 +530,7 @@
                 osmd.rules.ColorFlags = true;
                 osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
                 osmd.rules.RenderMultipleRestMeasures = true;
+                osmd.rules.DrawCredits = false;
             }
 
             highlightCtx = canvas.getContext('2d');
@@ -550,10 +560,24 @@
 
         function sanitizeMusicXmlString(xmlString) {
             if (!xmlString) return '';
-            return xmlString
+            var cleaned = xmlString
                 .replace(/\s+xmlns=""/g, '')
                 .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')
                 .replace(/\s+data-vx-id="[^"]*"/g, '');
+
+            // Client-side defense: strip any remaining <credit>...</credit> blocks
+            cleaned = cleaned.replace(/<credit[\s\S]*?<\/credit>/gi, '');
+
+            // Client-side defense: strip <dynamics>...</dynamics> from directions
+            cleaned = cleaned.replace(/<dynamics[\s\S]*?<\/dynamics>/gi, '');
+
+            // Client-side defense: strip <ornaments>...</ornaments> from notations
+            cleaned = cleaned.replace(/<ornaments[\s\S]*?<\/ornaments>/gi, '');
+
+            // Client-side defense: strip <sound dynamics="..."/> attribute
+            cleaned = cleaned.replace(/(<sound\b[^>]*)\s+dynamics="[^"]*"/gi, '$1');
+
+            return cleaned;
         }
 
         /**
