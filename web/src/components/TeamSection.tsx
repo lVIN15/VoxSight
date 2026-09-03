@@ -16,12 +16,12 @@ const LinkedinIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" 
 
 export const TeamSection: React.FC = () => {
   return (
-    <section id="team" className="py-20 md:py-28 relative bg-[#F7F4EE] border-b border-[#EBE3D7]">
+    <section id="team" className="py-16 sm:py-20 md:py-28 relative bg-[#F7F4EE] border-b border-[#EBE3D7] overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Header */}
-        <div className="max-w-3xl space-y-4 mb-16 text-left">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-100 border border-violet-200">
+        <div className="max-w-3xl space-y-4 mb-12 sm:mb-16 text-left">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-100 border border-violet-200">
             <GraduationCap className="w-3.5 h-3.5 text-violet-800" />
             <span className="text-xs font-sans font-bold text-violet-950 tracking-wider">
               CAPSTONE PROJECT • TEAM {PROJECT_INFO.teamCode}
@@ -32,39 +32,39 @@ export const TeamSection: React.FC = () => {
             VoxSight <span className="text-gradient-violet italic font-normal">Development Team</span>
           </h2>
 
-          <p className="text-base font-sans text-slate-600 leading-relaxed">
+          <p className="text-sm sm:text-base font-sans text-slate-600 leading-relaxed">
             VoxSight was conceptualized, designed, and engineered as an academic capstone software project.
           </p>
         </div>
 
         {/* Capstone Info Banner */}
-        <div className="bg-white rounded-2xl p-6 border border-[#EBE2D5] shadow-sm mb-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-900 shrink-0">
-              <Award className="w-6 h-6" />
+        <div className="bg-white rounded-2xl p-5 sm:p-6 border border-[#EBE2D5] shadow-xs mb-10 sm:mb-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-900 shrink-0">
+              <Award className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <div className="text-xs font-mono font-bold text-violet-900">UNDERGRADUATE CAPSTONE INITIATIVE</div>
-              <div className="text-lg font-serif font-bold text-slate-900">Bachelor of Science in Information Technology</div>
+              <div className="text-[11px] sm:text-xs font-mono font-bold text-violet-900">UNDERGRADUATE CAPSTONE INITIATIVE</div>
+              <div className="text-base sm:text-lg font-serif font-bold text-slate-900">Bachelor of Science in Information Technology</div>
             </div>
           </div>
 
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-100/80 border border-amber-300 text-xs font-mono text-amber-950 font-bold">
+          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-100/80 border border-amber-300 text-xs font-mono text-amber-950 font-bold shrink-0">
             <span>Team Code:</span>
             <span>{PROJECT_INFO.teamCode}</span>
           </div>
         </div>
 
-        {/* 5 Team Member Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Team Member Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
           {TEAM_MEMBERS.map((member, index) => (
             <div
               key={member.name}
-              className="bg-white rounded-2xl p-6 border border-[#EBE2D5] shadow-sm hover:shadow-md hover:border-violet-300 transition-all flex flex-col justify-between"
+              className="bg-white rounded-2xl p-5 sm:p-6 border border-[#EBE2D5] shadow-xs hover:shadow-md hover:border-violet-300 transition-all flex flex-col justify-between text-left"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-violet-900 to-indigo-700 p-0.5 shadow-sm">
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-tr from-violet-900 to-indigo-700 p-0.5 shadow-xs">
                     <div className="w-full h-full bg-white rounded-full flex items-center justify-center font-serif font-bold text-violet-950 text-sm">
                       {member.name.split(' ')[0][0]}
                       {member.name.split(' ').slice(-1)[0][0]}
@@ -75,30 +75,30 @@ export const TeamSection: React.FC = () => {
                   </span>
                 </div>
 
-                <h3 className="text-lg font-serif font-bold text-slate-900 mb-1">{member.name}</h3>
-                <div className="text-xs font-sans font-bold text-violet-800 mb-2">{member.role}</div>
+                <h3 className="text-base sm:text-lg font-serif font-bold text-slate-900 mb-1">{member.name}</h3>
+                <div className="text-xs font-sans font-bold text-violet-800 mb-2 leading-snug">{member.role}</div>
                 <div className="text-xs font-sans text-slate-500">{member.degree}</div>
               </div>
 
-              {/* Contact Icons */}
-              <div className="pt-4 border-t border-[#F3EAE0] mt-4 flex items-center gap-3">
+              {/* Contact Icons with Minimum 40px Touch Targets */}
+              <div className="pt-4 border-t border-[#F3EAE0] mt-4 flex items-center gap-2.5">
                 <a
                   href={member.githubUrl || '#'}
-                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors"
+                  className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors flex items-center justify-center"
                   aria-label="GitHub Profile"
                 >
                   <GithubIcon className="w-4 h-4" />
                 </a>
                 <a
                   href={member.linkedinUrl || '#'}
-                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors"
+                  className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors flex items-center justify-center"
                   aria-label="LinkedIn Profile"
                 >
                   <LinkedinIcon className="w-4 h-4" />
                 </a>
                 <a
                   href={`mailto:${member.email || 'info@voxsight.org'}`}
-                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors"
+                  className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-600 hover:text-violet-900 transition-colors flex items-center justify-center"
                   aria-label="Send Email"
                 >
                   <Mail className="w-4 h-4" />

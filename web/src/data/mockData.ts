@@ -123,14 +123,14 @@ export const TECH_STACK: TechItem[] = [
 export const TEAM_MEMBERS: TeamMember[] = [
   {
     name: 'Teodoro D. Castillo Jr.',
-    role: 'Lead Developer & OMR Specialist',
+    role: 'Lead Systems Architect & Core OMR Engineer',
     degree: 'B.S. Information Technology',
     githubUrl: '#',
     linkedinUrl: '#'
   },
   {
     name: 'Elvin O. Lagamo Jr.',
-    role: 'Audio Systems & DSP Engineer',
+    role: 'Lead Developer & Sheet Music Output Testing Specialist',
     degree: 'B.S. Information Technology',
     githubUrl: '#',
     linkedinUrl: '#'
