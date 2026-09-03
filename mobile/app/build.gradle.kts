@@ -16,12 +16,12 @@ android {
     }
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"https://voxsight.onrender.com/\"")
+            buildConfigField("String", "BASE_URL", "\"https://voxsight-production.up.railway.app/\"")
         }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "BASE_URL", "\"https://voxsight.onrender.com/\"")
+            buildConfigField("String", "BASE_URL", "\"https://voxsight-production.up.railway.app/\"")
         }
     }
     compileOptions {
