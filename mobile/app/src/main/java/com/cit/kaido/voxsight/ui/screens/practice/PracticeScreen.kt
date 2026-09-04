@@ -305,6 +305,14 @@ fun Module2PracticeScreen(
                 onSpeedMultiplierChange = { newMultiplier ->
                     speedMultiplier = newMultiplier
                     midiController?.setSpeedMultiplier(newMultiplier)
+                },
+                onSkipPrevious = {
+                    progress = 0f
+                    midiController?.seek(0f)
+                },
+                onSkipNext = {
+                    progress = 1f
+                    midiController?.seek(1f)
                 }
             )
         }
@@ -420,15 +428,7 @@ private fun PracticeTopBar(
             }
         }
 
-        Text(
-            text = "DEV",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = VoxPurplePrimary,
-            modifier = Modifier
-                .clickable { onDiagnosticsClicked() }
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-                .background(VoxPurplePrimary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-        )
+
 
         // Options Menu
         Box {
@@ -932,7 +932,9 @@ private fun PlaybackControlBar(
     currentBpm: Float = 120f,
     speedMultiplier: Float = 1.0f,
     onTempoChange: (Float) -> Unit = {},
-    onSpeedMultiplierChange: (Float) -> Unit = {}
+    onSpeedMultiplierChange: (Float) -> Unit = {},
+    onSkipPrevious: () -> Unit = {},
+    onSkipNext: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1006,7 +1008,7 @@ private fun PlaybackControlBar(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { }) {
+            IconButton(onClick = onSkipPrevious) {
                 Icon(
                     imageVector = Icons.Outlined.SkipPrevious,
                     contentDescription = stringResource(R.string.cd_skip_previous),
@@ -1031,7 +1033,7 @@ private fun PlaybackControlBar(
                 }
             }
 
-            IconButton(onClick = { }) {
+            IconButton(onClick = onSkipNext) {
                 Icon(
                     imageVector = Icons.Outlined.SkipNext,
                     contentDescription = stringResource(R.string.cd_skip_next),

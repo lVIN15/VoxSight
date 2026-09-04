@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -93,22 +95,42 @@ fun ProfileScreen(
                         modifier = Modifier
                             .size(90.dp)
                             .clip(CircleShape)
-                            .background(Color.White),
+                            .background(Color(0xFF606A85)),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Placeholder for image
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Person,
+                            contentDescription = "Profile Picture",
+                            tint = Color(0xFFE6EAEB),
+                            modifier = Modifier
+                                .size(90.dp)
+                                .offset(y = 10.dp)
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(20.dp))
 
                     Column {
-                        Text(
-                            text = username,
-                            color = Color.White,
-                            fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 28.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = username,
+                                color = Color.White,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 28.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            androidx.compose.material3.IconButton(
+                                onClick = { /* Edit Profile Action */ },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edit Profile",
+                                    tint = Color.White
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "FREE MEMBER",
@@ -131,13 +153,7 @@ fun ProfileScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ProfileCard(
-                title = "Edit Profile",
-                icon = Icons.Outlined.Edit,
-                iconBgColor = lightPurple,
-                iconColor = topPurple,
-                onClick = {}
-            )
+
 
             // Custom icon for crown using Lucide icons
             ProfileCard(

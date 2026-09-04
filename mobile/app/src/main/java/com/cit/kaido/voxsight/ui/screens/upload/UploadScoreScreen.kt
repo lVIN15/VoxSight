@@ -175,8 +175,6 @@ fun UploadScoreScreen(
         }
     }
 
-    var showSettingsDialog by remember { mutableStateOf(false) }
-    var tempUrlString by remember { mutableStateOf("") }
 
     /** Camera capture result — maps to ImageCaptureService.captureImage() */
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -267,12 +265,7 @@ fun UploadScoreScreen(
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            // ===== Top Bar: Logo + Settings + Profile Avatar =====
             TopBar(
-                onSettingsClick = {
-                    tempUrlString = ApiClient.getBaseUrl(context)
-                    showSettingsDialog = true
-                },
                 onProfileClick = onNavigateToProfile
             )
 
@@ -377,55 +370,7 @@ fun UploadScoreScreen(
             }
         }
 
-    if (showSettingsDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            title = {
-                Text(
-                    text = "Server Configuration",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = VoxTextPrimary
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Set the backend server URL (Default: ${ApiClient.DEFAULT_BASE_URL}):",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = VoxTextSubtitle
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    androidx.compose.material3.OutlinedTextField(
-                        value = tempUrlString,
-                        onValueChange = { tempUrlString = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = VoxTextPrimary,
-                            unfocusedTextColor = VoxTextPrimary,
-                            focusedBorderColor = VoxPurplePrimary,
-                            unfocusedBorderColor = VoxCardStroke
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        ApiClient.updateBaseUrl(context, tempUrlString.ifBlank { ApiClient.DEFAULT_BASE_URL })
-                        showSettingsDialog = false
-                    }
-                ) {
-                    Text("SAVE", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showSettingsDialog = false }) {
-                    Text("CANCEL", color = VoxTextSubtitle)
-                }
-            }
-        )
-    }
+
 
     if (scoreToDelete != null) {
         androidx.compose.material3.AlertDialog(
@@ -478,7 +423,7 @@ fun UploadScoreScreen(
  * Top bar with VoxSight logo, settings icon, and profile avatar.
  */
 @Composable
-private fun TopBar(onSettingsClick: () -> Unit, onProfileClick: () -> Unit) {
+private fun TopBar(onProfileClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -509,24 +454,7 @@ private fun TopBar(onSettingsClick: () -> Unit, onProfileClick: () -> Unit) {
             modifier = Modifier.weight(1f)
         )
 
-        // Settings Button
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(VoxPurpleIconBg)
-                .clickable { onSettingsClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.material3.Icon(
-                imageVector = Icons.Outlined.Settings,
-                contentDescription = "Server Settings",
-                tint = VoxPurplePrimary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
 
-        Spacer(modifier = Modifier.width(8.dp))
 
         // Profile Avatar
         Box(
