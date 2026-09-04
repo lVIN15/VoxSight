@@ -55,7 +55,8 @@ class PracticeViewModel : ViewModel() {
         val eventId: String,
         val targetHz: Float,
         val satbVoice: com.cit.kaido.voxsight.model.SATBVoice,
-        val noteName: String = ""
+        val noteName: String = "",
+        val measureNumber: Int = 1
     )
 
     private val _activeTargets = MutableStateFlow<List<ActivePitchTarget>>(emptyList())
@@ -85,7 +86,8 @@ class PracticeViewModel : ViewModel() {
                             deviationCents = deviation,
                             isMatch = isMatch,
                             timestampMs = System.currentTimeMillis(),
-                            noteName = target.noteName
+                            noteName = target.noteName,
+                            measureNumber = target.measureNumber
                         )
                         
                         val currentList = _pitchAttempts.value.toMutableList()
@@ -243,6 +245,26 @@ class PracticeViewModel : ViewModel() {
             } else null
         }.sortedByDescending { kotlin.math.abs(it.averageDeviation) }.take(3)
 
+        // Calculate Top Problematic Measure (the exact measure with the most mistakes)
+        val attemptsByMeasure = attempts.filter { it.measureNumber > 0 }.groupBy { it.measureNumber }
+        val topProblematicMeasure = attemptsByMeasure.mapNotNull { (measureNum, measureAttempts) ->
+            val eventsInMeasure = measureAttempts.groupBy { it.eventId }
+            val failedEventsCount = eventsInMeasure.values.count { attemptsForEvent ->
+                !attemptsForEvent.any { it.isMatch }
+            }
+            val validDeviations = measureAttempts.map { it.deviationCents }.filter { kotlin.math.abs(it) < 500f }
+            val avgDevMeasure = if (validDeviations.isNotEmpty()) validDeviations.average().toFloat() else 0f
+            if (failedEventsCount > 0) {
+                com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure(
+                    measureNumber = measureNum,
+                    mistakeCount = failedEventsCount,
+                    totalNotes = eventsInMeasure.size,
+                    isSharp = avgDevMeasure > 0f,
+                    averageDeviation = avgDevMeasure
+                )
+            } else null
+        }.maxByOrNull { it.mistakeCount }
+
         // Calculate Vocal Highlights
         val successfulAttempts = attempts.filter { it.isMatch && it.noteName.isNotBlank() }
         val vocalHighlight = if (successfulAttempts.isNotEmpty()) {
@@ -258,7 +280,8 @@ class PracticeViewModel : ViewModel() {
             correctNotes = correctNotes,
             averageDeviationCents = avgDev,
             problematicNotes = problematicNotes,
-            vocalHighlight = vocalHighlight
+            vocalHighlight = vocalHighlight,
+            topProblematicMeasure = topProblematicMeasure
         )
     }
 

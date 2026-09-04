@@ -332,7 +332,8 @@ fun AppNavigation() {
                             eventId = event.eventId,
                             targetHz = targetHz,
                             satbVoice = event.satbEnum,
-                            noteName = event.pitchName
+                            noteName = event.pitchName,
+                            measureNumber = event.measureNumber
                         )
                         practiceViewModel.setPitchTargets(listOf(target))
                     }
@@ -345,7 +346,8 @@ fun AppNavigation() {
                                 eventId = event.eventId,
                                 targetHz = targetHz,
                                 satbVoice = event.satbEnum,
-                                noteName = event.pitchName
+                                noteName = event.pitchName,
+                                measureNumber = event.measureNumber
                             )
                         }
                         practiceViewModel.setPitchTargets(targets)
@@ -386,6 +388,12 @@ fun AppNavigation() {
                 summary = summary,
                 onBackToLibrary = {
                     navController.popBackStack("upload", inclusive = false)
+                },
+                onRepeatPractice = {
+                    practiceViewModel.startPitchSession()
+                    navController.navigate("practice") {
+                        popUpTo("practice") { inclusive = true }
+                    }
                 }
             )
         }

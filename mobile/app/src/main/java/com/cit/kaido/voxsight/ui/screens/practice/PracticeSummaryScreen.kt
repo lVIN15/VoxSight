@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.TrendingDown
@@ -50,7 +49,8 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 @Composable
 fun PracticeSummaryScreen(
     summary: SessionSummary,
-    onBackToLibrary: () -> Unit
+    onBackToLibrary: () -> Unit,
+    onRepeatPractice: () -> Unit = {}
 ) {
     val accuracy = summary.accuracyPercentage.toInt()
     Box(
@@ -92,16 +92,8 @@ fun PracticeSummaryScreen(
                     color = Color(0xFF191C20)
                 )
 
-                IconButton(
-                    onClick = { },
-                    modifier = Modifier.background(Color(0xFFF2F3F9), RoundedCornerShape(50))
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.MoreVert,
-                        contentDescription = "More",
-                        tint = VoxPurplePrimary
-                    )
-                }
+                // Spacer matching back button size to keep title centered
+                Spacer(modifier = Modifier.size(48.dp))
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -182,10 +174,11 @@ fun PracticeSummaryScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                 }
 
-                // Problematic Notes Section
-                if (summary.problematicNotes.isNotEmpty()) {
+                // Top Problematic Area Section (Displays ONLY the single measure with the most mistakes)
+                if (summary.topProblematicMeasure != null) {
+                    val measure = summary.topProblematicMeasure
                     Text(
-                        text = "Top Areas to Improve",
+                        text = "Top Area to Practice",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
@@ -195,14 +188,37 @@ fun PracticeSummaryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    summary.problematicNotes.forEach { note ->
-                        MeasureReviewCard(
-                            measureName = "Note ${note.noteName}",
-                            issueType = if (note.isSharp) "SHARP" else "FLAT",
-                            isSharp = note.isSharp
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
+                    val issueLabel = if (measure.mistakeCount > 0) {
+                        "${measure.mistakeCount} ${if (measure.mistakeCount == 1) "MISTAKE" else "MISTAKES"}${if (measure.averageDeviation != 0f) " • " + (if (measure.isSharp) "SHARP" else "FLAT") else ""}"
+                    } else {
+                        if (measure.isSharp) "SHARP" else "FLAT"
                     }
+
+                    MeasureReviewCard(
+                        measureName = "Measure ${measure.measureNumber}",
+                        issueType = issueLabel,
+                        isSharp = measure.isSharp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else if (summary.problematicNotes.isNotEmpty()) {
+                    val note = summary.problematicNotes.first()
+                    Text(
+                        text = "Top Area to Practice",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        ),
+                        color = Color(0xFF191C20)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    MeasureReviewCard(
+                        measureName = "Note ${note.noteName}",
+                        issueType = if (note.isSharp) "SHARP" else "FLAT",
+                        isSharp = note.isSharp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                 } else if (summary.totalNotesAttempted > 0) {
                     Text(
                         text = "Amazing Job! No significant pitch errors detected.",
@@ -232,7 +248,7 @@ fun PracticeSummaryScreen(
                     .height(56.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(gradientBrush)
-                    .clickable { /* Repeat flagged measures logic */ },
+                    .clickable { onRepeatPractice() },
                 contentAlignment = Alignment.Center
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -243,7 +259,7 @@ fun PracticeSummaryScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Repeat Flagged Measures",
+                        text = "Repeat Practice",
                         style = MaterialTheme.typography.labelLarge.copy(fontSize = 18.sp),
                         color = Color.White
                     )
