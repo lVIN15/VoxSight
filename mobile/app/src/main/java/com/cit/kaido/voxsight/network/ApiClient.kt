@@ -30,8 +30,8 @@ object ApiClient {
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         var storedUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
-        // Auto-migrate legacy local emulator IPs (10.0.2.2 / 192.168.x.x) on physical devices to Render
-        if (storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.")) {
+        // Auto-migrate legacy local emulator IPs or old Render URLs to Railway
+        if (storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.") || storedUrl.contains("onrender.com")) {
             storedUrl = DEFAULT_BASE_URL
             prefs.edit().putString(KEY_BASE_URL, storedUrl).apply()
         }
@@ -50,7 +50,7 @@ object ApiClient {
                 formattedUrl += "/"
             }
             if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
-                formattedUrl = if (formattedUrl.contains("onrender.com") || formattedUrl.contains(".com") || formattedUrl.contains(".io")) {
+                formattedUrl = if (formattedUrl.contains("up.railway.app") || formattedUrl.contains("onrender.com") || formattedUrl.contains(".com") || formattedUrl.contains(".io")) {
                     "https://$formattedUrl"
                 } else {
                     "http://$formattedUrl"

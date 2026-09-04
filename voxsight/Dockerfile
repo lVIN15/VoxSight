@@ -50,6 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/lib/x86_64-linux-gnu/libgtk-3.so.0 /usr/lib/libgtk-3.so \
     && rm -rf /var/lib/apt/lists/*
 
+# Download complete dual-mode (legacy + LSTM) Tesseract language model for lyrics OCR
+# Ubuntu 22.04's tesseract-ocr-eng only ships the LSTM model; Audiveris requires legacy mode.
+RUN mkdir -p /usr/share/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/share/tesseract-ocr/5/tessdata \
+    && wget -q https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -O /usr/share/tessdata/eng.traineddata \
+    && ln -sf /usr/share/tessdata/eng.traineddata /usr/share/tesseract-ocr/4.00/tessdata/eng.traineddata \
+    && ln -sf /usr/share/tessdata/eng.traineddata /usr/share/tesseract-ocr/5/tessdata/eng.traineddata
+
 # Install Python music21 library
 RUN pip3 install --no-cache-dir music21
 
@@ -79,9 +86,9 @@ COPY scripts/ /app/scripts/
 ENV PORT=8080 \
     AUDIVERIS_PATH=/opt/audiveris/bin/audiveris \
     PYTHON_PATH=/usr/bin/python3 \
-    TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata \
-    JAVA_OPTS="-Xms32m -Xmx64m -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=32m -Xss256k -XX:+UseSerialGC -Djava.awt.headless=true" \
-    JAVA_TOOL_OPTIONS="-Xms32m -Xmx64m -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=32m -Xss256k -XX:+UseSerialGC -Djava.awt.headless=true" \
+    TESSDATA_PREFIX=/usr/share/tessdata \
+    JAVA_OPTS="-Xms256m -Xmx1024m -XX:MaxMetaspaceSize=256m -XX:+UseG1GC -Djava.awt.headless=true" \
+    JAVA_TOOL_OPTIONS="-Xms256m -Xmx1024m -XX:MaxMetaspaceSize=256m -XX:+UseG1GC -Djava.awt.headless=true" \
     UPLOADS_DIR=/tmp/uploads \
     OUTPUTS_DIR=/tmp/outputs \
     CORS_ALLOWED_ORIGINS=*

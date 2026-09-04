@@ -42,7 +42,7 @@ export const HowItWorksSection: React.FC = () => {
   ];
 
   return (
-    <section id="how-it-works" className="py-20 md:py-28 relative bg-[#FAF8F5]">
+    <section id="how-it-works" className="py-16 sm:py-20 md:py-28 relative bg-[#FAF8F5] overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Header */}
@@ -59,27 +59,27 @@ export const HowItWorksSection: React.FC = () => {
             <span className="text-gradient-violet italic font-normal">Sight-Reading Journey</span>
           </h2>
 
-          <p className="text-base font-sans text-slate-600 leading-relaxed">
+          <p className="text-sm sm:text-base font-sans text-slate-600 leading-relaxed max-w-2xl">
             Follow the score path from printed sheet music scan to real-time vocal intonation feedback.
           </p>
         </div>
 
-        {/* Workflow Steps Grid */}
+        {/* Workflow Steps Grid: Intelligent Adaptive Layout across Mobile, Tablet, and Desktop */}
         <div className="relative">
           
           {/* Desktop Horizontal Line */}
-          <div className="hidden md:block absolute left-[10%] right-[10%] top-7 h-[2.5px] bg-gradient-to-r from-violet-400 via-violet-600 to-indigo-500 pointer-events-none z-0" />
+          <div className="hidden lg:block absolute left-[8%] right-[8%] top-7 h-[2.5px] bg-gradient-to-r from-violet-400 via-violet-600 to-indigo-500 pointer-events-none z-0" />
 
           {/* Mobile Vertical Line */}
-          <div className="md:hidden absolute left-7 top-7 bottom-7 w-[2px] bg-violet-200 pointer-events-none z-0" />
+          <div className="sm:hidden absolute left-[27px] top-7 bottom-7 w-[2px] bg-violet-200 pointer-events-none z-0" />
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-8 sm:gap-10 md:gap-8 relative z-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 sm:gap-8 lg:gap-6 relative z-10">
             {steps.map((step) => {
               const Icon = step.icon;
               return (
                 <div 
                   key={step.num} 
-                  className="flex flex-row md:flex-col items-start md:items-center space-x-5 md:space-x-0 space-y-0 md:space-y-4 text-left md:text-center group"
+                  className="flex flex-row sm:flex-col items-start sm:items-center space-x-4 sm:space-x-0 space-y-0 sm:space-y-4 text-left sm:text-center group bg-white sm:bg-transparent p-4 sm:p-0 rounded-2xl sm:rounded-none border sm:border-0 border-[#EBE2D5] shadow-2xs sm:shadow-none"
                 >
                   {/* Icon Circle */}
                   <div className="relative shrink-0 z-10">
@@ -91,12 +91,12 @@ export const HowItWorksSection: React.FC = () => {
                   </div>
 
                   {/* Step Content */}
-                  <div className="flex-1 space-y-2 pt-1 md:pt-0">
+                  <div className="flex-1 space-y-2 pt-0.5 sm:pt-0 min-w-0">
                     <div>
-                      <span className="font-mono text-xs font-bold text-amber-900 bg-amber-100/90 px-2.5 py-0.5 rounded border border-amber-300/80 shadow-xs inline-block mb-1.5">
+                      <span className="font-mono text-xs font-bold text-amber-900 bg-amber-100/90 px-2.5 py-0.5 rounded border border-amber-300/80 shadow-2xs inline-block mb-1.5">
                         Step {step.num}
                       </span>
-                      <h3 className="text-lg sm:text-xl font-serif font-bold text-slate-900 group-hover:text-violet-900 transition-colors">
+                      <h3 className="text-base sm:text-lg lg:text-xl font-serif font-bold text-slate-900 group-hover:text-violet-900 transition-colors">
                         {step.title}
                       </h3>
                     </div>
@@ -105,7 +105,7 @@ export const HowItWorksSection: React.FC = () => {
                       {step.desc}
                     </p>
 
-                    <div className="text-[11px] font-mono text-violet-900 bg-violet-50/80 p-2.5 rounded-xl border border-violet-200/80">
+                    <div className="text-[11px] font-mono text-violet-900 bg-violet-50/90 p-2.5 rounded-xl border border-violet-200/80">
                       {step.detail}
                     </div>
                   </div>

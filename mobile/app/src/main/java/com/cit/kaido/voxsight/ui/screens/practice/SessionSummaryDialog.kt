@@ -20,6 +20,14 @@ data class ProblematicNote(
     val isSharp: Boolean
 )
 
+data class ProblematicMeasure(
+    val measureNumber: Int,
+    val mistakeCount: Int,
+    val totalNotes: Int = 0,
+    val isSharp: Boolean = false,
+    val averageDeviation: Float = 0f
+)
+
 data class VocalHighlight(
     val highestNote: String,
     val lowestNote: String
@@ -30,7 +38,8 @@ data class SessionSummary(
     val correctNotes: Int,
     val averageDeviationCents: Float,
     val problematicNotes: List<ProblematicNote> = emptyList(),
-    val vocalHighlight: VocalHighlight? = null
+    val vocalHighlight: VocalHighlight? = null,
+    val topProblematicMeasure: ProblematicMeasure? = null
 ) {
     val accuracyPercentage: Float
         get() = if (totalNotesAttempted > 0) {
