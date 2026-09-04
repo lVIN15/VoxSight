@@ -61,6 +61,13 @@ dependencies {
     implementation("com.composables:icons-lucide:1.0.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // CameraX
+    val cameraxVersion = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
     // OkHttp (used by OmrScreen)
     implementation(libs.okhttp)
 

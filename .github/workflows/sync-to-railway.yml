@@ -1,0 +1,27 @@
+﻿name: Sync to Railway Mirror
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sync-to-mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to ginmurin/voxsight
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          if [ -z "$SYNC_PAT" ]; then
+            echo "Error: SYNC_PAT secret is missing. Please add it in repository Settings -> Secrets -> Actions."
+            exit 1
+          fi
+          git remote add mirror https://x-access-token:${SYNC_PAT}@github.com/ginmurin/voxsight.git
+          git push mirror main --force

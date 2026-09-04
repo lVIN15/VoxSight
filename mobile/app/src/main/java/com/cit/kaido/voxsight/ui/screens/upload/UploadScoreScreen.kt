@@ -73,6 +73,7 @@ import com.cit.kaido.voxsight.network.OmrAnalysisResponse
 import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.storage.LocalScoreManager
 import com.cit.kaido.voxsight.storage.LocalScoreMetadata
+import com.cit.kaido.voxsight.ui.screens.camera.SheetMusicScannerScreen
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
@@ -137,6 +138,7 @@ fun UploadScoreScreen(
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var showCustomScanner by remember { mutableStateOf(false) }
 
     // ── Activity Result Launchers ───────────────────────────────
 
@@ -243,8 +245,7 @@ fun UploadScoreScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            pendingCameraUri = createCameraUri(context)
-            pendingCameraUri?.let { cameraLauncher.launch(it) }
+            showCustomScanner = true
         } else {
             Toast.makeText(
                 context,
@@ -255,6 +256,40 @@ fun UploadScoreScreen(
     }
 
     // ── UI ──────────────────────────────────────────────────────
+
+    if (showCustomScanner) {
+        SheetMusicScannerScreen(
+            onImageCaptured = { optimizedUri ->
+                showCustomScanner = false
+                allowMusicXmlBypass = false
+                selectedScore = null
+                lastParsedScore = null
+
+                processingFileName = "Camera Scanned Score"
+                processingProgress = 0f
+                isProcessing = true
+
+                onImageCaptured(
+                    context = context,
+                    imageUri = optimizedUri,
+                    coroutineScope = coroutineScope,
+                    onProgress = { progress -> processingProgress = progress },
+                    onSuccess = { musicXml, title ->
+                        isProcessing = false
+                        onNavigateToReview(musicXml, title)
+                    },
+                    onError = { error ->
+                        isProcessing = false
+                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    }
+                )
+            },
+            onClose = {
+                showCustomScanner = false
+            }
+        )
+        return
+    }
 
     val defaultPracticeTitle = stringResource(R.string.practice_title)
 
@@ -293,14 +328,12 @@ fun UploadScoreScreen(
                 title = stringResource(R.string.take_photo_title),
                 subtitle = stringResource(R.string.take_photo_subtitle),
                 onClick = {
-                    // openCamera() — check permission first
                     val hasPermission = ContextCompat.checkSelfPermission(
                         context, Manifest.permission.CAMERA
                     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
                     if (hasPermission) {
-                        pendingCameraUri = createCameraUri(context)
-                        pendingCameraUri?.let { cameraLauncher.launch(it) }
+                        showCustomScanner = true
                     } else {
                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                     }
