@@ -12,6 +12,7 @@ import sys
 import os
 import zipfile
 import re
+import copy
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -30,6 +31,187 @@ NAME_MAP = {
     't': 'Tenor', 'ten': 'Tenor', 'tenor': 'Tenor', 'tenor 1': 'Tenor 1', 't1': 'Tenor 1', 'tenor 2': 'Tenor 2', 't2': 'Tenor 2',
     'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass', 'bass 1': 'Bass 1', 'b1': 'Bass 1', 'bass 2': 'Bass 2', 'b2': 'Bass 2'
 }
+
+# Universal musical dynamic regex (matches standalone dynamic marks misclassified as lyrics)
+DYNAMIC_REGEX = re.compile(
+    r'^([pP]{1,4}|[fF]{1,4}|[mM][pPfF]|[sS][fF][zZ]?|[rR][fF][zZ]?|[fF][pP]|[fF][zZ])\.?$'
+)
+AUTHENTIC_SINGLE_LETTER_WORDS = {'a', 'i', 'o', 'e'}
+COMMON_L_WORDS = {'lift', 'lord', 'love', 'life', 'light', 'lead', 'live', 'line', 'lost', 'land', 'loud', 'lamb'}
+
+# Common OMR lyric fusion patterns seen across choral music where two words are typeset without space
+COMMON_OMR_FUSIONS = {
+    'thehouse': 'the house', 'thelord': 'the Lord', 'theking': 'the King', 'theearth': 'the earth',
+    'allmy': 'all my', 'allthe': 'all the', 'allour': 'all our',
+    'myhead': 'my head', 'myheart': 'my heart', 'mysoul': 'my soul', 'myvoice': 'my voice', 'mylord': 'my Lord',
+    'gazeon': 'gaze on', 'walkin': 'walk in', 'walkon': 'walk on', 'livein': 'live in', 'trustin': 'trust in',
+    'bringsme': 'brings me', 'givesme': 'gives me', 'leadsme': 'leads me', 'savesme': 'saves me', 'hearmer': 'hear me',
+    'upmy': 'up my', 'uponmy': 'upon my', 'umphthat': 'umph that',
+    'shei': 'shelter', 'sheiter': 'shelter'
+}
+
+def normalize_lyric_text(text: str) -> str:
+    """Normalizes OCR lyric text using general typographical and linguistic rules."""
+    if not text:
+        return text
+
+    # 1. Strip stray OCR artifacts like barlines/brackets passing through text: '|', '\', '~'
+    text = text.replace('|', '').replace('\\', '').replace('~', '').strip()
+
+    # 2. Universal font OCR confusion repairs:
+    # 'II' (two capital I's) standing for 'll' inside or following lowercase words (e.g. "aIImy" -> "allmy", "wiII" -> "will")
+    text = re.sub(r'([a-zA-Z])II', r'\1ll', text)
+    text = re.sub(r'\baII\b', 'all', text)
+    text = re.sub(r'\baII([a-z])', r'all\1', text)
+
+    # 3. Split CamelCase or lowercase glued to uppercase (e.g. "myHead" -> "my Head", "inHis" -> "in His")
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+
+    # 4. Isolated lowercase 'l' following a word where it is an OCR error for pronoun 'I':
+    # e.g. "thingl" -> "thing I", "singl" -> "sing I", "thatl" -> "that I"
+    text = re.sub(r'\b([a-zA-Z]{3,})l\b', lambda m: m.group(1) + ' I' if m.group(1).lower() in ['thing', 'sing', 'that', 'with', 'and', 'as', 'for', 'when', 'if', 'hear'] else m.group(0), text)
+
+    # 5. Leading capital 'I' before consonants where serif 'I' was read instead of 'l':
+    # e.g. "Iift" -> "Lift", "Iord" -> "Lord"
+    def fix_leading_i(m):
+        w = m.group(0)
+        low_as_l = 'l' + w[1:].lower()
+        if low_as_l in COMMON_L_WORDS:
+            return ('L' if w.isupper() or (w[1].islower() and w[0].isupper()) else 'l') + w[1:]
+        return w
+    text = re.sub(r'\bI[a-zA-Z]{3,}\b', fix_leading_i, text)
+
+    # 6. Normalize common OMR fused words
+    words = text.split()
+    fixed_words = []
+    for w in words:
+        w_clean = w.rstrip('.,!?;:')
+        punct = w[len(w_clean):]
+        w_low = w_clean.lower()
+        if w_low in COMMON_OMR_FUSIONS:
+            replacement = COMMON_OMR_FUSIONS[w_low]
+            if w_clean and w_clean[0].isupper() and replacement[0].islower():
+                replacement = replacement[0].upper() + replacement[1:]
+            fixed_words.append(replacement + punct)
+        else:
+            fixed_words.append(w)
+
+    return ' '.join(fixed_words).strip()
+
+def strip_stray_dynamic_lyrics(root: ET.Element) -> int:
+    """Strips stray musical dynamic markings misclassified as note <lyric> elements."""
+    stripped_count = 0
+    for note in root.findall('.//note'):
+        for lyr in list(note.findall('lyric')):
+            txt_elems = lyr.findall('.//text')
+            full_txt = ''.join(t.text for t in txt_elems if t.text).strip()
+            if not full_txt:
+                continue
+            if DYNAMIC_REGEX.match(full_txt):
+                if full_txt.lower() not in AUTHENTIC_SINGLE_LETTER_WORDS:
+                    note.remove(lyr)
+                    stripped_count += 1
+    return stripped_count
+
+def get_note_onsets(measure_elem: ET.Element) -> list[tuple[int, ET.Element]]:
+    """Calculates onset ticks for all non-rest notes in a measure.
+    Secondary notes in chords (<chord/>) are skipped so they don't receive duplicate lyrics.
+    """
+    results = []
+    curr_tick = 0
+    last_note_dur = 0
+    for child in measure_elem:
+        if child.tag == 'note':
+            is_chord = child.find('chord') is not None
+            is_rest = child.find('rest') is not None
+            dur = int(child.findtext('duration', '0'))
+            if is_chord:
+                onset = curr_tick - last_note_dur
+            else:
+                onset = curr_tick
+                curr_tick += dur
+                last_note_dur = dur
+            if not is_rest and not is_chord:
+                results.append((onset, child))
+        elif child.tag == 'backup':
+            dur = int(child.findtext('duration', '0'))
+            curr_tick -= dur
+        elif child.tag == 'forward':
+            dur = int(child.findtext('duration', '0'))
+            curr_tick += dur
+    return results
+
+def synchronize_choral_lyrics(root: ET.Element) -> int:
+    """Synchronizes homophonic lyrics across vocal parts based on exact note onsets."""
+    parts = root.findall('part')
+    if len(parts) < 2:
+        return 0
+
+    strip_stray_dynamic_lyrics(root)
+
+    for lyr in root.findall('.//lyric'):
+        for t in lyr.findall('.//text'):
+            if t.text:
+                t.text = normalize_lyric_text(t.text)
+
+    all_measures = []
+    seen_mnums = set()
+    for p in parts:
+        for m in p.findall('measure'):
+            mnum = m.get('number')
+            if mnum and mnum not in seen_mnums:
+                all_measures.append(mnum)
+                seen_mnums.add(mnum)
+
+    synced_count = 0
+
+    for mnum in all_measures:
+        part_notes = {}
+        part_lyrics = {}
+        measure_pool = {}
+
+        for p in parts:
+            pid = p.get('id')
+            m = None
+            for cand in p.findall('measure'):
+                if cand.get('number') == mnum:
+                    m = cand
+                    break
+            if m is None:
+                continue
+
+            note_list = get_note_onsets(m)
+            part_notes[pid] = note_list
+
+            for onset, note in note_list:
+                lyr = note.find('lyric')
+                if lyr is not None:
+                    txt = ''.join(t.text for t in lyr.findall('.//text') if t.text).strip()
+                    if txt and not DYNAMIC_REGEX.match(txt):
+                        part_lyrics.setdefault(pid, {})[onset] = lyr
+                        if onset not in measure_pool:
+                            measure_pool[onset] = lyr
+                        else:
+                            existing_txt = ''.join(t.text for t in measure_pool[onset].findall('.//text') if t.text).strip()
+                            if len(txt) > len(existing_txt):
+                                measure_pool[onset] = lyr
+
+        if not measure_pool:
+            continue
+
+        for p in parts:
+            pid = p.get('id')
+            if pid not in part_notes:
+                continue
+
+            p_lyr_map = part_lyrics.get(pid, {})
+            for onset, note in part_notes[pid]:
+                if onset not in p_lyr_map and onset in measure_pool:
+                    new_lyr = copy.deepcopy(measure_pool[onset])
+                    note.append(new_lyr)
+                    synced_count += 1
+
+    return synced_count
 
 def clean_musicxml_tree(root: ET.Element) -> bool:
     """Cleans the XML tree in-place. Returns True if modifications were made."""
@@ -614,6 +796,16 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     root.remove(p2)
                 if sp2 is not None and sp2 in list(part_list):
                     part_list.remove(sp2)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 3b. Universal Choral Lyric Synchronization & Dynamic Disambiguation
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+        synced = synchronize_choral_lyrics(root)
+        if synced > 0:
+            modified = True
+    except Exception as e:
+        pass
 
     # ─────────────────────────────────────────────────────────────────────────
     # 4. Clef Fallback & Pitch Integrity Verification

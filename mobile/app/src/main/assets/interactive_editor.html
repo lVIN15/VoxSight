@@ -3129,6 +3129,189 @@
                 if (sp2 && sp2.parentNode) sp2.parentNode.removeChild(sp2);
             }
 
+            // 4b. Universal Choral Lyric Synchronization & Dynamic Disambiguation
+            (function synchronizeChoralLyricsDom() {
+                var dynRegex = /^([pP]{1,4}|[fF]{1,4}|[mM][pPfF]|[sS][fF][zZ]?|[rR][fF][zZ]?|[fF][pP]|[fF][zZ])\.?$/;
+                var authenticLetters = { 'a': 1, 'i': 1, 'o': 1, 'e': 1 };
+                var commonLWords = { 'lift': 1, 'lord': 1, 'love': 1, 'life': 1, 'light': 1, 'lead': 1, 'live': 1, 'line': 1, 'lost': 1, 'land': 1, 'loud': 1, 'lamb': 1 };
+                var commonOmrFusions = {
+                    'thehouse': 'the house', 'thelord': 'the Lord', 'theking': 'the King', 'theearth': 'the earth',
+                    'allmy': 'all my', 'allthe': 'all the', 'allour': 'all our',
+                    'myhead': 'my head', 'myheart': 'my heart', 'mysoul': 'my soul', 'myvoice': 'my voice', 'mylord': 'my Lord',
+                    'gazeon': 'gaze on', 'walkin': 'walk in', 'walkon': 'walk on', 'livein': 'live in', 'trustin': 'trust in',
+                    'bringsme': 'brings me', 'givesme': 'gives me', 'leadsme': 'leads me', 'savesme': 'saves me', 'hearmer': 'hear me',
+                    'upmy': 'up my', 'uponmy': 'upon my', 'umphthat': 'umph that',
+                    'shei': 'shelter', 'sheiter': 'shelter'
+                };
+
+                function normalizeLyricStr(txt) {
+                    if (!txt) return txt;
+                    txt = txt.replace(/[|\\~]/g, '').trim();
+                    txt = txt.replace(/([a-zA-Z])II/g, '$1ll').replace(/\baII\b/g, 'all').replace(/\baII([a-z])/g, 'all$1');
+                    txt = txt.replace(/([a-z])([A-Z])/g, '$1 $2');
+                    txt = txt.replace(/\b([a-zA-Z]{3,})l\b/g, function(match, stem) {
+                        var low = stem.toLowerCase();
+                        if (['thing', 'sing', 'that', 'with', 'and', 'as', 'for', 'when', 'if', 'hear'].indexOf(low) !== -1) {
+                            return stem + ' I';
+                        }
+                        return match;
+                    });
+                    txt = txt.replace(/\bI[a-zA-Z]{3,}\b/g, function(match) {
+                        var lowAsL = 'l' + match.slice(1).toLowerCase();
+                        if (commonLWords[lowAsL]) {
+                            return (match[1] === match[1].toLowerCase() && match[0] === 'I' ? 'L' : 'l') + match.slice(1);
+                        }
+                        return match;
+                    });
+                    var words = txt.split(/\s+/);
+                    var outWords = [];
+                    for (var wIdx = 0; wIdx < words.length; wIdx++) {
+                        var w = words[wIdx];
+                        var cleanW = w.replace(/[.,!?;:]+$/, '');
+                        var punc = w.slice(cleanW.length);
+                        var lowW = cleanW.toLowerCase();
+                        if (commonOmrFusions[lowW]) {
+                            var rep = commonOmrFusions[lowW];
+                            if (cleanW[0] === cleanW[0].toUpperCase() && rep[0] === rep[0].toLowerCase()) {
+                                rep = rep[0].toUpperCase() + rep.slice(1);
+                            }
+                            outWords.push(rep + punc);
+                        } else {
+                            outWords.push(w);
+                        }
+                    }
+                    return outWords.join(' ');
+                }
+
+                // Strip stray dynamic markings from note <lyric>
+                var allNotes = doc.getElementsByTagName('note');
+                for (var n = 0; n < allNotes.length; n++) {
+                    var noteEl = allNotes[n];
+                    var noteLyrics = noteEl.getElementsByTagName('lyric');
+                    for (var lIdx = noteLyrics.length - 1; lIdx >= 0; lIdx--) {
+                        var lyrEl = noteLyrics[lIdx];
+                        var textNodes = lyrEl.getElementsByTagName('text');
+                        var lyrTxt = '';
+                        for (var tn = 0; tn < textNodes.length; tn++) {
+                            lyrTxt += (textNodes[tn].textContent || '');
+                        }
+                        lyrTxt = lyrTxt.trim();
+                        if (dynRegex.test(lyrTxt) && !authenticLetters[lyrTxt.toLowerCase()]) {
+                            if (lyrEl.parentNode) lyrEl.parentNode.removeChild(lyrEl);
+                        } else if (lyrTxt) {
+                            var normalized = normalizeLyricStr(lyrTxt);
+                            if (textNodes[0] && normalized !== lyrTxt) {
+                                textNodes[0].textContent = normalized;
+                            }
+                        }
+                    }
+                }
+
+                // Onset-based cross-part synchronization
+                var curParts = doc.getElementsByTagName('part');
+                if (curParts.length < 2) return;
+
+                var measureNums = [];
+                var seenMNums = {};
+                for (var p = 0; p < curParts.length; p++) {
+                    var mList = curParts[p].getElementsByTagName('measure');
+                    for (var m = 0; m < mList.length; m++) {
+                        var num = mList[m].getAttribute('number');
+                        if (num && !seenMNums[num]) {
+                            seenMNums[num] = true;
+                            measureNums.push(num);
+                        }
+                    }
+                }
+
+                for (var mi = 0; mi < measureNums.length; mi++) {
+                    var mNum = measureNums[mi];
+                    var partNotes = {};
+                    var partLyrics = {};
+                    var measurePool = {};
+
+                    for (var pi = 0; pi < curParts.length; pi++) {
+                        var pElem = curParts[pi];
+                        var pid = pElem.getAttribute('id') || ('P' + (pi + 1));
+                        var mElem = pElem.querySelector("measure[number='" + mNum + "']");
+                        if (!mElem) continue;
+
+                        var noteList = [];
+                        var currTick = 0;
+                        var lastNoteDur = 0;
+                        var children = mElem.children;
+
+                        for (var ci = 0; ci < children.length; ci++) {
+                            var ch = children[ci];
+                            var tag = ch.tagName.toLowerCase();
+                            if (tag === 'note') {
+                                var isChord = ch.getElementsByTagName('chord').length > 0;
+                                var isRest = ch.getElementsByTagName('rest').length > 0;
+                                var durEl = ch.getElementsByTagName('duration')[0];
+                                var dur = durEl ? parseInt(durEl.textContent.trim() || '0', 10) : 0;
+                                var onset = isChord ? (currTick - lastNoteDur) : currTick;
+                                if (!isChord) {
+                                    currTick += dur;
+                                    lastNoteDur = dur;
+                                }
+                                if (!isRest && !isChord) {
+                                    noteList.push({ onset: onset, note: ch });
+                                }
+                            } else if (tag === 'backup') {
+                                var bDurEl = ch.getElementsByTagName('duration')[0];
+                                var bDur = bDurEl ? parseInt(bDurEl.textContent.trim() || '0', 10) : 0;
+                                currTick -= bDur;
+                            } else if (tag === 'forward') {
+                                var fDurEl = ch.getElementsByTagName('duration')[0];
+                                var fDur = fDurEl ? parseInt(fDurEl.textContent.trim() || '0', 10) : 0;
+                                currTick += fDur;
+                            }
+                        }
+
+                        partNotes[pid] = noteList;
+
+                        for (var nIdx = 0; nIdx < noteList.length; nIdx++) {
+                            var nItem = noteList[nIdx];
+                            var lyr = nItem.note.getElementsByTagName('lyric')[0];
+                            if (lyr) {
+                                var txtEl = lyr.getElementsByTagName('text')[0];
+                                var lText = txtEl ? (txtEl.textContent || '').trim() : '';
+                                if (lText && !dynRegex.test(lText)) {
+                                    if (!partLyrics[pid]) partLyrics[pid] = {};
+                                    partLyrics[pid][nItem.onset] = lyr;
+                                    if (!measurePool[nItem.onset]) {
+                                        measurePool[nItem.onset] = lyr;
+                                    } else {
+                                        var existingTxt = (measurePool[nItem.onset].textContent || '').trim();
+                                        if (lText.length > existingTxt.length) {
+                                            measurePool[nItem.onset] = lyr;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (Object.keys(measurePool).length === 0) continue;
+
+                    for (var pi = 0; pi < curParts.length; pi++) {
+                        var pElem = curParts[pi];
+                        var pid = pElem.getAttribute('id') || ('P' + (pi + 1));
+                        var nList = partNotes[pid];
+                        if (!nList) continue;
+
+                        var pLyrMap = partLyrics[pid] || {};
+                        for (var nIdx = 0; nIdx < nList.length; nIdx++) {
+                            var nItem = nList[nIdx];
+                            if (!pLyrMap[nItem.onset] && measurePool[nItem.onset]) {
+                                var clonedLyr = measurePool[nItem.onset].cloneNode(true);
+                                nItem.note.appendChild(clonedLyr);
+                            }
+                        }
+                    }
+                }
+            })();
+
             // 5. Clef fallback: ensure every surviving part has a clef in measure 1
             var finalParts = doc.getElementsByTagName('part');
             for (var pIdx = 0; pIdx < finalParts.length; pIdx++) {
