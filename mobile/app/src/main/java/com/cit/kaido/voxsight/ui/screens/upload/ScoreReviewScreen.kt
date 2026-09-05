@@ -398,13 +398,6 @@ fun ScoreReviewScreen(
                     val newCount = (multiRest.count + delta).coerceAtLeast(1)
                     selectedMultiRest = selectedMultiRest?.copy(count = newCount)
                 },
-                onSetCount = { targetCount ->
-                    val delta = targetCount - multiRest.count
-                    if (delta != 0) {
-                        webViewInstance?.evaluateJavascript("adjustMultiRestCount($delta);", null)
-                        selectedMultiRest = selectedMultiRest?.copy(count = targetCount)
-                    }
-                },
                 onDismissRequest = {
                     selectedMultiRest = null
                     webViewInstance?.evaluateJavascript("clearHighlights();", null)

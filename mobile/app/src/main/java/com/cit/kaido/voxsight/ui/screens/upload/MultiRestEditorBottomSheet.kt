@@ -27,7 +27,6 @@ fun MultiRestEditorBottomSheet(
     measureNumber: Int,
     count: Int,
     onCountChanged: (delta: Int) -> Unit,
-    onSetCount: (newCount: Int) -> Unit = {},
     onDismissRequest: () -> Unit
 ) {
     ModalBottomSheet(
@@ -196,38 +195,7 @@ fun MultiRestEditorBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Quick Preset Chips
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                listOf(2, 3, 4, 8).forEach { preset ->
-                    val isSelected = count == preset
-                    Surface(
-                        color = if (isSelected) VoxPurplePrimary else VoxCardBackground,
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isSelected) VoxPurplePrimary else VoxCardStroke
-                        ),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSetCount(preset) }
-                    ) {
-                        Text(
-                            text = "$preset bars",
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) Color.White else VoxTextPrimary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Done Button
             Button(
@@ -244,7 +212,8 @@ fun MultiRestEditorBottomSheet(
                 Text(
                     text = "DONE",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    fontSize = 15.sp,
+                    color = Color.White
                 )
             }
         }

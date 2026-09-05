@@ -57,8 +57,8 @@ RUN mkdir -p /usr/share/tessdata /usr/share/tesseract-ocr/4.00/tessdata /usr/sha
     && ln -sf /usr/share/tessdata/eng.traineddata /usr/share/tesseract-ocr/4.00/tessdata/eng.traineddata \
     && ln -sf /usr/share/tessdata/eng.traineddata /usr/share/tesseract-ocr/5/tessdata/eng.traineddata
 
-# Install Python music21 library
-RUN pip3 install --no-cache-dir music21
+# Install Python music21, pypdfium2, and pillow libraries
+RUN pip3 install --no-cache-dir music21 pypdfium2 pillow
 
 # Download & Extract Audiveris OMR Engine (.deb for Ubuntu 22.04)
 WORKDIR /tmp

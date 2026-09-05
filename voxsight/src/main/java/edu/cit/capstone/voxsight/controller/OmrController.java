@@ -199,17 +199,44 @@ public class OmrController {
 
     /**
      * Pre-processes uploaded scores for Audiveris OMR.
-     * PDFs are passed directly to Audiveris which handles multi-page rendering
-     * internally via PDFBox at full 300 DPI resolution, supporting up to 10 pages.
-     * Non-PDF images are passed through unchanged.
+     * Checks if input PDFs or images exceed safe dimensions (> 18 Megapixels),
+     * and normalizes them via score_normalizer.py to standard 300 DPI Letter/A4 bounds
+     * to avoid Audiveris 20MP crashes.
      */
     private File prepareScoreForOmr(File inputFile, File uploadsDir) {
-        String name = inputFile.getName().toLowerCase();
-        if (name.endsWith(".pdf")) {
-            // Pass the original multi-page PDF directly to Audiveris.
-            // Audiveris uses its built-in PDFBox renderer at 300 DPI,
-            // processing all pages (up to 10) without truncation.
-            log.info("[PDF Preprocessor] Passing full multi-page PDF directly to Audiveris for native 300 DPI rendering: {}", inputFile.getName());
+        if (inputFile == null || !inputFile.exists()) return inputFile;
+        try {
+            String userDir = System.getProperty("user.dir");
+            File script = new File(userDir, "scripts/score_normalizer.py");
+            if (!script.exists()) {
+                log.warn("[Score Normalizer] Script not found at: {}", script.getAbsolutePath());
+                return inputFile;
+            }
+            String baseName = getBaseName(inputFile.getName());
+            String ext = getExtension(inputFile.getName());
+            File normalizedFile = new File(uploadsDir, "norm_" + baseName + ext);
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    pythonPath,
+                    script.getAbsolutePath(),
+                    inputFile.getAbsolutePath(),
+                    normalizedFile.getAbsolutePath()
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    log.info("[Score Normalizer] {}", line);
+                }
+            }
+            boolean finished = p.waitFor(30, TimeUnit.SECONDS);
+            if (finished && p.exitValue() == 0 && normalizedFile.exists() && normalizedFile.length() > 0) {
+                log.info("[Score Normalizer] Using normalized score: {} ({} bytes)", normalizedFile.getName(), normalizedFile.length());
+                return normalizedFile;
+            }
+        } catch (Exception e) {
+            log.warn("[Score Normalizer] Error during score normalization, falling back to original: {}", e.getMessage());
         }
         return inputFile;
     }
@@ -529,6 +556,13 @@ public class OmrController {
                 }
                 try {
                     String rawXml = extractXmlContent(targetFile);
+                    String lowerXml = rawXml.toLowerCase();
+                    if (lowerXml.contains("piano") || lowerXml.contains("keyboard") || lowerXml.contains("organ") ||
+                        lowerXml.contains("solo voice") || lowerXml.contains("vocal solo") || lowerXml.contains("soloist")) {
+                        log.warn("[Analyze] Fallback detected Piano/Solo keywords in rawXml, rejecting as unsupported score");
+                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                                .body(OmrAnalysisResponse.ofError("Unsupported Score: Piano accompaniment or Solo voice detected. VoxSight exclusively supports pure SATB (Soprano, Alto, Tenor, Bass) choral scores."));
+                    }
                     OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
                             rawXml, java.util.Map.of(
                                 "structure_type", "UNCERTAIN",
@@ -665,6 +699,9 @@ public class OmrController {
 
         String lowerLog = logContent.toLowerCase();
 
+        if (lowerLog.contains("too large image")) {
+            return "The sheet music image dimensions are too large for processing. Please upload a standard Letter/A4 sized PDF or image.";
+        }
         if (lowerLog.contains("too low interline") || lowerLog.contains("interline value")) {
             return "The image resolution is too low. Please use a clearer photo or a PDF (300+ DPI recommended).";
         }

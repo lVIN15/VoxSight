@@ -75,11 +75,15 @@ import com.cit.kaido.voxsight.network.OmrAnalysisResponse
 import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.storage.LocalScoreManager
 import com.cit.kaido.voxsight.storage.LocalScoreMetadata
+import com.cit.kaido.voxsight.ui.components.VoxErrorDialog
+import com.cit.kaido.voxsight.ui.components.VoxErrorDialogData
+import com.cit.kaido.voxsight.ui.components.resolveErrorDialogData
 import com.cit.kaido.voxsight.ui.screens.camera.SheetMusicScannerScreen
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
 import com.cit.kaido.voxsight.ui.screens.practice.readMusicXmlText
+import com.cit.kaido.voxsight.util.ScoreValidator
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
@@ -142,7 +146,8 @@ fun UploadScoreScreen(
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var showCustomScanner by remember { mutableStateOf(false) }
-    var unsupportedScoreDialogMessage by remember { mutableStateOf<String?>(null) }
+    var activeErrorDialog by remember { mutableStateOf<VoxErrorDialogData?>(null) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
 
     // ── Activity Result Launchers ───────────────────────────────
 
@@ -202,16 +207,16 @@ fun UploadScoreScreen(
                 onProgress = { progress -> processingProgress = progress },
                 onSuccess = { musicXml, title ->
                     isProcessing = false
-                    // Auto-navigate to review screen
-                    onNavigateToReview(musicXml, title)
+                    val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
+                    if (unsupportedReason != null) {
+                        activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                    } else {
+                        onNavigateToReview(musicXml, title)
+                    }
                 },
                 onError = { error ->
                     isProcessing = false
-                    if (error.contains("Unsupported Score") || error.contains("Solo voices or Piano")) {
-                        unsupportedScoreDialogMessage = error
-                    } else {
-                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
-                    }
+                    activeErrorDialog = resolveErrorDialogData(error)
                 }
             )
         }
@@ -236,15 +241,15 @@ fun UploadScoreScreen(
                     }
                     isProcessing = false
                     if (!xmlText.isNullOrBlank()) {
-                        val unsupportedReason = checkUnsupportedMusicXml(xmlText)
+                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(xmlText)
                         if (unsupportedReason != null) {
-                            unsupportedScoreDialogMessage = unsupportedReason
+                            activeErrorDialog = resolveErrorDialogData(unsupportedReason)
                         } else {
                             val scoreTitle = deriveTitleFromFileName(fileName)
                             onNavigateToReview(xmlText, scoreTitle)
                         }
                     } else {
-                        Toast.makeText(context, "Failed to read MusicXML file", Toast.LENGTH_LONG).show()
+                        activeErrorDialog = resolveErrorDialogData("Failed to read MusicXML file: The file is empty or corrupted.")
                     }
                 }
             } else {
@@ -256,16 +261,16 @@ fun UploadScoreScreen(
                     onProgress = { progress -> processingProgress = progress },
                     onSuccess = { musicXml, title ->
                         isProcessing = false
-                        // Auto-navigate to review screen
-                        onNavigateToReview(musicXml, title)
+                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
+                        if (unsupportedReason != null) {
+                            activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                        } else {
+                            onNavigateToReview(musicXml, title)
+                        }
                     },
                     onError = { error ->
                         isProcessing = false
-                        if (error.contains("Unsupported Score") || error.contains("Solo voices or Piano")) {
-                            unsupportedScoreDialogMessage = error
-                        } else {
-                            Toast.makeText(context, error, Toast.LENGTH_LONG).show()
-                        }
+                        activeErrorDialog = resolveErrorDialogData(error)
                     }
                 )
             }
@@ -279,37 +284,53 @@ fun UploadScoreScreen(
         if (granted) {
             showCustomScanner = true
         } else {
-            Toast.makeText(
-                context,
-                "Camera permission is required to scan sheet music.",
-                Toast.LENGTH_LONG
-            ).show()
+            activeErrorDialog = resolveErrorDialogData("Camera permission is required to scan sheet music.")
         }
     }
 
-    // ── UI ──────────────────────────────────────────────────────
+    // ── UI & Dialogs ────────────────────────────────────────────
 
-    if (unsupportedScoreDialogMessage != null) {
+    activeErrorDialog?.let { dialogData ->
+        VoxErrorDialog(
+            data = dialogData,
+            onDismiss = { activeErrorDialog = null }
+        )
+    }
+
+    if (showClearAllConfirm) {
         AlertDialog(
-            onDismissRequest = { unsupportedScoreDialogMessage = null },
+            onDismissRequest = { showClearAllConfirm = false },
             title = {
                 Text(
-                    text = "Unsupported Score",
+                    text = "Clear Recent Scores?",
                     fontWeight = FontWeight.Bold,
                     color = VoxTextPrimary
                 )
             },
             text = {
                 Text(
-                    text = unsupportedScoreDialogMessage ?: "",
+                    text = "This will permanently remove all cached and saved scores from your local device storage.",
                     color = VoxTextSecondary,
                     fontSize = 14.sp,
                     lineHeight = 20.sp
                 )
             },
             confirmButton = {
-                TextButton(onClick = { unsupportedScoreDialogMessage = null }) {
-                    Text("OK", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            LocalScoreManager.clearAllScores(context)
+                            recentScores.clear()
+                            showClearAllConfirm = false
+                        }
+                    }
+                ) {
+                    Text("CLEAR ALL", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("CANCEL", color = VoxTextSubtitle)
                 }
             },
             containerColor = Color.White,
@@ -336,15 +357,16 @@ fun UploadScoreScreen(
                     onProgress = { progress -> processingProgress = progress },
                     onSuccess = { musicXml, title ->
                         isProcessing = false
-                        onNavigateToReview(musicXml, title)
+                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
+                        if (unsupportedReason != null) {
+                            activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                        } else {
+                            onNavigateToReview(musicXml, title)
+                        }
                     },
                     onError = { error ->
                         isProcessing = false
-                        if (error.contains("Unsupported Score") || error.contains("Solo voices or Piano")) {
-                            unsupportedScoreDialogMessage = error
-                        } else {
-                            Toast.makeText(context, error, Toast.LENGTH_LONG).show()
-                        }
+                        activeErrorDialog = resolveErrorDialogData(error)
                     }
                 )
             },
@@ -456,12 +478,15 @@ fun UploadScoreScreen(
                             if (fullScore != null) {
                                 onNavigateToPractice(fullScore)
                             } else {
-                                Toast.makeText(context, "Failed to load score.", Toast.LENGTH_SHORT).show()
+                                activeErrorDialog = resolveErrorDialogData("Unable to load saved score. The score format is unsupported or the file has expired.")
                             }
                         }
                     },
                     onDeleteScore = { item ->
                         scoreToDelete = item
+                    },
+                    onClearAll = {
+                        showClearAllConfirm = true
                     }
                 )
             }
@@ -743,7 +768,8 @@ private fun ProcessingCard(
 private fun RecentScoresSection(
     scores: List<RecentScoreItem>,
     onScoreSelected: (RecentScoreItem) -> Unit,
-    onDeleteScore: (RecentScoreItem) -> Unit
+    onDeleteScore: (RecentScoreItem) -> Unit,
+    onClearAll: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -759,11 +785,17 @@ private fun RecentScoresSection(
                 color = VoxTextPrimary,
                 modifier = Modifier.weight(1f)
             )
-            Text(
-                text = stringResource(R.string.recent_scores_view_all),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = VoxPurplePrimary
-            )
+            if (scores.isNotEmpty()) {
+                Text(
+                    text = "Clear All",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFFD32F2F),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onClearAll() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
 
         scores.forEach { item ->
@@ -1013,82 +1045,7 @@ private fun deriveTitleFromFileName(fileName: String): String {
  * single-voice solo melodies, or excessive parts.
  */
 private fun checkUnsupportedMusicXml(xml: String): String? {
-    val lowerXml = xml.lowercase()
-    val partListStart = lowerXml.indexOf("<part-list")
-    val partListEnd = lowerXml.indexOf("</part-list>")
-    val partListSection = if (partListStart != -1 && partListEnd != -1) {
-        lowerXml.substring(partListStart, partListEnd)
-    } else {
-        lowerXml
-    }
-
-    val accompKeywords = listOf(
-        "piano", "pno", "keyboard", "kbd", "organ", "org",
-        "accompaniment", "accomp", "acc.", "acc", "guitar", "gtr",
-        "strings", "orchestra", "orch", "harp", "harpsichord", "celesta",
-        "synthesizer", "synth", "continuo"
-    )
-    val soloKeywords = listOf(
-        "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
-        "solo voice", "duet", "lead sheet", "fake book"
-    )
-
-    val found = mutableListOf<String>()
-
-    // 1. Text & Metadata inspection (Titles, Credits, Directions)
-    val headerSection = lowerXml.substring(0, (lowerXml.indexOf("<part ") .takeIf { it != -1 } ?: lowerXml.length).coerceAtMost(30000))
-    for (kw in soloKeywords) {
-        if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(headerSection) && !headerSection.contains("soprano $kw")) {
-            found.add("Solo notation '$kw'")
-            break
-        }
-    }
-    for (kw in accompKeywords) {
-        if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(headerSection)) {
-            found.add("Accompaniment notation '$kw'")
-            break
-        }
-    }
-
-    // 2. Score-part definitions inspection
-    for (kw in soloKeywords) {
-        if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(partListSection) && !partListSection.contains("soprano $kw")) {
-            found.add("Solo voice ('$kw')")
-            break
-        }
-    }
-    for (kw in accompKeywords) {
-        if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(partListSection)) {
-            found.add("Accompaniment ('$kw')")
-            break
-        }
-    }
-
-    // 3. Structural Part Count Check
-    val scorePartRegex = Regex("<score-part\\b")
-    val partMatches = scorePartRegex.findAll(partListSection).count()
-    if (partMatches == 1) {
-        val hasMultiStaff = lowerXml.contains("<staves>2</staves>") || lowerXml.contains("<staves>4</staves>") || lowerXml.contains("<staff>2</staff>")
-        if (!hasMultiStaff) {
-            found.add("Single vocal melody / Solo lead sheet (only 1 staff detected; expected 2-4 SATB choral staves)")
-        }
-    } else if (partMatches > 4) {
-        found.add("Too many parts ($partMatches parts; pure SATB choral scores support at most 4 voices, detected extra Solo or Accompaniment staves)")
-    }
-
-    // 4. Grand staff accompaniment without lyrics check
-    if (lowerXml.contains("<staves>2</staves>")) {
-        val lyricCount = Regex("<lyric\\b").findAll(lowerXml).count()
-        if (lyricCount < 5) {
-            found.add("Piano/Accompaniment grand staff ($lyricCount lyrics detected)")
-        }
-    }
-
-    if (found.isNotEmpty()) {
-        val uniqueFound = found.distinct()
-        return "Unsupported Score: Detected ${uniqueFound.joinToString(", ")}. Scores containing Solo voices or Piano accompaniment staves are not supported. VoxSight is designed exclusively for SATB choral sheet music. Please upload an SATB vocal score."
-    }
-    return null
+    return ScoreValidator.checkUnsupportedMusicXml(xml)
 }
 
 private fun formatTimeLabel(context: Context, timestamp: Long): String {

@@ -46,8 +46,7 @@ val VoxSightTypography = Typography(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
         fontSize = 16.sp,
-        lineHeight = 20.sp,
-        color = VoxProgressText
+        lineHeight = 20.sp
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,

@@ -7,6 +7,7 @@ import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.cit.kaido.voxsight.util.ScoreValidator
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -75,7 +76,17 @@ object LocalScoreManager {
                     val meta = gson.fromJson(jsonStr, LocalScoreMetadata::class.java)
                     val xmlFile = File(scoresDir, meta.xmlFileName)
                     if (xmlFile.exists()) {
-                        list.add(meta)
+                        // Strict validation gate: purge any saved scores that contain solo or piano parts
+                        val xmlContent = xmlFile.readText(Charsets.UTF_8)
+                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(xmlContent)
+                        if (unsupportedReason != null) {
+                            xmlFile.delete()
+                            file.delete()
+                        } else {
+                            list.add(meta)
+                        }
+                    } else {
+                        file.delete()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -91,8 +102,14 @@ object LocalScoreManager {
         val xmlFile = File(scoresDir, metadata.xmlFileName)
         if (!xmlFile.exists()) return@withContext null
 
-        val score = parseMusicXmlScore(context, Uri.fromFile(xmlFile), metadata.title)
-        score?.copy(
+        val score = parseMusicXmlScore(context, Uri.fromFile(xmlFile), metadata.title) ?: return@withContext null
+        val unsupported = ScoreValidator.checkUnsupportedMusicXml(score.rawXml)
+        if (unsupported != null) {
+            deleteScore(context, metadata.id)
+            return@withContext null
+        }
+
+        score.copy(
             eventsJson = metadata.eventsJson,
             metadataJson = metadata.metadataJson
         )
@@ -104,5 +121,10 @@ object LocalScoreManager {
         val jsonFile = File(scoresDir, "$id.json")
         if (xmlFile.exists()) xmlFile.delete()
         if (jsonFile.exists()) jsonFile.delete()
+    }
+
+    suspend fun clearAllScores(context: Context) = withContext(Dispatchers.IO) {
+        val scoresDir = getScoresDir(context)
+        scoresDir.listFiles()?.forEach { it.delete() }
     }
 }
