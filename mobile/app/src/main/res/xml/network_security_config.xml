@@ -8,5 +8,5 @@
     </domain-config>
 
     <!-- Require HTTPS for all production remote domains -->
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

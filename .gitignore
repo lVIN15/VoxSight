@@ -1,2 +1,14 @@
 temporary-ui/
 .agent/
+scratch/
+*.log
+log_output.txt
+logcat.txt
+__pycache__/
+voxsight/__pycache__/
+voxsight/scripts/__pycache__/
+voxsight/debug_clean_dom.js
+voxsight/inspect_*.py
+voxsight/test_*.py
+voxsight/scratch_*.py
+voxsight/scratch_*.js

@@ -21,6 +21,9 @@ import sys
 import json
 import hashlib
 import logging
+import zipfile
+import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
@@ -254,6 +257,205 @@ def validate_rhythm(events: list, tpq: int, time_sig_map: dict) -> dict:
     }
 
 
+def check_unsupported_score(xml_path: str) -> tuple[bool, str]:
+    """
+    Upload Validation Gate: Inspects score structure, metadata, parts, staves,
+    and musical texture for Piano/Keyboard accompaniment, Solo voices, lead sheets,
+    or non-SATB multi-part configurations. Rejects them before downstream SATB processing.
+    """
+    try:
+        root = None
+        is_mxl = False
+        p = Path(xml_path)
+        if not p.exists():
+            return False, ""
+
+        with open(p, "rb") as f:
+            header = f.read(4)
+            if header.startswith(b"PK"):
+                is_mxl = True
+
+        if is_mxl:
+            with zipfile.ZipFile(xml_path, "r") as z:
+                xml_names = [n for n in z.namelist() if (n.endswith(".xml") or n.endswith(".musicxml")) and not n.startswith("META-INF")]
+                if xml_names:
+                    root = ET.fromstring(z.read(xml_names[0]))
+        else:
+            tree = ET.parse(xml_path)
+            root = tree.getroot()
+
+        if root is None:
+            return False, ""
+
+        part_list = root.find("part-list")
+        parts = root.findall("part")
+        if part_list is None or not parts:
+            return False, ""
+
+        ACCOMP_KEYWORDS = [
+            "piano", "pno", "keyboard", "kbd", "organ", "org",
+            "accompaniment", "accomp", "acc.", "acc", "guitar", "gtr",
+            "strings", "orchestra", "orch", "harp", "harpsichord", "celesta",
+            "synthesizer", "synth", "continuo", "basso continuo", "b.c."
+        ]
+        SOLO_KEYWORDS = [
+            "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
+            "solo voice", "duet", "lead sheet", "fake book"
+        ]
+
+        found_unsupported = []
+
+        # ── Layer 1: Text & Metadata Check (Title, Movement, Credits, Directions, Filename) ──
+        texts_to_check = []
+        fname_clean = p.stem.lower().replace("_", " ").replace("-", " ")
+        texts_to_check.append(("file name", fname_clean))
+
+        wt = root.findtext(".//work/work-title")
+        if wt:
+            texts_to_check.append(("work title", wt.lower()))
+        mt = root.findtext(".//movement-title")
+        if mt:
+            texts_to_check.append(("movement title", mt.lower()))
+
+        for c in root.findall(".//credit"):
+            for cw in c.findall(".//credit-words"):
+                if cw.text:
+                    texts_to_check.append(("credit", cw.text.strip().lower()))
+
+        for d in root.findall(".//direction"):
+            for w in d.findall(".//words"):
+                if w.text:
+                    texts_to_check.append(("direction", w.text.strip().lower()))
+
+        for origin, txt in texts_to_check:
+            for kw in SOLO_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", txt):
+                    found_unsupported.append(f"Solo notation '{kw}' in {origin}")
+                    break
+            for kw in ACCOMP_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", txt):
+                    found_unsupported.append(f"Accompaniment notation '{kw}' in {origin}")
+                    break
+
+        # ── Layer 2 & 4: Score-Part Definitions, MIDI, and Musical Texture ──
+        total_staves = 0
+        part_details = []
+
+        for p_elem in parts:
+            pid = p_elem.get("id")
+            sp = root.find(f".//score-part[@id='{pid}']")
+            p_name = ""
+            p_abbr = ""
+            instr_name = ""
+            midi_prog = -1
+
+            if sp is not None:
+                pn = sp.find("part-name")
+                if pn is not None and pn.text:
+                    p_name = pn.text.strip().lower()
+                pa = sp.find("part-abbreviation")
+                if pa is not None and pa.text:
+                    p_abbr = pa.text.strip().lower()
+                instr = sp.find(".//instrument-name")
+                if instr is not None and instr.text:
+                    instr_name = instr.text.strip().lower()
+                mp = sp.find(".//midi-program")
+                if mp is not None and mp.text:
+                    try:
+                        midi_prog = int(mp.text.strip())
+                    except ValueError:
+                        pass
+
+            combined = f"{p_name} {p_abbr} {instr_name}"
+            p_norm = p_name.replace(" ", "").replace(".", "")
+
+            for kw in SOLO_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", combined) or p_norm in ["sol", "solo"]:
+                    found_unsupported.append(f"Solo voice ('{p_name or pid}')")
+                    break
+
+            for kw in ACCOMP_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", combined) or p_norm in ["piano", "pno", "org", "organ", "kbd", "keyboard", "gtr", "guitar"]:
+                    found_unsupported.append(f"Accompaniment ('{p_name or pid}')")
+                    break
+
+            # MIDI program accompaniment checks
+            if (1 <= midi_prog <= 8) or (17 <= midi_prog <= 24) or (25 <= midi_prog <= 32):
+                found_unsupported.append(f"Accompaniment instrument MIDI program {midi_prog} ('{p_name or pid}')")
+
+            # Inspect notes, staves, lyrics, chords
+            staves_found = set()
+            staves_elem = p_elem.find(".//attributes/staves")
+            if staves_elem is not None and staves_elem.text:
+                try:
+                    num_st = int(staves_elem.text.strip())
+                    for i in range(1, num_st + 1):
+                        staves_found.add(str(i))
+                except ValueError:
+                    pass
+
+            note_count = 0
+            chord_count = 0
+            lyric_count = 0
+            for m in p_elem.findall("measure"):
+                for n in m.findall("note"):
+                    note_count += 1
+                    if n.find("chord") is not None:
+                        chord_count += 1
+                    s = n.findtext("staff")
+                    if s:
+                        staves_found.add(s)
+                    if n.find("lyric") is not None:
+                        lyric_count += 1
+
+            num_staves = len(staves_found) or 1
+            total_staves += num_staves
+
+            part_details.append({
+                "pid": pid,
+                "name": p_name,
+                "staves": num_staves,
+                "notes": note_count,
+                "chords": chord_count,
+                "lyrics": lyric_count
+            })
+
+            # Grand staff accompaniment (2 staves, e.g. piano, with low lyrics)
+            if num_staves >= 2 and lyric_count < 5:
+                found_unsupported.append(f"Piano/Accompaniment grand staff ('{p_name or pid}', {num_staves} staves, {lyric_count} lyrics)")
+
+            # Polyphonic instrumental accompaniment (high chord density, 0 lyrics)
+            if note_count > 15 and lyric_count == 0 and chord_count > 3:
+                found_unsupported.append(f"Instrumental accompaniment part without lyrics ('{p_name or pid}', {note_count} notes, {chord_count} chords)")
+
+        # ── Layer 3: Structural Part & Staff Count Validation ──
+        # Pure SATB domain definition:
+        # - Open SATB: 4 vocal parts/staves (S, A, T, B)
+        # - Condensed SATB: 2 vocal parts/staves (SA, TB) or 1 part with 2 staves
+        # - Condensed SAB: 3 vocal parts/staves
+        # A single 1-staff vocal melody is a solo lead sheet, not an SATB choral score
+        if len(parts) == 1 and total_staves == 1:
+            found_unsupported.append("Single vocal melody / Solo lead sheet (only 1 staff detected; expected 2-4 SATB choral staves)")
+
+        # If more than 4 parts or staves concurrently (e.g. Solo + SATB 5-9 staves)
+        if len(parts) > 4 or total_staves > 4:
+            found_unsupported.append(f"Too many parts/staves ({len(parts)} parts, {total_staves} staves; pure SATB choral scores support at most 4 voices, detected extra Solo or Accompaniment staves)")
+
+        if found_unsupported:
+            parts_str = ", ".join(dict.fromkeys(found_unsupported))
+            msg = (
+                f"Unsupported Score: Detected {parts_str}. "
+                "Scores containing Solo voices or Piano accompaniment staves are not supported. "
+                "VoxSight is designed exclusively for SATB choral sheet music. Please upload an SATB vocal score."
+            )
+            return True, msg
+
+    except Exception as ex:
+        log.warn(f"Error checking score support: {ex}")
+
+    return False, ""
+
+
 # ─── Main Analysis Pipeline ──────────────────────────────────────────────
 def analyze(xml_path: str) -> dict:
     """
@@ -266,6 +468,12 @@ def analyze(xml_path: str) -> dict:
       6. Event expansion
     """
     log.info(f"[{PIPELINE_START_ANALYSIS}] Parsing: {xml_path}")
+
+    # Validation Gate: Reject scores with Solo voices or Piano accompaniment
+    is_unsupported, reason = check_unsupported_score(xml_path)
+    if is_unsupported:
+        log.warn(f"[Upload Validation Gate] Rejecting unsupported score: {reason}")
+        return _error_response(reason)
 
     # Clean and merge duplicate parts / strip credit lyrics before music21 parsing
     try:
@@ -684,6 +892,17 @@ def analyze(xml_path: str) -> dict:
     for e in final_events:
         track_ids.add(e["playback_track"])
 
+    # Fail-safe: pure SATB cannot have more than 4 playback tracks or parts
+    if len(track_ids) > 4 or part_count > 4:
+        msg = (
+            f"Unsupported Score: Detected {len(track_ids)} playback tracks and {part_count} parts. "
+            "Pure SATB choral sheet music supports at most 4 voices. "
+            "Scores containing Solo voices or Piano accompaniment staves are not supported. "
+            "Please upload an SATB vocal score."
+        )
+        log.warn(f"[SATB Fail-safe] Rejecting unsupported score: {msg}")
+        return _error_response(msg)
+
     # Default SATB label mapping
     sorted_tracks = sorted(track_ids)
     default_labels = ["Soprano", "Alto", "Tenor", "Bass"]
@@ -731,7 +950,7 @@ def analyze(xml_path: str) -> dict:
 
 def _error_response(msg: str) -> dict:
     """Return error response matching schema."""
-    return {
+    resp = {
         "schema_version": SCHEMA_VERSION,
         "score_metadata": {
             "structure_type": "UNCERTAIN",
@@ -752,6 +971,9 @@ def _error_response(msg: str) -> dict:
         "events": [],
         "error": msg,
     }
+    if "Solo voices or Piano" in msg:
+        resp["error_code"] = "UNSUPPORTED_SCORE_SOLO_PIANO"
+    return resp
 
 
 if __name__ == "__main__":

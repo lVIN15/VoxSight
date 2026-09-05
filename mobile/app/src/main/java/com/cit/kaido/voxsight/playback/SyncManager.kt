@@ -351,7 +351,8 @@ class SyncManager {
         
         for (event in activeEvents) {
             val isMatched = coords.containsKey(event.eventId)
-            val groupOsmd = osmdByTickPitchGroup["t${event.tickPosition}-m${event.pitchMidi}"] ?: emptyList()
+            val groupOsmd = osmdByTickPitchGroup["t${event.tickPosition}-m${event.pitchMidi}"]
+                ?: osmdElements.filter { it.measureIndex == event.measureIndex && it.midiNote == event.pitchMidi }
             val isDuplicate = groupOsmd.size > 1
             matchResults.add(MatchResult(event.eventId, isMatched, isDuplicate))
         }

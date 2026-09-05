@@ -153,99 +153,145 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 2b. Prune Non-SATB Staves: Piano/Instrumental Accompaniment
+    # 2b. Prune Non-SATB Staves: Accompaniment (Piano/Organ/Guitar) & Solo Staves
     # ─────────────────────────────────────────────────────────────────────────
-    ACCOMPANIMENT_NAMES = {
-        'piano', 'pno', 'pno.', 'keyboard', 'kbd', 'organ', 'org', 'org.',
-        'accompaniment', 'acc', 'acc.', 'accomp', 'guitar', 'gtr', 'gtr.',
+    ACCOMPANIMENT_KEYWORDS = [
+        'piano', 'pno', 'keyboard', 'kbd', 'organ', 'org',
+        'accompaniment', 'accomp', 'acc.', 'acc', 'guitar', 'gtr',
         'strings', 'orchestra', 'orch', 'harp', 'harpsichord', 'celesta',
-        'synthesizer', 'synth'
-    }
+        'synthesizer', 'synth', 'continuo'
+    ]
+    SOLO_KEYWORDS = [
+        'solo', 'soloist', 'cantor', 'leader', 'duet', 'descant', 'obbligato'
+    ]
+    VOCAL_KEYWORDS = [
+        'soprano', 'alto', 'tenor', 'bass', 's/a', 'sa', 't/b', 'tb',
+        's', 'a', 't', 'b', 'women', 'treble', 'men', 'choir', 'chorus', 'vocal'
+    ]
+
     part_list = root.find('part-list')
     parts = root.findall('part')
 
     if part_list is not None and len(parts) > 1:
-        parts_to_remove = []
+        part_info = []
         for p in parts:
             pid = p.get('id')
             sp = root.find(f".//score-part[@id='{pid}']")
-            raw_name = ''
+            p_name = ''
+            p_abbr = ''
+            instr_name = ''
+            midi_prog = -1
+
             if sp is not None:
                 pn = sp.find('part-name')
-                raw_name = (pn.text or '').strip() if pn is not None else ''
+                if pn is not None and pn.text:
+                    p_name = pn.text.strip().lower()
+                pa = sp.find('part-abbreviation')
+                if pa is not None and pa.text:
+                    p_abbr = pa.text.strip().lower()
+                instr = sp.find('.//instrument-name')
+                if instr is not None and instr.text:
+                    instr_name = instr.text.strip().lower()
+                mp = sp.find('.//midi-program')
+                if mp is not None and mp.text:
+                    try:
+                        midi_prog = int(mp.text.strip())
+                    except ValueError:
+                        midi_prog = -1
 
-            name_lower = raw_name.lower()
+            combined_id_text = f"{p_name} {p_abbr} {instr_name}"
 
-            # Check if part name matches known accompaniment instruments
-            is_accompaniment_name = name_lower in ACCOMPANIMENT_NAMES or any(
-                name_lower.startswith(prefix) for prefix in ['piano', 'pno', 'keyboard', 'organ', 'accomp', 'guitar']
+            staves_elem = p.find('.//attributes/staves')
+            staves_count = 1
+            if staves_elem is not None and staves_elem.text:
+                try:
+                    staves_count = int(staves_elem.text.strip())
+                except ValueError:
+                    staves_count = 1
+
+            # Count meaningful lyrics
+            valid_lyrics = 0
+            for lyr in p.findall('.//lyric'):
+                for t in lyr.findall('.//text'):
+                    txt = (t.text or '').strip()
+                    if len(txt) > 1 or any(c.isalpha() for c in txt):
+                        valid_lyrics += 1
+
+            notes = p.findall('.//note')
+            note_count = len(notes)
+            chord_count = len(p.findall('.//note/chord'))
+
+            p_name_norm = p_name.replace(' ', '').replace('.', '').lower()
+            p_abbr_norm = p_abbr.replace(' ', '').replace('.', '').lower()
+
+            is_explicit_solo = (
+                any(kw in combined_id_text for kw in SOLO_KEYWORDS)
+                or p_name_norm in ['sol', 'solo']
+                or p_abbr_norm in ['sol', 'solo']
+                or 'sol.' in combined_id_text
+            )
+            is_explicit_accomp = (
+                any(kw in combined_id_text for kw in ACCOMPANIMENT_KEYWORDS)
+                or p_name_norm in ['piano', 'pno', 'org', 'organ', 'kbd', 'keyboard', 'gtr', 'guitar']
+                or p_abbr_norm in ['piano', 'pno', 'org', 'organ', 'kbd', 'keyboard', 'gtr', 'guitar']
+                or (1 <= midi_prog <= 8)
+                or (17 <= midi_prog <= 24)
+            )
+            is_vocal_name = any(
+                p_name == kw or p_abbr == kw or p_name_norm == kw.replace(' ', '').replace('.', '') or p_name.startswith(kw + ' ') or f"/{kw}" in p_name
+                for kw in VOCAL_KEYWORDS
             )
 
-            # Check for grand-staff indicator (<staves>2</staves>) typical of piano
-            has_grand_staff = False
-            staves_elem = p.find('.//attributes/staves')
-            if staves_elem is not None and staves_elem.text and int(staves_elem.text) >= 2:
-                has_grand_staff = True
+            part_info.append({
+                'part': p,
+                'score_part': sp,
+                'id': pid,
+                'name': p_name,
+                'abbr': p_abbr,
+                'staves': staves_count,
+                'note_count': note_count,
+                'valid_lyrics': valid_lyrics,
+                'chords': chord_count,
+                'is_explicit_solo': is_explicit_solo,
+                'is_explicit_accomp': is_explicit_accomp,
+                'is_vocal_name': is_vocal_name
+            })
 
-            # Check if part has any lyrics at all (vocal parts always have lyrics)
-            has_lyrics = len(p.findall('.//lyric')) > 0
+        # Identify choir vocal parts
+        choral_vocal_parts = [
+            m for m in part_info
+            if not m['is_explicit_solo'] and not m['is_explicit_accomp'] and (m['is_vocal_name'] or m['valid_lyrics'] >= 5)
+        ]
 
-            # Prune if: (name matches accompaniment) OR (grand-staff with zero lyrics)
-            if is_accompaniment_name or (has_grand_staff and not has_lyrics):
-                parts_to_remove.append((p, sp, raw_name))
+        if len(choral_vocal_parts) >= 2 or (len(choral_vocal_parts) >= 1 and len(parts) >= 3):
+            to_prune = []
+            for idx, m in enumerate(part_info):
+                if m['is_explicit_accomp']:
+                    to_prune.append(m)
+                    continue
+                if m['is_explicit_solo'] and len(choral_vocal_parts) >= 2:
+                    to_prune.append(m)
+                    continue
+                if m['staves'] >= 2 and m['valid_lyrics'] < 5:
+                    to_prune.append(m)
+                    continue
+                # Non-vocal parts with negligible/no lyrics (e.g. instrument accompaniment or stray OCR staff)
+                if m not in choral_vocal_parts and not m['is_vocal_name']:
+                    lyric_ratio = (m['valid_lyrics'] / m['note_count']) if m['note_count'] > 0 else 0
+                    if lyric_ratio < 0.08 and (m['chords'] > 0 or m['valid_lyrics'] <= 2):
+                        to_prune.append(m)
+                        continue
 
-        for p, sp, raw_name in parts_to_remove:
-            if p in list(root):
-                root.remove(p)
-                modified = True
-            if sp is not None and sp in list(part_list):
-                part_list.remove(sp)
-                modified = True
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2c. Prune Non-SATB Staves: Solo / Cantor (only when choir parts exist)
-    # ─────────────────────────────────────────────────────────────────────────
-    SOLO_NAMES = {
-        'solo', 'soloist', 'cantor', 'leader', 'duet', 'descant', 'obbligato',
-        'solo voice', 'solo vocal', 'melody'
-    }
-    VOCAL_NAMES = {
-        's', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto',
-        't', 'ten', 'tenor', 'b', 'bas', 'bass',
-        's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto',
-        't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass',
-        'women', 'treble', 'men'
-    }
-
-    parts = root.findall('part')  # Re-fetch after possible removal above
-    if part_list is not None and len(parts) > 2:
-        # Count how many remaining parts look like choir vocal staves
-        vocal_count = 0
-        solo_parts = []
-        for p in parts:
-            pid = p.get('id')
-            sp = root.find(f".//score-part[@id='{pid}']")
-            raw_name = ''
-            if sp is not None:
-                pn = sp.find('part-name')
-                raw_name = (pn.text or '').strip() if pn is not None else ''
-
-            name_lower = raw_name.lower()
-
-            if name_lower in VOCAL_NAMES or name_lower in NAME_MAP:
-                vocal_count += 1
-            elif name_lower in SOLO_NAMES or any(name_lower.startswith(s) for s in ['solo', 'cantor', 'leader']):
-                solo_parts.append((p, sp, raw_name))
-
-        # Only prune solo staves if there are enough choir vocal parts remaining
-        if vocal_count >= 2 and solo_parts:
-            for p, sp, raw_name in solo_parts:
-                if p in list(root):
-                    root.remove(p)
-                    modified = True
-                if sp is not None and sp in list(part_list):
-                    part_list.remove(sp)
-                    modified = True
+            if to_prune and (len(parts) - len(to_prune)) >= 1:
+                for m in to_prune:
+                    p = m['part']
+                    sp = m['score_part']
+                    if p in list(root):
+                        root.remove(p)
+                        modified = True
+                    if sp is not None and sp in list(part_list):
+                        part_list.remove(sp)
+                        modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2d. Strip Dynamics (direction elements containing <dynamics>)
@@ -282,7 +328,104 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 2f. Strip All Remaining <credit> Tags (reclaim vertical space on mobile)
+    # 2f. Reconstruct Misclassified Multimeasure Rests
+    # ─────────────────────────────────────────────────────────────────────────
+    # Audiveris OCR frequently defaults multimeasure rests to <multiple-rest>1</multiple-rest>
+    # while placing the printed numeral (e.g. 2, 3, 4, 8) in an orphan <credit-words> block.
+    # We dynamically find matching orphan numerals, update <multiple-rest>, insert N-1 placeholder
+    # measures so OSMD natively collapses them, and renumber subsequent measures.
+    parts = root.findall('part')
+    if parts:
+        first_part = parts[0]
+        first_part_measures = first_part.findall('measure')
+        for m_idx, m_elem in enumerate(first_part_measures):
+            mr_elem = m_elem.find('.//measure-style/multiple-rest')
+            if mr_elem is not None and (mr_elem.text or '').strip() == '1':
+                matched_credit = None
+                matched_N = None
+
+                for credit in root.findall('credit'):
+                    c_page = credit.get('page', '1')
+                    if str(c_page) != '1':
+                        continue
+                    for cw in credit.findall('credit-words'):
+                        txt = (cw.text or '').strip()
+                        if txt.isdigit():
+                            val = int(txt)
+                            if 2 <= val <= 99:
+                                try:
+                                    x = float(cw.get('default-x', '0'))
+                                    y = float(cw.get('default-y', '0'))
+                                except ValueError:
+                                    continue
+                                # Exclude system start measure numbers (x <= 230)
+                                if x > 250 and y > 1400:
+                                    matched_credit = credit
+                                    matched_N = val
+                                    break
+                    if matched_credit is not None:
+                        break
+
+                if matched_credit is not None and matched_N is not None:
+                    N = matched_N
+                    start_num = int(m_elem.get('number', '1')) if (m_elem.get('number') and m_elem.get('number').isdigit()) else 1
+
+                    # Duration for placeholder notes
+                    note_elem = m_elem.find('note')
+                    dur_text = '12'
+                    if note_elem is not None:
+                        d = note_elem.find('duration')
+                        if d is not None and d.text:
+                            dur_text = d.text.strip()
+
+                    for p in parts:
+                        p_measures = p.findall('measure')
+                        if m_idx >= len(p_measures):
+                            continue
+                        curr_m = p_measures[m_idx]
+
+                        curr_mr = curr_m.find('.//measure-style/multiple-rest')
+                        if curr_mr is not None:
+                            curr_mr.text = str(N)
+
+                        # Remove print-object="no" on rest notes so OSMD prints them
+                        for n in curr_m.findall('note'):
+                            if 'print-object' in n.attrib:
+                                del n.attrib['print-object']
+
+                        next_m_idx = m_idx + 1
+                        offset = N - 1
+                        if next_m_idx < len(p_measures):
+                            next_num_raw = p_measures[next_m_idx].get('number', '1')
+                            if next_num_raw.isdigit():
+                                offset = (start_num + N) - int(next_num_raw)
+
+                        p_children = list(p)
+                        insert_pos = p_children.index(curr_m) + 1
+
+                        for k in range(1, N):
+                            placeholder_num = str(start_num + k)
+                            placeholder_m = ET.Element('measure', {'number': placeholder_num})
+                            n_elem = ET.SubElement(placeholder_m, 'note')
+                            ET.SubElement(n_elem, 'rest', {'measure': 'yes'})
+                            dur_elem = ET.SubElement(n_elem, 'duration')
+                            dur_elem.text = dur_text
+                            p.insert(insert_pos, placeholder_m)
+                            insert_pos += 1
+
+                        all_m_after = list(p.findall('measure'))[m_idx + N:]
+                        for sm in all_m_after:
+                            sm_num = sm.get('number')
+                            if sm_num and sm_num.isdigit():
+                                sm.set('number', str(int(sm_num) + offset))
+
+                    if matched_credit in list(root):
+                        root.remove(matched_credit)
+                    modified = True
+                    break
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2g. Strip All Remaining <credit> Tags (reclaim vertical space on mobile)
     # ─────────────────────────────────────────────────────────────────────────
     for credit in list(root.findall('credit')):
         root.remove(credit)

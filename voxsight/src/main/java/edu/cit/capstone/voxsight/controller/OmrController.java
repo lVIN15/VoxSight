@@ -42,6 +42,21 @@ public class OmrController {
         return ResponseEntity.ok(lastOmrDiagnostics);
     }
 
+    @RequestMapping(value = "/clear-cache", method = {RequestMethod.GET, RequestMethod.POST})
+    public ResponseEntity<Map<String, Object>> clearCache() {
+        int analysisCount = ANALYSIS_CACHE.size();
+        int convertCount = CONVERT_CACHE.size();
+        ANALYSIS_CACHE.clear();
+        CONVERT_CACHE.clear();
+        log.info("[Cache Cleared] Cleared {} analysis entries and {} convert entries", analysisCount, convertCount);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "OMR and SATB analysis caches cleared successfully",
+                "cleared_analysis_entries", analysisCount,
+                "cleared_convert_entries", convertCount
+        ));
+    }
+
     @Value("${audiveris.path:C:\\Program Files\\Audiveris\\Audiveris.exe}")
     private String audiverisPath;
 
@@ -318,6 +333,18 @@ public class OmrController {
 
                     cleanMusicXml(targetFile);
 
+                    // Upload Validation Gate: Ensure score does not contain Piano or Solo staves
+                    try {
+                        satbAnalysisService.analyze(targetFile);
+                    } catch (SatbAnalysisService.SatbAnalysisException e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("Unsupported Score") || e.getMessage().contains("Solo voices or Piano"))) {
+                            targetFile.delete();
+                            String cleanMsg = e.getMessage().replace("SATB analysis failed: ", "");
+                            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                                    .body(OmrResponse.ofError(cleanMsg));
+                        }
+                    }
+
                     String fileUrl = "/outputs/" + baseName + extension;
                     OmrResponse response = OmrResponse.ofSuccess(fileUrl, baseName + extension);
                     CONVERT_CACHE.put(fileHash, response);
@@ -495,6 +522,11 @@ public class OmrController {
 
             } catch (SatbAnalysisService.SatbAnalysisException e) {
                 log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
+                if (e.getMessage() != null && (e.getMessage().contains("Unsupported Score") || e.getMessage().contains("Solo voices or Piano") || e.getMessage().contains("UNSUPPORTED_SCORE_SOLO_PIANO"))) {
+                    String cleanMsg = e.getMessage().replace("SATB analysis failed: ", "");
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(OmrAnalysisResponse.ofError(cleanMsg));
+                }
                 try {
                     String rawXml = extractXmlContent(targetFile);
                     OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(

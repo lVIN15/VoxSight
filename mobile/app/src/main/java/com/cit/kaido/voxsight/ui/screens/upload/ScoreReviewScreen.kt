@@ -53,6 +53,11 @@ data class SelectedNoteInfo(
     val isDotted: Boolean = false
 )
 
+data class SelectedMultiRestInfo(
+    val measureNumber: Int,
+    val count: Int
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -64,6 +69,7 @@ fun ScoreReviewScreen(
     val context = LocalContext.current
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var selectedNote by remember { mutableStateOf<SelectedNoteInfo?>(null) }
+    var selectedMultiRest by remember { mutableStateOf<SelectedMultiRestInfo?>(null) }
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
 
@@ -84,6 +90,7 @@ fun ScoreReviewScreen(
         ) {
             // Note selected callback from JS Thread - hop to Main thread
             (context as? android.app.Activity)?.runOnUiThread {
+                selectedMultiRest = null
                 selectedNote = SelectedNoteInfo(
                     id = id,
                     pitchStep = pitchStep,
@@ -96,6 +103,14 @@ fun ScoreReviewScreen(
                     isRest = isRest,
                     isDotted = isDotted
                 )
+            }
+        }
+
+        @JavascriptInterface
+        fun onMultiRestSelected(measureNum: Int, count: Int) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                selectedNote = null
+                selectedMultiRest = SelectedMultiRestInfo(measureNum, count)
             }
         }
     }
@@ -368,6 +383,30 @@ fun ScoreReviewScreen(
                 onDismissRequest = {
                     selectedNote = null
                     // Clear graphic highlights
+                    webViewInstance?.evaluateJavascript("clearHighlights();", null)
+                }
+            )
+        }
+
+        // Show Native Edit Bottom Sheet if a multimeasure rest (H-bar) is selected
+        selectedMultiRest?.let { multiRest ->
+            MultiRestEditorBottomSheet(
+                measureNumber = multiRest.measureNumber,
+                count = multiRest.count,
+                onCountChanged = { delta ->
+                    webViewInstance?.evaluateJavascript("adjustMultiRestCount($delta);", null)
+                    val newCount = (multiRest.count + delta).coerceAtLeast(1)
+                    selectedMultiRest = selectedMultiRest?.copy(count = newCount)
+                },
+                onSetCount = { targetCount ->
+                    val delta = targetCount - multiRest.count
+                    if (delta != 0) {
+                        webViewInstance?.evaluateJavascript("adjustMultiRestCount($delta);", null)
+                        selectedMultiRest = selectedMultiRest?.copy(count = targetCount)
+                    }
+                },
+                onDismissRequest = {
+                    selectedMultiRest = null
                     webViewInstance?.evaluateJavascript("clearHighlights();", null)
                 }
             )

@@ -11,6 +11,7 @@ import java.io.StringReader
 import java.nio.charset.Charset
 import java.util.zip.ZipInputStream
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val DEFAULT_BPM = 96f
@@ -81,10 +82,145 @@ fun parseMusicXmlFromString(
     return parseMusicXmlScoreFromText(rawXml, fallbackTitle)
 }
 
+/**
+ * Holds pre-computed measure timing to ensure ALL parts and voices stay in exact unison.
+ */
+data class MeasureTimelineInfo(
+    val measureNominalTicks: List<Int>,
+    val measureStartTicks: List<Int>,
+    val totalScoreTicks: Int
+)
+
+/**
+ * Pre-scans MusicXML to determine the global measure timeline based on time signatures (<time>).
+ * Guarantees that every voice, staff, and part crosses each measure barline at the exact same musical tick.
+ */
+fun computeScoreMeasureTimeline(rawXml: String): MeasureTimelineInfo {
+    val parser = Xml.newPullParser()
+    parser.setInput(StringReader(sanitizeXmlEntities(rawXml)))
+
+    val measureTimeSigs = mutableMapOf<Int, Pair<Int, Int>>()
+    val measureRawMaxDurs = mutableMapOf<Int, Int>()
+    var maxMeasuresFound = 0
+    var currentPartMeasureCount = 0
+    var inAttributes = false
+    var inTime = false
+    var curDivisions = 1
+    var inMeasure = false
+    var currentMeasureIdx = 0
+    var intraMeasureDur = 0
+
+    try {
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    when (parser.name) {
+                        "part" -> {
+                            currentPartMeasureCount = 0
+                        }
+                        "measure" -> {
+                            inMeasure = true
+                            currentMeasureIdx = currentPartMeasureCount
+                            currentPartMeasureCount++
+                            if (currentPartMeasureCount > maxMeasuresFound) {
+                                maxMeasuresFound = currentPartMeasureCount
+                            }
+                            intraMeasureDur = 0
+                        }
+                        "attributes" -> inAttributes = true
+                        "divisions" -> {
+                            val divVal = parser.nextText().trim().toIntOrNull()
+                            if (divVal != null && divVal > 0) curDivisions = divVal
+                        }
+                        "time" -> if (inAttributes) inTime = true
+                        "beats" -> if (inTime) {
+                            val b = parser.nextText().trim().toIntOrNull()
+                            if (b != null && b > 0) {
+                                val prev = measureTimeSigs[currentMeasureIdx] ?: Pair(4, 4)
+                                measureTimeSigs[currentMeasureIdx] = Pair(b, prev.second)
+                            }
+                        }
+                        "beat-type" -> if (inTime) {
+                            val bt = parser.nextText().trim().toIntOrNull()
+                            if (bt != null && bt > 0) {
+                                val prev = measureTimeSigs[currentMeasureIdx] ?: Pair(4, 4)
+                                measureTimeSigs[currentMeasureIdx] = Pair(prev.first, bt)
+                            }
+                        }
+                        "duration" -> {
+                            val durVal = parser.nextText().trim().toIntOrNull() ?: 0
+                            if (inMeasure && curDivisions > 0) {
+                                val ticks = (durVal.toDouble() / curDivisions * STANDARD_TPQ).roundToInt()
+                                intraMeasureDur += ticks
+                                val existingMax = measureRawMaxDurs[currentMeasureIdx] ?: 0
+                                if (intraMeasureDur > existingMax) {
+                                    measureRawMaxDurs[currentMeasureIdx] = intraMeasureDur
+                                }
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "attributes" -> inAttributes = false
+                        "time" -> inTime = false
+                        "measure" -> inMeasure = false
+                    }
+                }
+            }
+            event = parser.next()
+        }
+    } catch (_: Exception) {}
+
+    val totalMeasures = maxOf(1, maxMeasuresFound)
+    var prevailingBeats = 4
+    var prevailingBeatType = 4
+    val nominalTicksList = mutableListOf<Int>()
+
+    for (m in 0 until totalMeasures) {
+        measureTimeSigs[m]?.let { (b, bt) ->
+            if (b > 0 && bt > 0) {
+                prevailingBeats = b
+                prevailingBeatType = bt
+            }
+        }
+        val nomQuarters = prevailingBeats.toDouble() * (4.0 / prevailingBeatType.toDouble())
+        var nomTicks = (nomQuarters * STANDARD_TPQ).roundToInt().coerceAtLeast(STANDARD_TPQ)
+
+        // Pickup / anacrusis detection for measure 0:
+        // If measure 0 has notes across parts that are shorter than a full measure, use the pickup length
+        if (m == 0) {
+            val measuredDur = measureRawMaxDurs[0] ?: 0
+            if (measuredDur in 1 until nomTicks) {
+                nomTicks = measuredDur
+            }
+        }
+        nominalTicksList.add(nomTicks)
+    }
+
+    val startTicksList = mutableListOf<Int>()
+    var accumulated = 0
+    for (nom in nominalTicksList) {
+        startTicksList.add(accumulated)
+        accumulated += nom
+    }
+
+    return MeasureTimelineInfo(
+        measureNominalTicks = nominalTicksList,
+        measureStartTicks = startTicksList,
+        totalScoreTicks = accumulated
+    )
+}
+
 fun parseMusicXmlScoreFromText(
     rawText: String,
     fallbackTitle: String = "Untitled Score"
 ): MusicXmlScore? {
+    val timeline = computeScoreMeasureTimeline(rawText)
+    val measureStartTicks = timeline.measureStartTicks
+    val measureNominalTicks = timeline.measureNominalTicks
+
     val notes = mutableListOf<MusicXmlNote>()
     val partNotesMap = mutableMapOf<Int, MutableList<MusicXmlNote>>()
     val partMeasuresMap = mutableMapOf<Int, MutableList<MusicXmlMeasure>>()
@@ -95,6 +231,9 @@ fun parseMusicXmlScoreFromText(
     var composer: String? = null
     var currentDivisions = 1
     var parsedTempo: Float? = null
+
+    // Intra-measure tick cursor (resets at each measure boundary)
+    var intraMeasureTick = 0
 
     // We will track total duration per part to find the actual max duration
     val partDurations = mutableMapOf<Int, Int>()
@@ -156,6 +295,7 @@ fun parseMusicXmlScoreFromText(
                             currentMeasureNumber = parser.getAttributeValue(null, "number")?.toIntOrNull() ?: 1
                             currentMeasureIndex = partMeasuresMap.getOrDefault(currentPartIndex, emptyList()).size
                             currentMeasureNotes = mutableListOf<MusicXmlNote>()
+                            intraMeasureTick = 0
                         }
                         "work-title",
                         "movement-title",
@@ -241,26 +381,51 @@ fun parseMusicXmlScoreFromText(
                 XmlPullParser.END_TAG -> {
                     if (parser.name == "backup") {
                         val backupTicks = (backupDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
-                        val currentPartDuration = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = max(0, currentPartDuration - backupTicks)
+                        intraMeasureTick = max(0, intraMeasureTick - backupTicks)
                         inBackup = false
                     } else if (parser.name == "forward") {
                         val forwardTicks = (forwardDuration.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
-                        val currentPartDuration = partDurations.getOrDefault(currentPartIndex, 0)
-                        partDurations[currentPartIndex] = currentPartDuration + forwardTicks
+                        intraMeasureTick += forwardTicks
                         inForward = false
                     } else if (parser.name == "note" && inNote) {
                         val rawDur = if (isChord) lastDuration else duration ?: 0
                         val effectiveDuration = (rawDur.toDouble() / currentDivisions * STANDARD_TPQ).roundToInt()
 
-                        val currentCursor = partDurations.getOrDefault(currentPartIndex, 0)
-                        val noteStartTime = if (isChord) {
-                            max(0, currentCursor - effectiveDuration)
+                        val noteOffset = if (isChord) {
+                            max(0, intraMeasureTick - effectiveDuration)
                         } else {
-                            currentCursor
+                            intraMeasureTick
                         }
 
-                        partDurations[currentPartIndex] = noteStartTime + effectiveDuration
+                        if (!isChord) {
+                            intraMeasureTick = noteOffset + effectiveDuration
+                        }
+
+                        val measureStartTick = measureStartTicks.getOrElse(currentMeasureIndex) {
+                            if (measureStartTicks.isNotEmpty()) {
+                                measureStartTicks.last() + (currentMeasureIndex - measureStartTicks.size + 1) * STANDARD_TPQ * 4
+                            } else {
+                                0
+                            }
+                        }
+                        val measureNominalTick = measureNominalTicks.getOrElse(currentMeasureIndex) { STANDARD_TPQ * 4 }
+
+                        // Clamp intra-measure offset to prevent overshooting nominal measure length
+                        val clampedOffset = if (measureNominalTick > 0) {
+                            min(noteOffset, measureNominalTick - 1)
+                        } else {
+                            noteOffset
+                        }
+
+                        // Clamp duration so the note does not bleed beyond the measure boundary into next measure
+                        val clampedDuration = if (measureNominalTick > 0 && clampedOffset + effectiveDuration > measureNominalTick) {
+                            max(STANDARD_TPQ / 4, measureNominalTick - clampedOffset)
+                        } else {
+                            effectiveDuration
+                        }
+
+                        val noteStartTime = measureStartTick + clampedOffset
+                        partDurations[currentPartIndex] = max(partDurations.getOrDefault(currentPartIndex, 0), noteStartTime + clampedDuration)
 
                         if (isRest || (step != null && octave != null)) {
                             val resolvedStep = if (isRest) "R" else {
@@ -283,7 +448,7 @@ fun parseMusicXmlScoreFromText(
                             val note = MusicXmlNote(
                                 step = resolvedStep,
                                 octave = resolvedOctave,
-                                durationDivisions = effectiveDuration,
+                                durationDivisions = clampedDuration,
                                 startTimeDivisions = noteStartTime,
                                 voice = actualVoice,
                                 staff = staff ?: 1,
@@ -308,6 +473,7 @@ fun parseMusicXmlScoreFromText(
                         val measureNotesList = currentMeasureNotes.toList()
                         val measure = MusicXmlMeasure(currentMeasureNumber, measureNotesList)
                         partMeasuresMap.getOrPut(currentPartIndex) { mutableListOf() }.add(measure)
+                        intraMeasureTick = 0
                     }
                 }
             }
@@ -315,7 +481,7 @@ fun parseMusicXmlScoreFromText(
         }
 
         android.util.Log.d("MusicXmlParser", "Parsed ${notes.size} notes, distinct voices: ${notes.map { it.voice }.distinct()}")
-        val maxTotalDuration = partDurations.values.maxOrNull() ?: 0
+        val maxTotalDuration = max(timeline.totalScoreTicks, partDurations.values.maxOrNull() ?: 0)
 
         val resolvedTempo = parsedTempo ?: 120f
         val beats = maxTotalDuration.toFloat() / STANDARD_TPQ
@@ -570,7 +736,7 @@ private fun sanitizeXmlEntities(xml: String): String {
     return xmlEntityPattern.replace(xml, "&amp;")
 }
 
-private fun readMusicXmlText(context: Context, uri: Uri): String? {
+internal fun readMusicXmlText(context: Context, uri: Uri): String? {
     val bytes = try {
         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
     } catch (_: Exception) {

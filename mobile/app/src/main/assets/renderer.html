@@ -608,6 +608,9 @@
                     xmlDoc = new DOMParser().parseFromString(xmlToLoad, 'text/xml');
                     if (xmlDoc.querySelector('parsererror')) {
                         console.warn('DOM parser error in renderer.html');
+                    } else {
+                        cleanMusicXmlDom(xmlDoc);
+                        xmlToLoad = new XMLSerializer().serializeToString(xmlDoc);
                     }
                 } catch (e) {
                     console.warn('DOM parsing error in renderer.html:', e);
@@ -633,9 +636,6 @@
 
                 // Resize canvas to match rendered score
                 resizeCanvas();
-
-                // Render authentic H-bar rests for multi-measure rest bars
-                renderHBarRests();
 
                 // Build note map & directly color 100% of noteheads, stems, flags, beams from XML
                 buildNoteMap();
@@ -795,6 +795,45 @@
                 cumulativeStaves += stavesCount;
             }
 
+            // Step 0b: Calculate global measure start quarters across all measures based on time signatures
+            var maxMeasuresInDoc = 0;
+            for (let p = 0; p < xmlParts.length; p++) {
+                var measCount = xmlParts[p].getElementsByTagName('measure').length;
+                if (measCount > maxMeasuresInDoc) maxMeasuresInDoc = measCount;
+            }
+
+            var timeSignaturesMap = {};
+            for (let p = 0; p < xmlParts.length; p++) {
+                var pMeasEls = xmlParts[p].getElementsByTagName('measure');
+                for (let m = 0; m < pMeasEls.length; m++) {
+                    var tEl = pMeasEls[m].getElementsByTagName('time')[0];
+                    if (tEl && !timeSignaturesMap[m]) {
+                        var bEl = tEl.getElementsByTagName('beats')[0];
+                        var btEl = tEl.getElementsByTagName('beat-type')[0];
+                        if (bEl && btEl) {
+                            var bVal = parseInt(bEl.textContent.trim(), 10);
+                            var btVal = parseInt(btEl.textContent.trim(), 10);
+                            if (!isNaN(bVal) && !isNaN(btVal) && bVal > 0 && btVal > 0) {
+                                timeSignaturesMap[m] = { beats: bVal, beatType: btVal };
+                            }
+                        }
+                    }
+                }
+            }
+
+            var measureStartQuarters = [];
+            var prevailingBeats = 4, prevailingBeatType = 4;
+            var accumulatedQuarters = 0;
+            for (let m = 0; m < maxMeasuresInDoc; m++) {
+                if (timeSignaturesMap[m]) {
+                    prevailingBeats = timeSignaturesMap[m].beats;
+                    prevailingBeatType = timeSignaturesMap[m].beatType;
+                }
+                measureStartQuarters.push(accumulatedQuarters);
+                var nominalQuarters = prevailingBeats * (4.0 / prevailingBeatType);
+                accumulatedQuarters += nominalQuarters;
+            }
+
             // Step 1: Build a map of ALL XML notes grouped by 0-based measure sequence index (mIdx)
             var xmlMeasureNotes = new Map();
 
@@ -890,6 +929,7 @@
                                 isRest: isRest,
                                 isChord: isChord,
                                 startTime: currentDivisions > 0 ? (noteStartTime / currentDivisions) : 0,
+                                absStartTime: (measureStartQuarters[mIdx] !== undefined ? measureStartQuarters[mIdx] : 0) + (currentDivisions > 0 ? (noteStartTime / currentDivisions) : 0),
                                 duration: currentDivisions > 0 ? (dur / currentDivisions) : 1,
                                 mNum: mNum,
                                 mIdx: mIdx
@@ -1192,7 +1232,7 @@
 
                     if (!xn.isRest) {
                         noteCoordinates.push({
-                            tick: Math.round(xn.startTime * currentTpq),
+                            tick: Math.round(((xn.absStartTime !== undefined) ? xn.absStartTime : xn.startTime) * currentTpq),
                             midiNote: xn.midi,
                             measureNumber: gn.mNum,
                             measureIndex: mIdx,
@@ -1253,167 +1293,6 @@
                     synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
                 } catch (e) {
                     console.warn("playNote error:", e);
-                }
-            }
-        }
-
-        // ─── SVG H-Bar Rest Renderer for Multi-Measure Rests (Data-Driven) ────
-        function renderHBarRests() {
-            if (!osmd || !osmd.graphic) return;
-
-            var existing = renderDiv.querySelectorAll('.voxsight-hbar-rest');
-            for (let i = 0; i < existing.length; i++) {
-                existing[i].remove();
-            }
-
-            var svgs = renderDiv.querySelectorAll('svg');
-            if (!svgs || svgs.length === 0) return;
-            var pages = (osmd.graphic && osmd.graphic.MusicPages) ? osmd.graphic.MusicPages : [];
-
-            var xmlParts = xmlDoc ? xmlDoc.getElementsByTagName('part') : [];
-            var measureList = osmd.graphic.measureList;
-            if (!measureList) return;
-
-            var unitToPx = 10;
-            if (osmd.graphic && osmd.graphic.rules && osmd.graphic.rules.unitInPixels) unitToPx = osmd.graphic.rules.unitInPixels;
-            else if (osmd.rules && osmd.rules.unitInPixels) unitToPx = osmd.rules.unitInPixels;
-
-            for (let mIdx = 0; mIdx < measureList.length; mIdx++) {
-                var mRow = measureList[mIdx];
-                if (!mRow) continue;
-
-                for (let sIdx = 0; sIdx < mRow.length; sIdx++) {
-                    var gMeas = mRow[sIdx];
-                    if (!gMeas) continue;
-
-                    if (gMeas.IsExtraGraphicalMeasure || gMeas.isExtraGraphicalMeasure || !gMeas.parentMusicSystem) continue;
-
-                    var multirestCount = 0;
-                    if (gMeas.parentSourceMeasure && gMeas.parentSourceMeasure.multipleRestMeasures) {
-                        multirestCount = gMeas.parentSourceMeasure.multipleRestMeasures;
-                    }
-
-                    var xmlPart = (sIdx < xmlParts.length) ? xmlParts[sIdx] : null;
-                    var xmlMeas = null;
-                    if (xmlPart) {
-                        var allM = xmlPart.getElementsByTagName('measure');
-                        if (mIdx < allM.length) xmlMeas = allM[mIdx];
-                    }
-
-                    if (multirestCount <= 0 && xmlMeas) {
-                        var msEl = xmlMeas.querySelector('measure-style > multiple-rest');
-                        if (msEl) multirestCount = parseInt(msEl.textContent.trim(), 10) || 0;
-                    }
-
-                    // Strict Guard: An H-bar rest must ONLY be rendered on pure rest measures.
-                    if (xmlMeas) {
-                        var pitches = xmlMeas.getElementsByTagName('pitch');
-                        if (pitches.length > 0) continue;
-
-                        var lyrics = xmlMeas.getElementsByTagName('lyric');
-                        if (lyrics.length > 0) continue;
-
-                        var notes = xmlMeas.getElementsByTagName('note');
-                        var hasRhythmNotes = false;
-                        for (var ni = 0; ni < notes.length; ni++) {
-                            var nType = notes[ni].getElementsByTagName('type')[0];
-                            var typeStr = nType ? nType.textContent.trim().toLowerCase() : '';
-                            if (typeStr && typeStr !== 'whole' && typeStr !== 'breve') {
-                                hasRhythmNotes = true;
-                                break;
-                            }
-                        }
-                        if (hasRhythmNotes) continue;
-                    }
-
-                    if (multirestCount >= 2) {
-                        var mNum = gMeas.parentSourceMeasure ? gMeas.parentSourceMeasure.MeasureNumber : (mIdx + 1);
-                        var bbox = gMeas.PositionAndShape || gMeas.positionAndShape;
-                        var absPos = bbox ? (bbox.absolutePosition || bbox.AbsolutePosition) : null;
-                        var size = bbox ? (bbox.size || bbox.Size) : null;
-                        if (!absPos || !size) continue;
-
-                        var sys = gMeas.parentMusicSystem;
-                        var page = sys ? (sys.Parent || sys.parentMusicPage || sys.ParentMusicPage) : null;
-                        var pIdx = (pages && page) ? pages.indexOf(page) : 0;
-                        if (pIdx < 0) pIdx = 0;
-                        var targetSvg = (pIdx < svgs.length) ? svgs[pIdx] : svgs[0];
-
-                        var pageY = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.y : 0;
-                        var pageX = (page && page.PositionAndShape && svgs.length > 1) ? page.PositionAndShape.AbsolutePosition.x : 0;
-
-                        var sx = (absPos.x - pageX) * unitToPx;
-                        var sy = (absPos.y - pageY) * unitToPx;
-                        var sw = size.width * unitToPx;
-                        var sh = size.height * unitToPx;
-
-                        if (!sw || sw < 20 || !sh || sh < 15) continue;
-
-                        var line1Y = sy;
-                        var line3Y = sy + (sh * 0.5);
-                        var serifTop = sy + (sh * 0.25);
-                        var serifBottom = sy + (sh * 0.75);
-
-                        var barWidth = Math.max(36, Math.min(70, sw * 0.38));
-                        var leftX = sx + (sw - barWidth) / 2;
-                        var rightX = leftX + barWidth;
-
-                        var gEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                        gEl.setAttribute('class', 'voxsight-hbar-rest');
-                        gEl.setAttribute('data-measure-num', mNum.toString());
-                        gEl.setAttribute('data-staff-idx', sIdx.toString());
-
-                        // Mask rectangle behind H-Bar to cleanly conceal any default rest symbol
-                        var bgMask = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                        bgMask.setAttribute('x', (leftX - 4).toFixed(2));
-                        bgMask.setAttribute('y', (line1Y + 2).toFixed(2));
-                        bgMask.setAttribute('width', (barWidth + 8).toFixed(2));
-                        bgMask.setAttribute('height', (sh - 4).toFixed(2));
-                        bgMask.setAttribute('fill', '#ffffff');
-                        bgMask.setAttribute('opacity', '0.92');
-                        gEl.appendChild(bgMask);
-
-                        var beam = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                        beam.setAttribute('x1', leftX.toFixed(2));
-                        beam.setAttribute('y1', line3Y.toFixed(2));
-                        beam.setAttribute('x2', rightX.toFixed(2));
-                        beam.setAttribute('y2', line3Y.toFixed(2));
-                        beam.setAttribute('stroke', '#000000');
-                        beam.setAttribute('stroke-width', '5.5');
-                        beam.setAttribute('stroke-linecap', 'square');
-                        gEl.appendChild(beam);
-
-                        var lSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                        lSerif.setAttribute('x1', leftX.toFixed(2));
-                        lSerif.setAttribute('y1', serifTop.toFixed(2));
-                        lSerif.setAttribute('x2', leftX.toFixed(2));
-                        lSerif.setAttribute('y2', serifBottom.toFixed(2));
-                        lSerif.setAttribute('stroke', '#000000');
-                        lSerif.setAttribute('stroke-width', '3.2');
-                        gEl.appendChild(lSerif);
-
-                        var rSerif = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                        rSerif.setAttribute('x1', rightX.toFixed(2));
-                        rSerif.setAttribute('y1', serifTop.toFixed(2));
-                        rSerif.setAttribute('x2', rightX.toFixed(2));
-                        rSerif.setAttribute('y2', serifBottom.toFixed(2));
-                        rSerif.setAttribute('stroke', '#000000');
-                        rSerif.setAttribute('stroke-width', '3.2');
-                        gEl.appendChild(rSerif);
-
-                        var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                        text.setAttribute('x', (sx + sw / 2).toFixed(2));
-                        text.setAttribute('y', (line1Y - 7).toFixed(2));
-                        text.setAttribute('font-family', 'serif, "Times New Roman", sans-serif');
-                        text.setAttribute('font-weight', 'bold');
-                        text.setAttribute('font-size', '16');
-                        text.setAttribute('text-anchor', 'middle');
-                        text.setAttribute('fill', '#000000');
-                        text.textContent = multirestCount.toString();
-                        gEl.appendChild(text);
-
-                        targetSvg.appendChild(gEl);
-                    }
                 }
             }
         }
@@ -1582,6 +1461,222 @@
             var rights = doc.getElementsByTagName('rights');
             for (var r = rights.length - 1; r >= 0; r--) {
                 if (rights[r].parentNode) rights[r].parentNode.removeChild(rights[r]);
+            }
+
+            // 3a. Reconstruct Misclassified Multimeasure Rests
+            try {
+                var partsForRest = Array.from(doc.getElementsByTagName('part'));
+                if (partsForRest.length > 0) {
+                    var firstPart = partsForRest[0];
+                    var firstPartMeasures = Array.from(firstPart.getElementsByTagName('measure'));
+                    for (var mIdx = 0; mIdx < firstPartMeasures.length; mIdx++) {
+                        var mElem = firstPartMeasures[mIdx];
+                        var mrElem = mElem.querySelector('measure-style > multiple-rest');
+                        if (mrElem && (mrElem.textContent || '').trim() === '1') {
+                            var matchedCredit = null;
+                            var matchedN = null;
+                            var creditsList = Array.from(doc.getElementsByTagName('credit'));
+                            for (var ci = 0; ci < creditsList.length; ci++) {
+                                var cr = creditsList[ci];
+                                var pageAttr = cr.getAttribute('page') || '1';
+                                if (pageAttr !== '1') continue;
+                                var cwList = cr.getElementsByTagName('credit-words');
+                                for (var cwi = 0; cwi < cwList.length; cwi++) {
+                                    var cw = cwList[cwi];
+                                    var txt = (cw.textContent || '').trim();
+                                    if (/^\d+$/.test(txt)) {
+                                        var val = parseInt(txt, 10);
+                                        if (val >= 2 && val <= 99) {
+                                            var x = parseFloat(cw.getAttribute('default-x') || '0');
+                                            var y = parseFloat(cw.getAttribute('default-y') || '0');
+                                            if (x > 250 && y > 1400) {
+                                                matchedCredit = cr;
+                                                matchedN = val;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (matchedCredit) break;
+                            }
+
+                            if (matchedCredit && matchedN) {
+                                var N = matchedN;
+                                var startNumRaw = mElem.getAttribute('number') || '1';
+                                var startNum = /^\d+$/.test(startNumRaw) ? parseInt(startNumRaw, 10) : 1;
+                                var noteElem = mElem.getElementsByTagName('note')[0];
+                                var durText = '12';
+                                if (noteElem) {
+                                    var dElem = noteElem.getElementsByTagName('duration')[0];
+                                    if (dElem && dElem.textContent) durText = dElem.textContent.trim();
+                                }
+
+                                partsForRest.forEach(function(p) {
+                                    var pMeasures = Array.from(p.getElementsByTagName('measure'));
+                                    if (mIdx >= pMeasures.length) return;
+                                    var currM = pMeasures[mIdx];
+                                    var currMr = currM.querySelector('measure-style > multiple-rest');
+                                    if (currMr) currMr.textContent = String(N);
+
+                                    // Remove print-object="no" on rest notes so OSMD renders the rest
+                                    var notes = Array.from(currM.getElementsByTagName('note'));
+                                    notes.forEach(function(n) {
+                                        if (n.hasAttribute('print-object')) n.removeAttribute('print-object');
+                                    });
+
+                                    var nextMIdx = mIdx + 1;
+                                    var offset = N - 1;
+                                    if (nextMIdx < pMeasures.length) {
+                                        var nextNumRaw = pMeasures[nextMIdx].getAttribute('number') || '1';
+                                        if (/^\d+$/.test(nextNumRaw)) {
+                                            offset = (startNum + N) - parseInt(nextNumRaw, 10);
+                                        }
+                                    }
+
+                                    var refNode = currM.nextSibling;
+                                    for (var k = 1; k < N; k++) {
+                                        var placeholderNum = String(startNum + k);
+                                        var placeholderM = doc.createElement('measure');
+                                        placeholderM.setAttribute('number', placeholderNum);
+                                        var nElem = doc.createElement('note');
+                                        var rElem = doc.createElement('rest');
+                                        rElem.setAttribute('measure', 'yes');
+                                        var durEl = doc.createElement('duration');
+                                        durEl.textContent = durText;
+                                        nElem.appendChild(rElem);
+                                        nElem.appendChild(durEl);
+                                        placeholderM.appendChild(nElem);
+                                        p.insertBefore(placeholderM, refNode);
+                                    }
+
+                                    var updatedMeasures = Array.from(p.getElementsByTagName('measure'));
+                                    for (var smIdx = mIdx + N; smIdx < updatedMeasures.length; smIdx++) {
+                                        var sm = updatedMeasures[smIdx];
+                                        var smNumRaw = sm.getAttribute('number');
+                                        if (smNumRaw && /^\d+$/.test(smNumRaw)) {
+                                            sm.setAttribute('number', String(parseInt(smNumRaw, 10) + offset));
+                                        }
+                                    }
+                                });
+
+                                if (matchedCredit.parentNode) {
+                                    matchedCredit.parentNode.removeChild(matchedCredit);
+                                }
+                                console.log('[cleanMusicXmlDom] Repaired multimeasure rest to N=' + N);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[cleanMusicXmlDom] Multimeasure rest repair error:', err);
+            }
+
+            // 3b. Prune Non-SATB Accompaniment (Piano, Organ, Keyboard, Guitar, etc.) and Solo staves
+            var accompKeywords = ['piano', 'pno', 'keyboard', 'kbd', 'organ', 'org', 'accomp', 'accompaniment', 'guitar', 'gtr', 'harp', 'strings', 'orchestra', 'synth', 'continuo'];
+            var soloKeywords = ['solo', 'cantor', 'leader', 'soloist', 'obbligato', 'descant'];
+            var vocalKeywords = ['soprano', 'alto', 'tenor', 'bass', 's/a', 'sa', 't/b', 'tb', 's', 'a', 't', 'b', 'women', 'men', 'treble'];
+
+            var allPartsList = Array.from(doc.getElementsByTagName('part'));
+            var partListElem = doc.getElementsByTagName('part-list')[0];
+
+            if (partListElem && allPartsList.length > 1) {
+                var partMeta = allPartsList.map(function(p) {
+                    var pid = p.getAttribute('id');
+                    var sp = partListElem.querySelector("score-part[id='" + pid + "']");
+                    var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                    var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                    var instr = (sp && sp.querySelector('instrument-name')) ? (sp.querySelector('instrument-name').textContent || '').trim().toLowerCase() : '';
+                    var midiProgElem = sp ? sp.querySelector('midi-program') : null;
+                    var midiProg = midiProgElem ? parseInt(midiProgElem.textContent, 10) : -1;
+
+                    var stavesElem = p.querySelector('attributes > staves');
+                    var stavesCount = stavesElem ? (parseInt(stavesElem.textContent, 10) || 1) : 1;
+
+                    var lyrics = p.querySelectorAll('lyric text');
+                    var validLyrics = 0;
+                    lyrics.forEach(function(l) {
+                        var txt = (l.textContent || '').trim();
+                        if (txt.length > 1 || /[a-zA-Z]/.test(txt)) validLyrics++;
+                    });
+
+                    var notes = p.querySelectorAll('note');
+                    var noteCount = notes.length;
+                    var chords = p.querySelectorAll('note > chord').length;
+
+                    var pNameNorm = pName.replace(/[\s.]+/g, '');
+                    var pAbbrNorm = pAbbr.replace(/[\s.]+/g, '');
+
+                    var isExplicitSolo = soloKeywords.some(function(kw) {
+                        return pName.indexOf(kw) !== -1 || pAbbr.indexOf(kw) !== -1 || instr.indexOf(kw) !== -1;
+                    }) || pNameNorm === 'sol' || pNameNorm === 'solo' || pAbbrNorm === 'sol' || pAbbrNorm === 'solo' || pName.indexOf('sol.') !== -1;
+
+                    var isExplicitAccomp = accompKeywords.some(function(kw) {
+                        return pName.indexOf(kw) !== -1 || pAbbr.indexOf(kw) !== -1 || instr.indexOf(kw) !== -1;
+                    }) || ['piano', 'pno', 'org', 'organ', 'kbd', 'keyboard', 'gtr', 'guitar'].indexOf(pNameNorm) !== -1 || (midiProg >= 1 && midiProg <= 8) || (midiProg >= 17 && midiProg <= 24);
+
+                    var isVocalName = vocalKeywords.some(function(kw) {
+                        var kwNorm = kw.replace(/[\s.]+/g, '');
+                        return pName === kw || pAbbr === kw || pNameNorm === kwNorm || pName.startsWith(kw + ' ') || pName.indexOf('/' + kw) !== -1;
+                    });
+
+                    return {
+                        partElem: p,
+                        scorePartElem: sp,
+                        id: pid,
+                        name: pName,
+                        abbr: pAbbr,
+                        staves: stavesCount,
+                        noteCount: noteCount,
+                        validLyrics: validLyrics,
+                        chords: chords,
+                        isExplicitSolo: isExplicitSolo,
+                        isExplicitAccomp: isExplicitAccomp,
+                        isVocalName: isVocalName
+                    };
+                });
+
+                var choralVocalParts = partMeta.filter(function(m) {
+                    return !m.isExplicitSolo && !m.isExplicitAccomp && (m.isVocalName || m.validLyrics >= 5);
+                });
+
+                if (choralVocalParts.length >= 2 || (choralVocalParts.length >= 1 && allPartsList.length >= 3)) {
+                    var toPrune = [];
+
+                    partMeta.forEach(function(m) {
+                        if (m.isExplicitAccomp) {
+                            toPrune.push(m);
+                            return;
+                        }
+                        if (m.isExplicitSolo && choralVocalParts.length >= 2) {
+                            toPrune.push(m);
+                            return;
+                        }
+                        if (m.staves >= 2 && m.validLyrics < 5) {
+                            toPrune.push(m);
+                            return;
+                        }
+                        // Non-vocal parts with negligible/no lyrics (e.g. instrument accompaniment or stray OCR staff)
+                        if (choralVocalParts.indexOf(m) === -1 && !m.isVocalName) {
+                            var lyricRatio = m.noteCount > 0 ? (m.validLyrics / m.noteCount) : 0;
+                            if (lyricRatio < 0.08 && (m.chords > 0 || m.validLyrics <= 2)) {
+                                toPrune.push(m);
+                                return;
+                            }
+                        }
+                    });
+
+                    if (toPrune.length > 0 && (allPartsList.length - toPrune.length) >= 1) {
+                        toPrune.forEach(function(m) {
+                            if (m.partElem && m.partElem.parentNode) {
+                                m.partElem.parentNode.removeChild(m.partElem);
+                            }
+                            if (m.scorePartElem && m.scorePartElem.parentNode) {
+                                m.scorePartElem.parentNode.removeChild(m.scorePartElem);
+                            }
+                        });
+                    }
+                }
             }
 
             // 4. Detect and merge complementary parts (e.g. S/A + Alto, T/B + Bass, or S, A, T, B + Soprano, Alto, Tenor, Bass)
