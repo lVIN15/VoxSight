@@ -1,6 +1,7 @@
 package com.cit.kaido.voxsight.ui.screens.camera
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -20,8 +21,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,24 +40,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,23 +72,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.cit.kaido.voxsight.ui.theme.VoxAccentGreen
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.util.ImageOptimizationHelper
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -94,6 +108,11 @@ fun SheetMusicScannerScreen(
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var isTorchOn by remember { mutableStateOf(false) }
     var isProcessingCapture by remember { mutableStateOf(false) }
+    var isFinalizingPdf by remember { mutableStateOf(false) }
+
+    // Multi-page batch state: list of normalized page images
+    val capturedPages = remember { mutableStateListOf<File>() }
+    var showPageReviewDialog by remember { mutableStateOf(false) }
 
     // Level / Tilt Guide State
     var pitchAngle by remember { mutableFloatStateOf(0f) }
@@ -112,16 +131,13 @@ fun SheetMusicScannerScreen(
                     val y = it.values[1]
                     val z = it.values[2]
 
-                    // Calculate pitch and roll relative to facing down at a table (Z-axis dominant)
                     val pitch = (atan2(y.toDouble(), sqrt((x * x + z * z).toDouble())) * 180.0 / Math.PI).toFloat()
                     val roll = (atan2(-x.toDouble(), z.toDouble()) * 180.0 / Math.PI).toFloat()
 
                     pitchAngle = pitch
                     rollAngle = roll
 
-                    // Parallel to desk: Z should be around -9.8 or +9.8 (depending on orientation), X and Y close to 0
                     val totalTilt = sqrt((x * x + y * y).toDouble()).toFloat()
-                    // If phone is flat (tilt under ~1.8 m/s^2), it is level (within ~10 degrees of parallel)
                     isLevel = totalTilt < 2.0f
                 }
             }
@@ -281,7 +297,7 @@ fun SheetMusicScannerScreen(
                 }
             }
 
-            // Rectangular Sheet Music Guide Box (Aspect Ratio ~1:1.3 matching sheet music)
+            // Rectangular Sheet Music Guide Box
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -290,107 +306,330 @@ fun SheetMusicScannerScreen(
                     .border(2.dp, frameBorderColor, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                // Subtle corner markers or guidance text
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(16.dp)
                 ) {
+                    val promptText = when {
+                        capturedPages.isEmpty() -> if (isLevel) "Fit Page 1 inside frame" else "Hold phone flat over sheet"
+                        else -> if (isLevel) "Fit Page ${capturedPages.size + 1} inside frame" else "Hold phone flat over Page ${capturedPages.size + 1}"
+                    }
                     Text(
-                        text = if (isLevel) "Sheet music in frame" else "Hold phone flat over sheet",
+                        text = promptText,
                         color = if (isLevel) VoxAccentGreen else Color.White.copy(alpha = 0.85f),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
             }
 
-            // Bottom Capture Bar
+            // Bottom Multi-Page Controls Bar
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
             ) {
+                // Helpful guidance hint
                 Text(
-                    text = "Tip: Use Torch in dim rooms for blur-free scans",
-                    color = Color.White.copy(alpha = 0.7f),
+                    text = if (capturedPages.isEmpty()) {
+                        "Tip: Turn on Torch in dim rooms for blur-free scans"
+                    } else {
+                        "${capturedPages.size} page(s) captured • Turn page or tap Done"
+                    },
+                    color = Color.White.copy(alpha = 0.85f),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Shutter Button
-                Box(
-                    contentAlignment = Alignment.Center
+                // Bottom Row: [Thumbnail Tray] --- [Shutter Button] --- [Done Button]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isProcessingCapture) {
-                        CircularProgressIndicator(
-                            color = VoxPurplePrimary,
-                            modifier = Modifier.size(76.dp)
-                        )
+                    // Left: Thumbnail of last captured page with count badge
+                    Box(
+                        modifier = Modifier.size(64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (capturedPages.isNotEmpty()) {
+                            val lastPage = capturedPages.last()
+                            val bitmap = remember(lastPage.absolutePath) {
+                                BitmapFactory.decodeFile(lastPage.absolutePath)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                                    .clickable { showPageReviewDialog = true }
+                            ) {
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "Captured page preview",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+
+                                // Badge showing total pages
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .background(VoxPurplePrimary, CircleShape)
+                                        .size(20.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${capturedPages.size}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    IconButton(
-                        enabled = !isProcessingCapture && imageCapture != null,
-                        onClick = {
-                            val capture = imageCapture ?: return@IconButton
-                            isProcessingCapture = true
+                    // Center: Shutter Button
+                    Box(
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isProcessingCapture) {
+                            CircularProgressIndicator(
+                                color = VoxPurplePrimary,
+                                modifier = Modifier.size(76.dp)
+                            )
+                        }
 
-                            val cacheDir = context.cacheDir
-                            val tempRawFile = File(cacheDir, "raw_capture_${System.currentTimeMillis()}.jpg")
-                            val outputOptions = ImageCapture.OutputFileOptions.Builder(tempRawFile).build()
+                        IconButton(
+                            enabled = !isProcessingCapture && !isFinalizingPdf && imageCapture != null,
+                            onClick = {
+                                val capture = imageCapture ?: return@IconButton
+                                isProcessingCapture = true
 
-                            capture.takePicture(
-                                outputOptions,
-                                ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                        // Run optimization asynchronously on IO
-                                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                                            val optimizedFile = File(
-                                                cacheDir,
-                                                "sheet_music_${System.currentTimeMillis()}.jpg"
-                                            )
-                                            val finalFile = ImageOptimizationHelper.optimizeSheetMusicImage(
-                                                context,
-                                                Uri.fromFile(tempRawFile),
-                                                optimizedFile
-                                            )
-                                            // Delete raw large capture
-                                            tempRawFile.delete()
+                                val cacheDir = context.cacheDir
+                                val tempRawFile = File(cacheDir, "raw_capture_${System.currentTimeMillis()}.jpg")
+                                val outputOptions = ImageCapture.OutputFileOptions.Builder(tempRawFile).build()
 
-                                            withContext(Dispatchers.Main) {
-                                                isProcessingCapture = false
-                                                onImageCaptured(Uri.fromFile(finalFile))
+                                capture.takePicture(
+                                    outputOptions,
+                                    ContextCompat.getMainExecutor(context),
+                                    object : ImageCapture.OnImageSavedCallback {
+                                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                val pageIndex = capturedPages.size + 1
+                                                val optimizedFile = File(
+                                                    cacheDir,
+                                                    "sheet_music_page_${pageIndex}_${System.currentTimeMillis()}.jpg"
+                                                )
+                                                val finalFile = ImageOptimizationHelper.optimizeSheetMusicImage(
+                                                    context,
+                                                    Uri.fromFile(tempRawFile),
+                                                    optimizedFile
+                                                )
+                                                tempRawFile.delete()
+
+                                                withContext(Dispatchers.Main) {
+                                                    isProcessingCapture = false
+                                                    capturedPages.add(finalFile)
+                                                }
                                             }
                                         }
-                                    }
 
-                                    override fun onError(exception: ImageCaptureException) {
-                                        Log.e(TAG, "Photo capture failed: ${exception.message}", exception)
-                                        isProcessingCapture = false
+                                        override fun onError(exception: ImageCaptureException) {
+                                            Log.e(TAG, "Photo capture failed: ${exception.message}", exception)
+                                            isProcessingCapture = false
+                                        }
                                     }
-                                }
-                            )
-                        },
-                        modifier = Modifier
-                            .size(72.dp)
-                            .background(Color.White, CircleShape)
-                            .border(4.dp, if (isLevel) VoxAccentGreen else VoxPurplePrimary, CircleShape)
-                    ) {
-                        Box(
+                                )
+                            },
                             modifier = Modifier
-                                .size(56.dp)
-                                .background(if (isLevel) VoxAccentGreen else VoxPurplePrimary, CircleShape)
-                        )
+                                .size(72.dp)
+                                .background(Color.White, CircleShape)
+                                .border(4.dp, if (isLevel) VoxAccentGreen else VoxPurplePrimary, CircleShape)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(if (isLevel) VoxAccentGreen else VoxPurplePrimary, CircleShape)
+                            )
+                        }
+                    }
+
+                    // Right: Done Button (Enabled once at least 1 page is captured)
+                    Box(
+                        modifier = Modifier.size(64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (capturedPages.isNotEmpty()) {
+                            if (isFinalizingPdf) {
+                                CircularProgressIndicator(
+                                    color = VoxAccentGreen,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            } else {
+                                Button(
+                                    onClick = {
+                                        if (capturedPages.isEmpty()) return@Button
+                                        isFinalizingPdf = true
+
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            val finalUri = if (capturedPages.size == 1) {
+                                                // Single page: pass optimized image directly
+                                                Uri.fromFile(capturedPages.first())
+                                            } else {
+                                                // Multi-page: stitch into single PDF
+                                                val pdfFile = File(
+                                                    context.cacheDir,
+                                                    "scanned_score_${System.currentTimeMillis()}.pdf"
+                                                )
+                                                ImageOptimizationHelper.createPdfFromImages(
+                                                    capturedPages.toList(),
+                                                    pdfFile
+                                                )
+                                                Uri.fromFile(pdfFile)
+                                            }
+
+                                            withContext(Dispatchers.Main) {
+                                                isFinalizingPdf = false
+                                                onImageCaptured(finalUri)
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = VoxAccentGreen),
+                                    modifier = Modifier.height(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Done",
+                                        tint = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${capturedPages.size}",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // Page Review & Reorder/Delete Dialog
+    if (showPageReviewDialog) {
+        AlertDialog(
+            onDismissRequest = { showPageReviewDialog = false },
+            title = {
+                Text(
+                    text = "Captured Pages (${capturedPages.size})",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Review your pages before finalizing. Delete any blurry or misaligned pages.",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        itemsIndexed(capturedPages) { index, file ->
+                            val bitmap = remember(file.absolutePath) {
+                                BitmapFactory.decodeFile(file.absolutePath)
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(100.dp, 135.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                                ) {
+                                    if (bitmap != null) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Page ${index + 1}",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+
+                                    // Delete button
+                                    IconButton(
+                                        onClick = {
+                                            capturedPages.removeAt(index)
+                                            file.delete()
+                                            if (capturedPages.isEmpty()) {
+                                                showPageReviewDialog = false
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .size(28.dp)
+                                            .background(Color.Red.copy(alpha = 0.85f), CircleShape)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Page",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Page ${index + 1}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showPageReviewDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = VoxPurplePrimary)
+                ) {
+                    Text("Continue Scanning")
+                }
+            },
+            dismissButton = {
+                if (capturedPages.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            showPageReviewDialog = false
+                            capturedPages.forEach { it.delete() }
+                            capturedPages.clear()
+                        }
+                    ) {
+                        Text("Clear All", color = Color.Red)
+                    }
+                }
+            }
+        )
     }
 }
