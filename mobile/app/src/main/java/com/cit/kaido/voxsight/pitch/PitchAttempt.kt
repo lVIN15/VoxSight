@@ -1,5 +1,7 @@
 package com.cit.kaido.voxsight.pitch
 
+import com.cit.kaido.voxsight.model.SATBVoice
+
 data class PitchAttempt(
     val eventId: String,         // Which exact note event in the score
     val targetHz: Float,         // Expected frequency
@@ -8,5 +10,7 @@ data class PitchAttempt(
     val isMatch: Boolean,        // Within ±10 cents?
     val timestampMs: Long,       // When this attempt was recorded
     val noteName: String = "",   // Human readable note (e.g. C4)
-    val measureNumber: Int = 1
+    val measureNumber: Int = 1,
+    val satbVoice: SATBVoice = SATBVoice.UNKNOWN
 )
+

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import jakarta.annotation.PostConstruct;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -18,6 +19,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -28,8 +30,15 @@ public class OmrController {
 
     private static final Logger log = LoggerFactory.getLogger(OmrController.class);
 
-    // Concurrency lock: guarantees only 1 Audiveris conversion runs at a time to stay safely within 512MB RAM
-    private static final Semaphore OMR_SEMAPHORE = new Semaphore(1, true);
+    @Value("${omr.max-concurrent-jobs:2}")
+    private int maxConcurrentJobs = 2;
+
+    // Concurrency semaphore: Defaults to 2 concurrent conversions (safely fits in ~7GB on 8GB RAM host with zero OOM risk)
+    private static Semaphore omrSemaphore = new Semaphore(2, true);
+
+    // In-Flight Task Deduplication: Allows concurrent uploads of identical scores (e.g. 13 choir members) to share 1 conversion job
+    private static final Map<String, CompletableFuture<ResponseEntity<OmrAnalysisResponse>>> IN_FLIGHT_ANALYSIS = new ConcurrentHashMap<>();
+    private static final Map<String, CompletableFuture<ResponseEntity<OmrResponse>>> IN_FLIGHT_CONVERT = new ConcurrentHashMap<>();
 
     // In-memory cache for instant responses (0.05s) on repeated or shared song uploads
     private static final Map<String, OmrAnalysisResponse> ANALYSIS_CACHE = new ConcurrentHashMap<>();
@@ -37,9 +46,25 @@ public class OmrController {
 
     private static volatile String lastOmrDiagnostics = "No OMR job executed yet.";
 
+    @PostConstruct
+    public void initSemaphore() {
+        if (maxConcurrentJobs > 0 && maxConcurrentJobs != omrSemaphore.availablePermits()) {
+            omrSemaphore = new Semaphore(maxConcurrentJobs, true);
+            log.info("[OMR Concurrency] Configured OMR Semaphore with {} permits (fair FIFO)", maxConcurrentJobs);
+        }
+    }
+
     @GetMapping("/diagnostics/last-omr-log")
     public ResponseEntity<String> getLastOmrLog() {
-        return ResponseEntity.ok(lastOmrDiagnostics);
+        String queueStatus = "=== CONCURRENCY & QUEUE STATUS ===\n"
+                + "Max Concurrent Permits: " + maxConcurrentJobs + "\n"
+                + "Available Permits: " + omrSemaphore.availablePermits() + "\n"
+                + "Queued Threads Waiting: " + omrSemaphore.getQueueLength() + "\n"
+                + "In-Flight Deduplicated Analysis Jobs: " + IN_FLIGHT_ANALYSIS.size() + "\n"
+                + "In-Flight Deduplicated Convert Jobs: " + IN_FLIGHT_CONVERT.size() + "\n"
+                + "Cached SATB Analysis Entries: " + ANALYSIS_CACHE.size() + "\n"
+                + "Cached Convert Entries: " + CONVERT_CACHE.size() + "\n\n";
+        return ResponseEntity.ok(queueStatus + lastOmrDiagnostics);
     }
 
     @RequestMapping(value = "/clear-cache", method = {RequestMethod.GET, RequestMethod.POST})
@@ -48,6 +73,8 @@ public class OmrController {
         int convertCount = CONVERT_CACHE.size();
         ANALYSIS_CACHE.clear();
         CONVERT_CACHE.clear();
+        IN_FLIGHT_ANALYSIS.clear();
+        IN_FLIGHT_CONVERT.clear();
         log.info("[Cache Cleared] Cleared {} analysis entries and {} convert entries", analysisCount, convertCount);
         return ResponseEntity.ok(Map.of(
                 "success", true,
@@ -157,8 +184,8 @@ public class OmrController {
     }
 
     private void configureTessdataEnvironment(ProcessBuilder pb) {
-        // Production-grade JVM settings for Audiveris: 3GB heap with G1GC for up to 10-page scores
-        String audiverisJvmOpts = "-Djava.awt.headless=true -Xms512m -Xmx3072m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Xss1m -XX:+UseG1GC";
+        // Production-grade JVM settings for Audiveris: 2GB heap with G1GC (safely allows 2 concurrent jobs on 8GB host)
+        String audiverisJvmOpts = "-Djava.awt.headless=true -Xms384m -Xmx2048m -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=96m -Xss1m -XX:+UseG1GC";
         pb.environment().put("JAVA_TOOL_OPTIONS", audiverisJvmOpts);
         pb.environment().put("JAVA_OPTS", audiverisJvmOpts);
         String resolvedTessdata = tessdataPrefix;
@@ -268,17 +295,57 @@ public class OmrController {
             return ResponseEntity.ok(cached);
         }
 
-        // Acquire Concurrency Lock (Ensures max 1 Audiveris conversion at a time to prevent RAM exhaustion)
+        // In-flight deduplication: If another thread is actively converting this score, attach to it
+        CompletableFuture<ResponseEntity<OmrResponse>> future = new CompletableFuture<>();
+        CompletableFuture<ResponseEntity<OmrResponse>> existingFuture = IN_FLIGHT_CONVERT.putIfAbsent(fileHash, future);
+        if (existingFuture != null) {
+            log.info("[OMR In-Flight Deduplication] Score {} (hash: {}) is already being converted. Attaching to existing task...", rawFilename, fileHash);
+            try {
+                return existingFuture.get(600, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.error("[OMR In-Flight Deduplication] Error or timeout waiting for existing conversion: {}", e.getMessage());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(OmrResponse.ofError("In-flight score conversion timed out or failed. Please try again."));
+            }
+        }
+
+        try {
+            ResponseEntity<OmrResponse> response = executeConvert(rawFilename, fileBytes, fileHash);
+            future.complete(response);
+            return response;
+        } catch (Exception e) {
+            ResponseEntity<OmrResponse> errResponse = ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrResponse.ofError("Conversion failed: " + e.getMessage()));
+            future.complete(errResponse);
+            return errResponse;
+        } finally {
+            IN_FLIGHT_CONVERT.remove(fileHash);
+        }
+    }
+
+    private ResponseEntity<OmrResponse> executeConvert(String rawFilename, byte[] fileBytes, String fileHash) {
         boolean acquired = false;
         try {
-            acquired = OMR_SEMAPHORE.tryAcquire(120, TimeUnit.SECONDS);
+            log.info("[OMR Queue] Request for {} waiting for permit (Available: {}/{}, Queue depth: {})...",
+                    rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
+
+            acquired = omrSemaphore.tryAcquire(600, TimeUnit.SECONDS);
             if (!acquired) {
+                log.warn("[OMR Queue Timeout] Score conversion timed out waiting for permit (600s): {}", rawFilename);
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                         .body(OmrResponse.ofError("The server is currently processing other scores. Please try again in a moment."));
             }
 
+            // Post-Lock Double-Check Cache: In case another thread finished the same file while we queued
+            OmrResponse postLockCached = CONVERT_CACHE.get(fileHash);
+            if (postLockCached != null) {
+                log.info("[OMR Cache HIT Post-Lock] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
+                return ResponseEntity.ok(postLockCached);
+            }
+
             String originalFilename = sanitizeFilename(rawFilename);
-            log.info("[Job Started] Processing {} with Audiveris (Lock Acquired)...", originalFilename);
+            log.info("[Job Started] Processing {} with Audiveris (Lock Acquired, Remaining permits: {})...",
+                    originalFilename, omrSemaphore.availablePermits());
 
             File uploadsDir = getUploadsDir();
             File outputsDir = getOutputsDir();
@@ -393,13 +460,15 @@ public class OmrController {
                     .body(OmrResponse.ofError("Server request was interrupted."));
         } finally {
             if (acquired) {
-                OMR_SEMAPHORE.release();
+                omrSemaphore.release();
+                log.info("[OMR Lock Released] Released permit for {} (Available: {}/{}, Queue depth: {})",
+                        rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
             }
         }
     }
 
     /**
-     * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline with Concurrency Lock & Caching.
+     * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline with In-Flight Deduplication & Concurrency Lock.
      */
     @PostMapping("/analyze")
     public ResponseEntity<OmrAnalysisResponse> analyze(@RequestParam("musicFile") MultipartFile file) {
@@ -428,17 +497,57 @@ public class OmrController {
             return ResponseEntity.ok(cached);
         }
 
-        // Acquire Concurrency Lock (Ensures max 1 Audiveris conversion at a time to stay safely within 512MB RAM)
+        // In-flight deduplication: If another thread is actively analyzing this score, attach to it
+        CompletableFuture<ResponseEntity<OmrAnalysisResponse>> future = new CompletableFuture<>();
+        CompletableFuture<ResponseEntity<OmrAnalysisResponse>> existingFuture = IN_FLIGHT_ANALYSIS.putIfAbsent(fileHash, future);
+        if (existingFuture != null) {
+            log.info("[OMR In-Flight Deduplication] SATB Analysis for {} (hash: {}) is already running. Attaching to existing task...", rawFilename, fileHash);
+            try {
+                return existingFuture.get(600, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.error("[OMR In-Flight Deduplication] Error or timeout waiting for existing analysis of {}: {}", rawFilename, e.getMessage());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(OmrAnalysisResponse.ofError("In-flight score analysis timed out or failed. Please try again."));
+            }
+        }
+
+        try {
+            ResponseEntity<OmrAnalysisResponse> response = executeAnalyze(rawFilename, fileBytes, fileHash);
+            future.complete(response);
+            return response;
+        } catch (Exception e) {
+            ResponseEntity<OmrAnalysisResponse> errResponse = ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError("Analysis failed: " + e.getMessage()));
+            future.complete(errResponse);
+            return errResponse;
+        } finally {
+            IN_FLIGHT_ANALYSIS.remove(fileHash);
+        }
+    }
+
+    private ResponseEntity<OmrAnalysisResponse> executeAnalyze(String rawFilename, byte[] fileBytes, String fileHash) {
         boolean acquired = false;
         try {
-            acquired = OMR_SEMAPHORE.tryAcquire(120, TimeUnit.SECONDS);
+            log.info("[OMR Queue] Request for {} waiting for permit (Available: {}/{}, Queue depth: {})...",
+                    rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
+
+            acquired = omrSemaphore.tryAcquire(600, TimeUnit.SECONDS);
             if (!acquired) {
+                log.warn("[OMR Queue Timeout] SATB analysis timed out waiting for permit (600s): {}", rawFilename);
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                         .body(OmrAnalysisResponse.ofError("The server is currently processing other scores. Please try again in a moment."));
             }
 
+            // Post-Lock Double-Check Cache: In case another thread finished the same file while we queued
+            OmrAnalysisResponse postLockCached = ANALYSIS_CACHE.get(fileHash);
+            if (postLockCached != null) {
+                log.info("[OMR Cache HIT Post-Lock] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
+                return ResponseEntity.ok(postLockCached);
+            }
+
             String originalFilename = sanitizeFilename(rawFilename);
-            log.info("[Analyze] Starting full pipeline for: {} (Lock Acquired)", originalFilename);
+            log.info("[Analyze] Starting full pipeline for: {} (Lock Acquired, Remaining permits: {})",
+                    originalFilename, omrSemaphore.availablePermits());
 
             File uploadsDir = getUploadsDir();
             File outputsDir = getOutputsDir();
@@ -559,34 +668,36 @@ public class OmrController {
                     String lowerXml = rawXml.toLowerCase();
                     if (lowerXml.contains("piano") || lowerXml.contains("keyboard") || lowerXml.contains("organ") ||
                         lowerXml.contains("solo voice") || lowerXml.contains("vocal solo") || lowerXml.contains("soloist")) {
-                        log.warn("[Analyze] Fallback detected Piano/Solo keywords in rawXml, rejecting as unsupported score");
-                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                .body(OmrAnalysisResponse.ofError("Unsupported Score: Piano accompaniment or Solo voice detected. VoxSight exclusively supports pure SATB (Soprano, Alto, Tenor, Bass) choral scores."));
-                    }
-                    OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
-                            rawXml, java.util.Map.of(
-                                "structure_type", "UNCERTAIN",
-                                "satb_confidence", 0.0,
-                                "validation_passed", false
-                            ), java.util.List.of(), "1.0"
-                    );
-                    ANALYSIS_CACHE.put(fileHash, response);
-                    return ResponseEntity.ok(response);
-                } catch (IOException ioe) {
-                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
+                    log.warn("[Analyze] Fallback detected Piano/Solo keywords in rawXml, rejecting as unsupported score");
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(OmrAnalysisResponse.ofError("Unsupported Score: Piano accompaniment or Solo voice detected. VoxSight exclusively supports pure SATB (Soprano, Alto, Tenor, Bass) choral scores."));
                 }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(OmrAnalysisResponse.ofError("Server request was interrupted."));
-        } finally {
-            if (acquired) {
-                OMR_SEMAPHORE.release();
+                OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
+                        rawXml, java.util.Map.of(
+                            "structure_type", "UNCERTAIN",
+                            "satb_confidence", 0.0,
+                            "validation_passed", false
+                        ), java.util.List.of(), "1.0"
+                );
+                ANALYSIS_CACHE.put(fileHash, response);
+                return ResponseEntity.ok(response);
+            } catch (IOException ioe) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
             }
         }
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(OmrAnalysisResponse.ofError("Server request was interrupted."));
+    } finally {
+        if (acquired) {
+            omrSemaphore.release();
+            log.info("[OMR Lock Released] Released permit for {} (Available: {}/{}, Queue depth: {})",
+                    rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
+        }
     }
+}
 
     private String extractXmlContent(File file) throws IOException {
         byte[] bytes = Files.readAllBytes(file.toPath());

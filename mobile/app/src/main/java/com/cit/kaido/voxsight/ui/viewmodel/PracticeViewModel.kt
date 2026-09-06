@@ -87,7 +87,8 @@ class PracticeViewModel : ViewModel() {
                             isMatch = isMatch,
                             timestampMs = System.currentTimeMillis(),
                             noteName = target.noteName,
-                            measureNumber = target.measureNumber
+                            measureNumber = target.measureNumber,
+                            satbVoice = target.satbVoice
                         )
                         
                         val currentList = _pitchAttempts.value.toMutableList()
@@ -245,25 +246,51 @@ class PracticeViewModel : ViewModel() {
             } else null
         }.sortedByDescending { kotlin.math.abs(it.averageDeviation) }.take(3)
 
-        // Calculate Top Problematic Measure (the exact measure with the most mistakes)
-        val attemptsByMeasure = attempts.filter { it.measureNumber > 0 }.groupBy { it.measureNumber }
-        val topProblematicMeasure = attemptsByMeasure.mapNotNull { (measureNum, measureAttempts) ->
+        // Calculate Top Problematic Measure (the exact measure with the most mistakes across attempts and score)
+        val score = _currentScore.value
+        val allScoreNotes = score?.notes?.filter { !it.isRest } ?: emptyList()
+        val scoreNotesByMeasure = allScoreNotes.groupBy { it.measureNumber }
+
+        val candidateMeasureNumbers = (attempts.map { it.measureNumber } + scoreNotesByMeasure.keys)
+            .filter { it > 0 }
+            .distinct()
+
+        val topProblematicMeasure = candidateMeasureNumbers.mapNotNull { measureNum ->
+            val measureAttempts = attempts.filter { it.measureNumber == measureNum }
             val eventsInMeasure = measureAttempts.groupBy { it.eventId }
-            val failedEventsCount = eventsInMeasure.values.count { attemptsForEvent ->
+            
+            // Events where user sang but did not achieve a match
+            val failedAttemptedEvents = eventsInMeasure.values.count { attemptsForEvent ->
                 !attemptsForEvent.any { it.isMatch }
             }
+            
+            // Notes in the score for this measure that were missed (0 attempts recorded while session had attempts)
+            val scoreNotesInMeasure = scoreNotesByMeasure[measureNum] ?: emptyList()
+            val unattemptedCount = if (scoreNotesInMeasure.isNotEmpty() && attempts.isNotEmpty()) {
+                kotlin.math.max(0, scoreNotesInMeasure.size - eventsInMeasure.size)
+            } else {
+                0
+            }
+
+            val totalMistakes = failedAttemptedEvents + unattemptedCount
             val validDeviations = measureAttempts.map { it.deviationCents }.filter { kotlin.math.abs(it) < 500f }
             val avgDevMeasure = if (validDeviations.isNotEmpty()) validDeviations.average().toFloat() else 0f
-            if (failedEventsCount > 0) {
+            val totalNotesCount = if (scoreNotesInMeasure.isNotEmpty()) scoreNotesInMeasure.size else eventsInMeasure.size
+
+            if (totalMistakes > 0 || (measureAttempts.isNotEmpty() && kotlin.math.abs(avgDevMeasure) > 25f)) {
+                val effectiveMistakes = if (totalMistakes > 0) totalMistakes else 1
                 com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure(
                     measureNumber = measureNum,
-                    mistakeCount = failedEventsCount,
-                    totalNotes = eventsInMeasure.size,
+                    mistakeCount = effectiveMistakes,
+                    totalNotes = totalNotesCount,
                     isSharp = avgDevMeasure > 0f,
                     averageDeviation = avgDevMeasure
                 )
             } else null
-        }.maxByOrNull { it.mistakeCount }
+        }.maxWithOrNull(
+            compareBy<com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure> { it.mistakeCount }
+                .thenBy { kotlin.math.abs(it.averageDeviation) }
+        )
 
         // Calculate Vocal Highlights
         val successfulAttempts = attempts.filter { it.isMatch && it.noteName.isNotBlank() }

@@ -63,7 +63,8 @@ data class MusicXmlNote(
     val isChord: Boolean = false,
     val measureNumber: Int = 1,
     val measureIndex: Int = 0,
-    val customVoice: Int? = null
+    val customVoice: Int? = null,
+    val lyric: String? = null
 )
 
 fun parseMusicXmlScore(
@@ -258,6 +259,7 @@ fun parseMusicXmlScoreFromText(
     var customVoice: Int? = null
     var staff: Int? = null
     var noteType: String? = null
+    var lyricText: String? = null
     // Track the most recent duration for chord inheritance
     var lastDuration = 0
 
@@ -329,6 +331,7 @@ fun parseMusicXmlScoreFromText(
                             customVoice = parser.getAttributeValue(null, "data-vx-voice")?.toIntOrNull()
                             staff = null
                             noteType = null
+                            lyricText = null
                         }
                         "chord" -> if (inNote) {
                             isChord = true
@@ -375,6 +378,12 @@ fun parseMusicXmlScoreFromText(
                         }
                         "type" -> if (inNote) {
                             noteType = parser.nextText().trim()
+                        }
+                        "text" -> if (inNote) {
+                            val txt = parser.nextText().trim()
+                            if (txt.isNotBlank()) {
+                                lyricText = txt
+                            }
                         }
                     }
                 }
@@ -460,7 +469,8 @@ fun parseMusicXmlScoreFromText(
                                 isChord = isChord,
                                 measureNumber = currentMeasureNumber,
                                 measureIndex = currentMeasureIndex,
-                                customVoice = customVoice
+                                customVoice = customVoice,
+                                lyric = lyricText
                             )
                             notes.add(note)
                             currentMeasureNotes.add(note)

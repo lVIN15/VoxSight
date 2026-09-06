@@ -383,9 +383,17 @@ fun AppNavigation() {
         composable("summary") {
             // Provide the full summary from the view model
             val summary = practiceViewModel.getSessionSummary()
-            
+            val currentScore by practiceViewModel.currentScore.collectAsState()
+            val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
+
+            val activeVoice = pitchAttempts.firstOrNull { it.satbVoice != com.cit.kaido.voxsight.model.SATBVoice.UNKNOWN }?.satbVoice
+                ?: com.cit.kaido.voxsight.model.SATBVoice.SOPRANO
+
             com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen(
                 summary = summary,
+                score = currentScore,
+                selectedVoice = activeVoice,
+                pitchAttempts = pitchAttempts,
                 onBackToLibrary = {
                     navController.popBackStack("upload", inclusive = false)
                 },

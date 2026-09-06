@@ -43,12 +43,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cit.kaido.voxsight.model.SATBVoice
+import com.cit.kaido.voxsight.ui.components.RealMeasureNotationView
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
+import com.cit.kaido.voxsight.pitch.PitchAttempt
 
 @Composable
 fun PracticeSummaryScreen(
     summary: SessionSummary,
+    score: MusicXmlScore? = null,
+    selectedVoice: SATBVoice = SATBVoice.SOPRANO,
+    pitchAttempts: List<PitchAttempt> = emptyList(),
     onBackToLibrary: () -> Unit,
     onRepeatPractice: () -> Unit = {}
 ) {
@@ -174,7 +180,7 @@ fun PracticeSummaryScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                 }
 
-                // Top Problematic Area Section (Displays ONLY the single measure with the most mistakes)
+                // Top Problematic Area Section (Displays the exact measure with the most mistakes)
                 if (summary.topProblematicMeasure != null) {
                     val measure = summary.topProblematicMeasure
                     Text(
@@ -194,11 +200,21 @@ fun PracticeSummaryScreen(
                         if (measure.isSharp) "SHARP" else "FLAT"
                     }
 
-                    MeasureReviewCard(
-                        measureName = "Measure ${measure.measureNumber}",
-                        issueType = issueLabel,
-                        isSharp = measure.isSharp
-                    )
+                    if (score != null) {
+                        // Render authentic 5-line staff sheet music notation for the measure with the most mistakes
+                        RealMeasureNotationView(
+                            measureNumber = measure.measureNumber,
+                            score = score,
+                            voice = selectedVoice,
+                            pitchAttempts = pitchAttempts
+                        )
+                    } else {
+                        MeasureReviewCard(
+                            measureName = "Measure ${measure.measureNumber}",
+                            issueType = issueLabel,
+                            isSharp = measure.isSharp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                 } else if (summary.problematicNotes.isNotEmpty()) {
                     val note = summary.problematicNotes.first()
@@ -213,11 +229,21 @@ fun PracticeSummaryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    MeasureReviewCard(
-                        measureName = "Note ${note.noteName}",
-                        issueType = if (note.isSharp) "SHARP" else "FLAT",
-                        isSharp = note.isSharp
-                    )
+                    val noteMeasure = score?.notes?.firstOrNull { it.step.equals(note.noteName.take(1), true) }?.measureNumber ?: 1
+                    if (score != null) {
+                        RealMeasureNotationView(
+                            measureNumber = noteMeasure,
+                            score = score,
+                            voice = selectedVoice,
+                            pitchAttempts = pitchAttempts
+                        )
+                    } else {
+                        MeasureReviewCard(
+                            measureName = "Note ${note.noteName}",
+                            issueType = if (note.isSharp) "SHARP" else "FLAT",
+                            isSharp = note.isSharp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                 } else if (summary.totalNotesAttempted > 0) {
                     Text(
