@@ -12,3 +12,4 @@ voxsight/inspect_*.py
 voxsight/test_*.py
 voxsight/scratch_*.py
 voxsight/scratch_*.js
+*.apk
