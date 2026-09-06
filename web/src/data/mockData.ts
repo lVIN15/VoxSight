@@ -6,7 +6,7 @@ export const PROJECT_INFO = {
   tagline: 'Bridging the literacy gap in amateur choral ensembles with AI-driven sheet music scanning, voice isolation, and real-time pitch feedback.',
   teamCode: '2526-sem2-it332-51',
   apkVersion: '1.0.0',
-  apkSize: '29.7 MB',
+  apkSize: '31.2 MB',
   minAndroidVersion: 'Android 8.0 (API 26)+',
   downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.0.0/voxsight-v1.0.0.apk',
   githubRepo: 'https://github.com/lVIN15/VoxSight',
