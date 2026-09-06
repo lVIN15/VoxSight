@@ -35,7 +35,8 @@ import kotlin.math.min
 /**
  * Authentic Sheet Music Measure View.
  * Natively renders the 5-line musical staff, Treble/Bass clef, diatonic pitch placement,
- * accidentals (♯, ♭), stems, lyrics, and pitch mistake highlights for the specified measure.
+ * accidentals (♯, ♭), stems, lyrics, and pitch mistake highlights for the single specified measure.
+ * Prevents note, stem, and lyric overlaps by isolating the user's specific vocal part and deduplicating chord onsets.
  */
 @Composable
 fun RealMeasureNotationView(
@@ -43,9 +44,24 @@ fun RealMeasureNotationView(
     score: MusicXmlScore?,
     voice: SATBVoice = SATBVoice.SOPRANO,
     pitchAttempts: List<PitchAttempt> = emptyList(),
+    mistakeCount: Int = 0,
+    isSharp: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // 1. Resolve notes for this measure & voice part
+    fun stepIndex(step: String): Int {
+        val cleanStep = step.take(1).uppercase()
+        return when (cleanStep) {
+            "C" -> 0
+            "D" -> 1
+            "E" -> 2
+            "F" -> 3
+            "G" -> 4
+            "A" -> 5
+            "B" -> 6
+            else -> 0
+        }
+    }
+
     val voiceIndex = when (voice) {
         SATBVoice.SOPRANO -> 1
         SATBVoice.ALTO -> 2
@@ -54,15 +70,39 @@ fun RealMeasureNotationView(
         SATBVoice.UNKNOWN -> 1
     }
 
-    val measureNotes = score?.notes?.filter { note ->
-        note.measureNumber == measureNumber && !note.isRest
-    } ?: emptyList()
-
-    val filteredNotes = measureNotes.filter { note ->
-        note.voice == voiceIndex || note.originalVoice == voiceIndex || note.customVoice == voiceIndex
-    }.ifEmpty {
-        measureNotes
+    // 1. Isolate notes strictly for the user's selected vocal line to prevent multi-part overlap
+    val voicePartNotes = if (!score?.parts.isNullOrEmpty()) {
+        val targetPart = score?.parts?.firstOrNull { part ->
+            when (voice) {
+                SATBVoice.SOPRANO -> part.name.contains("soprano", true) || part.id == 1
+                SATBVoice.ALTO -> part.name.contains("alto", true) || part.id == 2
+                SATBVoice.TENOR -> part.name.contains("tenor", true) || part.id == 3
+                SATBVoice.BASS -> part.name.contains("bass", true) || part.id == 4
+                else -> part.id == 1
+            }
+        } ?: score?.parts?.getOrNull(voiceIndex - 1) ?: score?.parts?.firstOrNull()
+        targetPart?.notes?.filter { it.measureNumber == measureNumber && !it.isRest } ?: emptyList()
+    } else {
+        emptyList()
     }
+
+    val baseNotes = if (voicePartNotes.isNotEmpty()) {
+        voicePartNotes
+    } else {
+        val allMeasureNotes = score?.notes?.filter { it.measureNumber == measureNumber && !it.isRest } ?: emptyList()
+        val voiceSpecific = allMeasureNotes.filter { it.voice == voiceIndex || it.customVoice == voiceIndex }
+        if (voiceSpecific.isNotEmpty()) voiceSpecific else allMeasureNotes
+    }
+
+    // Deduplicate chord/simultaneous notes at the exact same startTimeDivisions
+    // For choral vocal sight-reading, pick the melody/top note if there are multiple notes at the same tick
+    val filteredNotes = baseNotes
+        .groupBy { it.startTimeDivisions }
+        .values
+        .map { notesAtTick ->
+            notesAtTick.maxByOrNull { (it.octave * 7) + stepIndex(it.step) } ?: notesAtTick.first()
+        }
+        .sortedBy { it.startTimeDivisions }
 
     // Determine Clef based on SATB voice
     val isBassClef = voice == SATBVoice.TENOR || voice == SATBVoice.BASS
@@ -82,7 +122,7 @@ fun RealMeasureNotationView(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            // Header: Measure badge + Clef info
+            // Header: Measure badge + Clef info + Mistake indicator
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -112,17 +152,34 @@ fun RealMeasureNotationView(
                     )
                 }
 
-                Text(
-                    text = "${filteredNotes.size} ${if (filteredNotes.size == 1) "Note" else "Notes"}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF8D909F)
-                )
+                if (mistakeCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFFFFEBEE))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "$mistakeCount ${if (mistakeCount == 1) "MISTAKE" else "MISTAKES"}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color(0xFFC62828)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "${filteredNotes.size} ${if (filteredNotes.size == 1) "Note" else "Notes"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF8D909F)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Sheet Music Staff Canvas
-            val canvasHeight = 110.dp
+            // Sheet Music Staff Canvas with ample vertical clearance
+            val canvasHeight = 135.dp
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -131,17 +188,17 @@ fun RealMeasureNotationView(
                 val width = size.width
                 val height = size.height
 
-                val staffTopY = 32.dp.toPx()
-                val lineSpacing = 9.dp.toPx()
-                val staffBottomY = staffTopY + (4 * lineSpacing)
+                val staffTopY = 30.dp.toPx()
+                val lineSpacing = 10.dp.toPx()
+                val staffBottomY = staffTopY + (4 * lineSpacing) // 70dp
 
                 val lineColor = Color(0xFF757885)
                 val barlineColor = Color(0xFF333644)
 
-                // Draw Left and Right Barlines
                 val leftMargin = 12.dp.toPx()
                 val rightMargin = width - 12.dp.toPx()
 
+                // Draw Left and Right Barlines
                 drawLine(
                     color = barlineColor,
                     start = Offset(leftMargin, staffTopY - 2.dp.toPx()),
@@ -170,35 +227,19 @@ fun RealMeasureNotationView(
                 // Draw Clef Glyph on the Left
                 val clefPaint = Paint().apply {
                     color = android.graphics.Color.parseColor("#2E313D")
-                    textSize = if (isBassClef) 30.sp.toPx() else 42.sp.toPx()
+                    textSize = if (isBassClef) 28.sp.toPx() else 38.sp.toPx()
                     isAntiAlias = true
                     typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
                 }
                 val clefY = if (isBassClef) staffTopY + 24.dp.toPx() else staffTopY + 28.dp.toPx()
-                drawContext.canvas.nativeCanvas.drawText(clefSymbol, leftMargin + 6.dp.toPx(), clefY, clefPaint)
-
-                // Pitch calculation helper:
-                // Maps a diatonic note step & octave to vertical Y position relative to Clef bottom line
-                fun stepIndex(step: String): Int {
-                    val cleanStep = step.take(1).uppercase()
-                    return when (cleanStep) {
-                        "C" -> 0
-                        "D" -> 1
-                        "E" -> 2
-                        "F" -> 3
-                        "G" -> 4
-                        "A" -> 5
-                        "B" -> 6
-                        else -> 0
-                    }
-                }
+                drawContext.canvas.nativeCanvas.drawText(clefSymbol, leftMargin + 4.dp.toPx(), clefY, clefPaint)
 
                 // Baseline reference:
                 // Treble Bottom Line (Line 1) is E4 (diatonic: 4 * 7 + 2 = 30)
                 // Bass Bottom Line (Line 1) is G2 (diatonic: 2 * 7 + 4 = 18)
                 val baselineDiatonic = if (isBassClef) 18 else 30
 
-                val notesStartOffset = leftMargin + 44.dp.toPx()
+                val notesStartOffset = leftMargin + 46.dp.toPx()
                 val notesAvailableWidth = rightMargin - notesStartOffset - 16.dp.toPx()
                 val noteCount = filteredNotes.size
 
@@ -210,14 +251,14 @@ fun RealMeasureNotationView(
 
                 val lyricPaint = Paint().apply {
                     color = android.graphics.Color.parseColor("#1F222E")
-                    textSize = 12.sp.toPx()
+                    textSize = 11.sp.toPx()
                     isAntiAlias = true
                     textAlign = Paint.Align.CENTER
                     typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
                 }
 
                 val accidentalPaint = Paint().apply {
-                    textSize = 14.sp.toPx()
+                    textSize = 13.sp.toPx()
                     isAntiAlias = true
                     textAlign = Paint.Align.RIGHT
                     typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
@@ -246,6 +287,8 @@ fun RealMeasureNotationView(
                         noteAttempts.map { it.deviationCents }.average().toFloat()
                     } else 0f
 
+                    val isError = isAttempted && !hasMatch
+
                     // Highlight colors:
                     // Amber for Sharp (+ cents), Red for Flat (- cents), Dark indigo for clean/correct
                     val noteColor = when {
@@ -255,18 +298,27 @@ fun RealMeasureNotationView(
                         else -> Color(0xFFC62828) // Flat crimson
                     }
 
-                    // 1. Draw Ledger lines if note extends beyond the 5 staff lines
                     val noteRadiusX = 5.5.dp.toPx()
                     val noteRadiusY = 4.2.dp.toPx()
 
+                    // Subtle highlight ring behind error notes for clear feedback
+                    if (isError) {
+                        drawCircle(
+                            color = (if (avgDev > 0f) Color(0xFFFFE0B2) else Color(0xFFFFCDD2)).copy(alpha = 0.55f),
+                            radius = 12.dp.toPx(),
+                            center = Offset(noteX, noteY)
+                        )
+                    }
+
+                    // 1. Draw Ledger lines if note extends beyond the 5 staff lines
                     if (stepDiff < 0) { // Below staff
                         var ledgerDiff = -2
                         while (ledgerDiff >= stepDiff) {
                             val ledgerY = staffBottomY - (ledgerDiff * (lineSpacing / 2f))
                             drawLine(
                                 color = lineColor,
-                                start = Offset(noteX - 10.dp.toPx(), ledgerY),
-                                end = Offset(noteX + 10.dp.toPx(), ledgerY),
+                                start = Offset(noteX - 9.dp.toPx(), ledgerY),
+                                end = Offset(noteX + 9.dp.toPx(), ledgerY),
                                 strokeWidth = 1.2f.dp.toPx()
                             )
                             ledgerDiff -= 2
@@ -277,8 +329,8 @@ fun RealMeasureNotationView(
                             val ledgerY = staffBottomY - (ledgerDiff * (lineSpacing / 2f))
                             drawLine(
                                 color = lineColor,
-                                start = Offset(noteX - 10.dp.toPx(), ledgerY),
-                                end = Offset(noteX + 10.dp.toPx(), ledgerY),
+                                start = Offset(noteX - 9.dp.toPx(), ledgerY),
+                                end = Offset(noteX + 9.dp.toPx(), ledgerY),
                                 strokeWidth = 1.2f.dp.toPx()
                             )
                             ledgerDiff += 2
@@ -291,15 +343,14 @@ fun RealMeasureNotationView(
                         accidentalPaint.color = noteColor.hashCode()
                         drawContext.canvas.nativeCanvas.drawText(
                             accidentalStr,
-                            noteX - noteRadiusX - 3.dp.toPx(),
+                            noteX - noteRadiusX - 2.dp.toPx(),
                             noteY + 4.dp.toPx(),
                             accidentalPaint
                         )
                     }
 
-                    // 3. Draw Notehead (slightly rotated ellipse for authentic engraving look)
+                    // 3. Draw Notehead
                     val isHalfOrWhole = note.type.equals("half", ignoreCase = true) || note.type.equals("whole", ignoreCase = true)
-
                     rotate(degrees = -18f, pivot = Offset(noteX, noteY)) {
                         drawOval(
                             color = noteColor,
@@ -310,8 +361,9 @@ fun RealMeasureNotationView(
                     }
 
                     // 4. Draw Stem (pointing up if below middle line, down if above)
+                    // Downward stems are capped above the lyrics line to avoid overlap
                     if (!note.type.equals("whole", ignoreCase = true)) {
-                        val stemLength = 26.dp.toPx()
+                        val stemLength = 24.dp.toPx()
                         val isStemUp = stepDiff <= 4 // Below or at middle line (B4 for Treble, D3 for Bass)
 
                         if (isStemUp) {
@@ -322,18 +374,20 @@ fun RealMeasureNotationView(
                                 strokeWidth = 1.3.dp.toPx()
                             )
                         } else {
+                            val maxDownY = staffBottomY + 14.dp.toPx()
+                            val endY = min(noteY + stemLength, maxDownY)
                             drawLine(
                                 color = noteColor,
                                 start = Offset(noteX - noteRadiusX + 0.8.dp.toPx(), noteY),
-                                end = Offset(noteX - noteRadiusX + 0.8.dp.toPx(), noteY + stemLength),
+                                end = Offset(noteX - noteRadiusX + 0.8.dp.toPx(), endY),
                                 strokeWidth = 1.3.dp.toPx()
                             )
                         }
                     }
 
-                    // 5. Draw Lyrics below the staff
+                    // 5. Draw Lyrics safely below the staff
                     val lyricText = note.lyric ?: note.step.replace("#", "♯").replace("b", "♭")
-                    val lyricY = staffBottomY + 22.dp.toPx()
+                    val lyricY = staffBottomY + 28.dp.toPx()
                     drawContext.canvas.nativeCanvas.drawText(
                         lyricText,
                         noteX,

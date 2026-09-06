@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -206,7 +208,9 @@ fun PracticeSummaryScreen(
                             measureNumber = measure.measureNumber,
                             score = score,
                             voice = selectedVoice,
-                            pitchAttempts = pitchAttempts
+                            pitchAttempts = pitchAttempts,
+                            mistakeCount = measure.mistakeCount,
+                            isSharp = measure.isSharp
                         )
                     } else {
                         MeasureReviewCard(
@@ -235,7 +239,9 @@ fun PracticeSummaryScreen(
                             measureNumber = noteMeasure,
                             score = score,
                             voice = selectedVoice,
-                            pitchAttempts = pitchAttempts
+                            pitchAttempts = pitchAttempts,
+                            mistakeCount = 1,
+                            isSharp = note.isSharp
                         )
                     } else {
                         MeasureReviewCard(
@@ -304,11 +310,15 @@ private fun VocalHighlightCard(highlight: VocalHighlight) {
         color = Color.White,
         shadowElevation = 2.dp
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .height(90.dp)
+                    .fillMaxHeight()
                     .background(Color(0xFF4CAF50)) // Green indicator
             )
             
@@ -354,12 +364,16 @@ private fun MeasureReviewCard(
         color = Color.White,
         shadowElevation = 2.dp
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
             // Left border indicator
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .height(110.dp) // approximate height of card content
+                    .fillMaxHeight()
                     .background(indicatorColor)
             )
             
