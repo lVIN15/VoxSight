@@ -89,6 +89,12 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSecondary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
+import com.cit.kaido.voxsight.ui.tour.TourPreferences
+import com.cit.kaido.voxsight.ui.tour.TourStep
+import com.cit.kaido.voxsight.ui.tour.rememberTourState
+import com.cit.kaido.voxsight.ui.tour.spotlightTarget
+import com.cit.kaido.voxsight.ui.tour.SpotlightTourOverlay
+import androidx.compose.ui.platform.LocalContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -135,6 +141,55 @@ fun Module2PracticeScreen(
     var showDiagnostics by remember { mutableStateOf(false) }
     val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
 
+    // ── Interactive Guided Tour Setup (New Install Only) ───────
+    val context = LocalContext.current
+    val isTourCompleted = remember {
+        TourPreferences.isTourCompleted(context, TourPreferences.KEY_PRACTICE_TOUR)
+    }
+
+    val practiceTourSteps = remember(isMicEnabled) {
+        val steps = mutableListOf(
+            TourStep(
+                id = "voice_chips",
+                title = "Isolate Your Vocal Part",
+                description = "Tap Soprano, Alto, Tenor, or Bass to highlight your notes. Use Audio Mute to practice singing a cappella or Visual Focus to zoom in on your stave.",
+                stepIndex = 1,
+                totalSteps = if (isMicEnabled) 4 else 3
+            ),
+            TourStep(
+                id = "osmd_canvas",
+                title = "Interactive Score & Lyrics",
+                description = "Follow along hands-free as your sheet music auto-scrolls at 60 FPS with glowing SATB note auras and lyrics displayed underneath.",
+                stepIndex = 2,
+                totalSteps = if (isMicEnabled) 4 else 3
+            ),
+            TourStep(
+                id = "playback_controls",
+                title = "Pacing & Speed Multipliers",
+                description = "Adjust tempo or tap speed multipliers (0.75× to 1.5×) to slow down tricky measures and master sight-reading at your own pace.",
+                stepIndex = 3,
+                totalSteps = if (isMicEnabled) 4 else 3
+            )
+        )
+        if (isMicEnabled) {
+            steps.add(
+                TourStep(
+                    id = "pitch_feedback",
+                    title = "Real-Time Pitch Feedback",
+                    description = "Sing into your microphone! Green glows indicate an accurate pitch match, while red/amber shows if your note is flat or sharp.",
+                    stepIndex = 4,
+                    totalSteps = 4
+                )
+            )
+        }
+        steps
+    }
+
+    val tourState = rememberTourState(
+        steps = practiceTourSteps,
+        isInitiallyVisible = !isTourCompleted
+    )
+
     // Smooth continuous timer interpolation
     LaunchedEffect(isPlaying, progress) {
         if (!isDraggingSlider) {
@@ -179,7 +234,8 @@ fun Module2PracticeScreen(
                 title = resolvedScore.title, 
                 isMicEnabled = isMicEnabled,
                 onBackClicked = onBackClicked,
-                onDiagnosticsClicked = { showDiagnostics = !showDiagnostics }
+                onDiagnosticsClicked = { showDiagnostics = !showDiagnostics },
+                onReplayTourClicked = { tourState.reset() }
             )
 
             val isSelectorEnabled = audioMuteEnabled || visualFocusEnabled
@@ -191,7 +247,8 @@ fun Module2PracticeScreen(
                 onAudioMuteChange = { audioMuteEnabled = it },
                 visualFocusEnabled = visualFocusEnabled,
                 onVisualFocusChange = { visualFocusEnabled = it },
-                isSelectorEnabled = isSelectorEnabled
+                isSelectorEnabled = isSelectorEnabled,
+                modifier = Modifier.spotlightTarget(tourState, "voice_chips")
             )
 
             LaunchedEffect(selectedPart, audioMuteEnabled, midiController) {
@@ -218,6 +275,7 @@ fun Module2PracticeScreen(
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(vertical = 8.dp)
+                    .spotlightTarget(tourState, "osmd_canvas")
             ) {
                 MidiPlaybackEngine(
                     score = resolvedScore,
@@ -270,7 +328,9 @@ fun Module2PracticeScreen(
             }
 
             if (isMicEnabled) {
-                PitchFeedbackIndicator(state = pitchUiState)
+                Box(modifier = Modifier.spotlightTarget(tourState, "pitch_feedback")) {
+                    PitchFeedbackIndicator(state = pitchUiState)
+                }
             }
 
             // ── Playback Controls ─────────────────────────────────
@@ -313,7 +373,8 @@ fun Module2PracticeScreen(
                 onSkipNext = {
                     progress = 1f
                     midiController?.seek(1f)
-                }
+                },
+                modifier = Modifier.spotlightTarget(tourState, "playback_controls")
             )
         }
 
@@ -333,6 +394,17 @@ fun Module2PracticeScreen(
                     .width(320.dp)
             )
         }
+
+        // ── Spotlight Tour Overlay (Dims screen & walks through features) ──
+        SpotlightTourOverlay(
+            tourState = tourState,
+            onTourFinished = {
+                TourPreferences.setTourCompleted(context, TourPreferences.KEY_PRACTICE_TOUR, true)
+            },
+            onTourSkipped = {
+                TourPreferences.setTourCompleted(context, TourPreferences.KEY_PRACTICE_TOUR, true)
+            }
+        )
     }
 }
 
@@ -355,7 +427,8 @@ private fun PracticeTopBar(
     title: String, 
     isMicEnabled: Boolean,
     onBackClicked: () -> Unit,
-    onDiagnosticsClicked: () -> Unit
+    onDiagnosticsClicked: () -> Unit,
+    onReplayTourClicked: () -> Unit = {}
 ) {
     var showTitlePopup by remember { mutableStateOf(false) }
     var showDropdownMenu by remember { mutableStateOf(false) }
@@ -449,6 +522,13 @@ private fun PracticeTopBar(
                         showLegendDialog = true
                     }
                 )
+                DropdownMenuItem(
+                    text = { Text("App Guided Tour") },
+                    onClick = {
+                        showDropdownMenu = false
+                        onReplayTourClicked()
+                    }
+                )
             }
         }
     }
@@ -506,9 +586,11 @@ private fun VoicePartCard(
     onAudioMuteChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
     onVisualFocusChange: (Boolean) -> Unit,
-    isSelectorEnabled: Boolean
+    isSelectorEnabled: Boolean,
+    modifier: Modifier = Modifier
 ) {
     Surface(
+        modifier = modifier,
         color = VoxCardBackground,
         shape = RoundedCornerShape(18.dp)
     ) {
@@ -934,10 +1016,11 @@ private fun PlaybackControlBar(
     onTempoChange: (Float) -> Unit = {},
     onSpeedMultiplierChange: (Float) -> Unit = {},
     onSkipPrevious: () -> Unit = {},
-    onSkipNext: () -> Unit = {}
+    onSkipNext: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // ── Speed Multiplier Chips ──

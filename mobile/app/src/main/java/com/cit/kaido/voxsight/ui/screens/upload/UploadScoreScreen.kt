@@ -34,14 +34,24 @@ import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import com.cit.kaido.voxsight.ui.tour.AppUserGuideDialog
+import com.cit.kaido.voxsight.ui.tour.TourPreferences
+import com.cit.kaido.voxsight.ui.tour.TourStep
+import com.cit.kaido.voxsight.ui.tour.SpotlightShapeType
+import com.cit.kaido.voxsight.ui.tour.rememberTourState
+import com.cit.kaido.voxsight.ui.tour.spotlightTarget
+import com.cit.kaido.voxsight.ui.tour.SpotlightTourOverlay
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -378,16 +388,77 @@ fun UploadScoreScreen(
     }
 
     val defaultPracticeTitle = stringResource(R.string.practice_title)
+    var showUserGuide by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VoxBackground)
+    // ── Interactive Guided Tour Setup (New Install Only) ───────
+    val isUploadTourCompleted = remember {
+        TourPreferences.isTourCompleted(context, TourPreferences.KEY_UPLOAD_TOUR)
+    }
+
+    val uploadTourSteps = remember(recentScores.isNotEmpty()) {
+        val steps = mutableListOf(
+            TourStep(
+                id = "take_photo",
+                title = "Take Photo (Camera Scan)",
+                description = "Tap this button to snap a photo of physical choir sheet music. VoxSight's OMR engine will automatically scan and digitize notes, staves, and lyrics.",
+                stepIndex = 1,
+                totalSteps = if (recentScores.isNotEmpty()) 4 else 3,
+                shape = SpotlightShapeType.RoundedRect,
+                cornerRadiusDp = 16f
+            ),
+            TourStep(
+                id = "import_file",
+                title = "Import Score File",
+                description = "Tap this button to import MusicXML (.musicxml, .xml) or PDF sheet music files directly from your phone's storage or Google Drive.",
+                stepIndex = 2,
+                totalSteps = if (recentScores.isNotEmpty()) 4 else 3,
+                shape = SpotlightShapeType.RoundedRect,
+                cornerRadiusDp = 16f
+            )
+        )
+        if (recentScores.isNotEmpty()) {
+            steps.add(
+                TourStep(
+                    id = "score_library",
+                    title = "Your Score Library",
+                    description = "All your saved and scanned pieces appear here. Tap any score to jump straight into interactive sight-reading practice.",
+                    stepIndex = 3,
+                    totalSteps = 4,
+                    shape = SpotlightShapeType.RoundedRect,
+                    cornerRadiusDp = 16f
+                )
+            )
+        }
+        steps.add(
+            TourStep(
+                id = "profile_button",
+                title = "Profile & Account",
+                description = "Tap your avatar here to view account info, upgrade your subscription, or log out.",
+                stepIndex = if (recentScores.isNotEmpty()) 4 else 3,
+                totalSteps = if (recentScores.isNotEmpty()) 4 else 3,
+                shape = SpotlightShapeType.Circle
+            )
+        )
+        steps
+    }
+
+    val uploadTourState = rememberTourState(
+        steps = uploadTourSteps,
+        isInitiallyVisible = !isUploadTourCompleted
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(VoxBackground)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
             TopBar(
-                onProfileClick = onNavigateToProfile
+                onProfileClick = onNavigateToProfile,
+                onGuideClick = { uploadTourState.reset() },
+                profileModifier = Modifier.spotlightTarget(uploadTourState, "profile_button")
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -423,7 +494,8 @@ fun UploadScoreScreen(
                     } else {
                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                     }
-                }
+                },
+                modifier = Modifier.spotlightTarget(uploadTourState, "take_photo")
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -445,7 +517,8 @@ fun UploadScoreScreen(
                             "application/pdf"
                         )
                     )
-                }
+                },
+                modifier = Modifier.spotlightTarget(uploadTourState, "import_file")
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -468,70 +541,90 @@ fun UploadScoreScreen(
 
             if (recentScores.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
-                RecentScoresSection(
-                    scores = recentScores,
-                    onScoreSelected = { item ->
-                        coroutineScope.launch {
-                            val fullScore = withContext(Dispatchers.IO) {
-                                LocalScoreManager.loadFullScore(context, item.metadata)
+                Box(modifier = Modifier.spotlightTarget(uploadTourState, "score_library")) {
+                    RecentScoresSection(
+                        scores = recentScores,
+                        onScoreSelected = { item ->
+                            coroutineScope.launch {
+                                val fullScore = withContext(Dispatchers.IO) {
+                                    LocalScoreManager.loadFullScore(context, item.metadata)
+                                }
+                                if (fullScore != null) {
+                                    onNavigateToPractice(fullScore)
+                                } else {
+                                    activeErrorDialog = resolveErrorDialogData("Unable to load saved score. The score format is unsupported or the file has expired.")
+                                }
                             }
-                            if (fullScore != null) {
-                                onNavigateToPractice(fullScore)
-                            } else {
-                                activeErrorDialog = resolveErrorDialogData("Unable to load saved score. The score format is unsupported or the file has expired.")
-                            }
+                        },
+                        onDeleteScore = { item ->
+                            scoreToDelete = item
+                        },
+                        onClearAll = {
+                            showClearAllConfirm = true
                         }
-                    },
-                    onDeleteScore = { item ->
-                        scoreToDelete = item
-                    },
-                    onClearAll = {
-                        showClearAllConfirm = true
-                    }
-                )
+                    )
+                }
             }
         }
 
-
-
-    if (scoreToDelete != null) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { scoreToDelete = null },
-            title = {
-                Text(
-                    text = "Delete Score?",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = VoxTextPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to delete '${scoreToDelete?.title}'? This action cannot be undone.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VoxTextSubtitle
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        val item = scoreToDelete
-                        if (item != null) {
-                            coroutineScope.launch {
-                                LocalScoreManager.deleteScore(context, item.id)
-                                recentScores.remove(item)
-                                Toast.makeText(context, "Deleted ${item.title}", Toast.LENGTH_SHORT).show()
+        if (scoreToDelete != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { scoreToDelete = null },
+                title = {
+                    Text(
+                        text = "Delete Score?",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = VoxTextPrimary
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete '${scoreToDelete?.title}'? This action cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = VoxTextSubtitle
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            val item = scoreToDelete
+                            if (item != null) {
+                                coroutineScope.launch {
+                                    LocalScoreManager.deleteScore(context, item.id)
+                                    recentScores.remove(item)
+                                    Toast.makeText(context, "Deleted ${item.title}", Toast.LENGTH_SHORT).show()
+                                }
                             }
+                            scoreToDelete = null
                         }
-                        scoreToDelete = null
+                    ) {
+                        Text("DELETE", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
                     }
-                ) {
-                    Text("DELETE", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { scoreToDelete = null }) {
+                        Text("CANCEL", color = VoxTextSubtitle)
+                    }
                 }
+            )
+        }
+
+        // ── Spotlight Tour Overlay (Walks through buttons on new install) ──
+        SpotlightTourOverlay(
+            tourState = uploadTourState,
+            onTourFinished = {
+                TourPreferences.setTourCompleted(context, TourPreferences.KEY_UPLOAD_TOUR, true)
             },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { scoreToDelete = null }) {
-                    Text("CANCEL", color = VoxTextSubtitle)
-                }
+            onTourSkipped = {
+                TourPreferences.setTourCompleted(context, TourPreferences.KEY_UPLOAD_TOUR, true)
+            }
+        )
+
+        // ── User Guide Dialog (On-demand) ──
+        AppUserGuideDialog(
+            isVisible = showUserGuide,
+            onDismiss = {
+                showUserGuide = false
             }
         )
     }
@@ -542,10 +635,14 @@ fun UploadScoreScreen(
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Top bar with VoxSight logo, settings icon, and profile avatar.
+ * Top bar with VoxSight logo, guide icon, and profile avatar.
  */
 @Composable
-private fun TopBar(onProfileClick: () -> Unit) {
+private fun TopBar(
+    onProfileClick: () -> Unit,
+    onGuideClick: () -> Unit = {},
+    profileModifier: Modifier = Modifier
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -558,10 +655,10 @@ private fun TopBar(onProfileClick: () -> Unit) {
                 .background(VoxPurplePrimary),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.material3.Icon(
+            Icon(
                 imageVector = Icons.Outlined.MusicNote,
                 contentDescription = stringResource(R.string.cd_music_note),
-                tint = androidx.compose.ui.graphics.Color.White,
+                tint = Color.White,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -576,18 +673,28 @@ private fun TopBar(onProfileClick: () -> Unit) {
             modifier = Modifier.weight(1f)
         )
 
+        // Guide Icon
+        IconButton(onClick = onGuideClick) {
+            Icon(
+                imageVector = Icons.Outlined.HelpOutline,
+                contentDescription = "User Guide",
+                tint = VoxPurplePrimary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
 
+        Spacer(modifier = Modifier.width(4.dp))
 
         // Profile Avatar
         Box(
-            modifier = Modifier
+            modifier = profileModifier
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(VoxPurpleIconBg)
                 .clickable { onProfileClick() },
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.material3.Icon(
+            Icon(
                 imageVector = Icons.Outlined.Person,
                 contentDescription = stringResource(R.string.cd_profile_avatar),
                 tint = VoxPurplePrimary,
@@ -606,10 +713,11 @@ private fun ActionCard(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(VoxCardBackground)

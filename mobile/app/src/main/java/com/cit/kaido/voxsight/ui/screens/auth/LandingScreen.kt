@@ -25,13 +25,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import com.cit.kaido.voxsight.ui.tour.AppUserGuideDialog
+import com.cit.kaido.voxsight.ui.tour.TourPreferences
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,6 +97,11 @@ fun LandingScreen(
         label = "floatRotate"
     )
 
+    val context = LocalContext.current
+    var showUserGuide by remember {
+        mutableStateOf(!TourPreferences.isTourCompleted(context, TourPreferences.KEY_LAUNCH_USER_GUIDE))
+    }
+
     // ── Auto-swiping Background Setup ────────────────────────
     // We'll use 3 background states based on the images you uploaded. 
     val totalImages = 3
@@ -108,6 +119,35 @@ fun LandingScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        // ── Top Bar Guide Button (Re-open guide anytime) ────────
+        Surface(
+            color = Color.Black.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(20.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 24.dp, end = 20.dp)
+                .clickable { showUserGuide = true }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.HelpOutline,
+                    contentDescription = "User Guide",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "User Guide",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         // Auto-swiping image layer
         Crossfade(
             targetState = currentImageIndex,
@@ -331,5 +371,14 @@ fun LandingScreen(
                 }
             }
         }
+
+        // ── Automatic User Guide Dialog (New Install / Manual Open) ──
+        AppUserGuideDialog(
+            isVisible = showUserGuide,
+            onDismiss = {
+                TourPreferences.setTourCompleted(context, TourPreferences.KEY_LAUNCH_USER_GUIDE, true)
+                showUserGuide = false
+            }
+        )
     }
 }
