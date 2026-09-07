@@ -34,7 +34,7 @@ export const DownloadSection: React.FC = () => {
             <div className="pt-2 sm:pt-4 flex flex-col items-center justify-center gap-4">
               <a
                 href={PROJECT_INFO.downloadUrl}
-                download="voxsight-v1.0.0.apk"
+                download={`voxsight-v${PROJECT_INFO.apkVersion}.apk`}
                 className="group inline-flex items-center justify-center gap-3 px-8 sm:px-9 py-4 text-sm sm:text-base font-sans font-bold text-violet-950 bg-white hover:bg-amber-100 rounded-2xl shadow-xl hover:-translate-y-1 transition-all duration-200 min-h-[52px]"
               >
                 <Download className="w-5 h-5 sm:w-6 sm:h-6 text-violet-900 group-hover:animate-bounce" />
@@ -51,9 +51,14 @@ export const DownloadSection: React.FC = () => {
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Verified Clean Build
                 </span>
                 <span>•</span>
-                <span className="flex items-center gap-1.5">
-                  <FileCode className="w-3.5 h-3.5 text-amber-300" /> Package: com.voxsight.app
-                </span>
+                <a
+                  href={PROJECT_INFO.releaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-amber-300 hover:text-white underline transition-colors"
+                >
+                  <FileCode className="w-3.5 h-3.5" /> What's New in v{PROJECT_INFO.apkVersion} ↗
+                </a>
               </div>
             </div>
 
@@ -79,7 +84,7 @@ export const DownloadSection: React.FC = () => {
                 <div className="p-4 rounded-xl bg-white/10 border border-white/10 space-y-1.5">
                   <div className="text-xs font-mono font-bold text-indigo-300">STEP 3</div>
                   <div className="text-xs font-bold text-white font-sans">Open File</div>
-                  <div className="text-[11px] font-sans text-violet-200">Tap the downloaded <code>voxsight-v1.0.0.apk</code> file to install.</div>
+                  <div className="text-[11px] font-sans text-violet-200">Tap the downloaded <code>voxsight-v{PROJECT_INFO.apkVersion}.apk</code> file to install.</div>
                 </div>
 
                 <div className="p-4 rounded-xl bg-white/10 border border-white/10 space-y-1.5">
