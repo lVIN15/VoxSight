@@ -3,6 +3,7 @@ package edu.cit.capstone.voxsight.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -10,6 +11,12 @@ import java.io.File;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    private final AppVersionInterceptor appVersionInterceptor;
+
+    public WebConfig(AppVersionInterceptor appVersionInterceptor) {
+        this.appVersionInterceptor = appVersionInterceptor;
+    }
 
     @Value("${voxsight.storage.outputs-dir:}")
     private String outputsDirConfig;
@@ -43,6 +50,12 @@ public class WebConfig implements WebMvcConfigurer {
             registry.addResourceHandler("/**")
                     .addResourceLocations(assetsLocation, "classpath:/static/", "classpath:/public/");
         }
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(appVersionInterceptor)
+                .addPathPatterns("/api/omr/**", "/api/musicxml/**");
     }
 
     @Override

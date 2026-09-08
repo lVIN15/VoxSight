@@ -16,8 +16,20 @@ object ApiClient {
     private var activeUrl = DEFAULT_BASE_URL
     private var cachedRetrofit: Retrofit? = null
     private var cachedService: OmrService? = null
+    private var cachedVersionApi: AppVersionApi? = null
 
     private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val requestBuilder = original.newBuilder()
+                .header("X-App-Version-Code", BuildConfig.VERSION_CODE.toString())
+                .header("X-App-Version", BuildConfig.VERSION_NAME)
+            val response = chain.proceed(requestBuilder.build())
+            if (response.code == 426) {
+                com.cit.kaido.voxsight.ui.update.AppUpdateManager.triggerForceUpdate()
+            }
+            response
+        }
         .connectTimeout(60, TimeUnit.SECONDS) // Render cold-start handling (~45s)
         .readTimeout(600, TimeUnit.SECONDS) // 10 min timeout for OMR conversion on cloud
         .writeTimeout(300, TimeUnit.SECONDS)
@@ -73,6 +85,7 @@ object ApiClient {
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
                 cachedService = cachedRetrofit!!.create(OmrService::class.java)
+                cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
             }
         }
     }
@@ -87,8 +100,25 @@ object ApiClient {
                         .addConverterFactory(GsonConverterFactory.create())
                         .build()
                     cachedService = cachedRetrofit!!.create(OmrService::class.java)
+                    cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
                 }
                 return cachedService!!
+            }
+        }
+
+    val versionApi: AppVersionApi
+        get() {
+            synchronized(this) {
+                if (cachedVersionApi == null) {
+                    cachedRetrofit = Retrofit.Builder()
+                        .baseUrl(activeUrl)
+                        .client(okHttpClient)
+                        .addConverterFactory(GsonConverterFactory.create())
+                        .build()
+                    cachedService = cachedRetrofit!!.create(OmrService::class.java)
+                    cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                }
+                return cachedVersionApi!!
             }
         }
 }
