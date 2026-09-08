@@ -55,7 +55,8 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(appVersionInterceptor)
-                .addPathPatterns("/api/omr/**", "/api/musicxml/**");
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/app/**", "/api/diagnostics/**");
     }
 
     @Override

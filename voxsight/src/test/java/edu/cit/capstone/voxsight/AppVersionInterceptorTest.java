@@ -33,7 +33,7 @@ class AppVersionInterceptorTest {
 
         assertFalse(result, "Request without version code header must be rejected");
         assertEquals(426, response.getStatus());
-        assertTrue(response.getContentAsString().contains("APP_UPDATE_REQUIRED"));
+        assertTrue(response.getContentAsString().contains("Update Required"));
     }
 
     @Test
@@ -47,7 +47,7 @@ class AppVersionInterceptorTest {
 
         assertFalse(result, "Request with versionCode=1 must be rejected when minVersionCode=2");
         assertEquals(426, response.getStatus());
-        assertTrue(response.getContentAsString().contains("APP_UPDATE_REQUIRED"));
+        assertTrue(response.getContentAsString().contains("Update Required"));
     }
 
     @Test

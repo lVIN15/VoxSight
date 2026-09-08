@@ -52,7 +52,8 @@ public class AppVersionInterceptor implements HandlerInterceptor {
             response.setContentType("application/json;charset=UTF-8");
 
             String jsonPayload = String.format(
-                    "{\"status\":426,\"error\":\"APP_UPDATE_REQUIRED\",\"message\":\"Your version of VoxSight is outdated. Please update to version %s to continue using VoxSight.\",\"latestVersion\":\"%s\",\"downloadUrl\":\"%s\"}",
+                    "{\"success\":false,\"status\":426,\"error\":\"Update Required: Your version of VoxSight is outdated. Please update to version %s to scan sheet music.\",\"message\":\"Update Required: Your version of VoxSight is outdated. Please update to version %s to continue using VoxSight.\",\"latestVersion\":\"%s\",\"downloadUrl\":\"%s\"}",
+                    properties.getMinVersionName(),
                     properties.getMinVersionName(),
                     properties.getLatestVersionName(),
                     properties.getDownloadUrl()
