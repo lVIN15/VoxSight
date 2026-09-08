@@ -64,7 +64,11 @@ data class MusicXmlNote(
     val measureNumber: Int = 1,
     val measureIndex: Int = 0,
     val customVoice: Int? = null,
-    val lyric: String? = null
+    val lyric: String? = null,
+    val stem: String? = null,
+    val beam: String? = null,
+    val beam2: String? = null,
+    val beam3: String? = null
 )
 
 fun parseMusicXmlScore(
@@ -260,6 +264,10 @@ fun parseMusicXmlScoreFromText(
     var staff: Int? = null
     var noteType: String? = null
     var lyricText: String? = null
+    var stem: String? = null
+    var beam: String? = null
+    var beam2: String? = null
+    var beam3: String? = null
     // Track the most recent duration for chord inheritance
     var lastDuration = 0
 
@@ -332,6 +340,10 @@ fun parseMusicXmlScoreFromText(
                             staff = null
                             noteType = null
                             lyricText = null
+                            stem = null
+                            beam = null
+                            beam2 = null
+                            beam3 = null
                         }
                         "chord" -> if (inNote) {
                             isChord = true
@@ -378,6 +390,18 @@ fun parseMusicXmlScoreFromText(
                         }
                         "type" -> if (inNote) {
                             noteType = parser.nextText().trim()
+                        }
+                        "stem" -> if (inNote) {
+                            stem = parser.nextText().trim().lowercase()
+                        }
+                        "beam" -> if (inNote) {
+                            val bNum = parser.getAttributeValue(null, "number")?.toIntOrNull() ?: 1
+                            val bText = parser.nextText().trim().lowercase()
+                            when (bNum) {
+                                1 -> beam = bText
+                                2 -> beam2 = bText
+                                3 -> beam3 = bText
+                            }
                         }
                         "text" -> if (inNote) {
                             val txt = parser.nextText().trim()
@@ -470,7 +494,11 @@ fun parseMusicXmlScoreFromText(
                                 measureNumber = currentMeasureNumber,
                                 measureIndex = currentMeasureIndex,
                                 customVoice = customVoice,
-                                lyric = lyricText
+                                lyric = lyricText,
+                                stem = stem,
+                                beam = beam,
+                                beam2 = beam2,
+                                beam3 = beam3
                             )
                             notes.add(note)
                             currentMeasureNotes.add(note)
@@ -505,12 +533,29 @@ fun parseMusicXmlScoreFromText(
         val finalParts = mutableListOf<MusicXmlPart>()
         val totalParts = partMeasuresMap.size.coerceAtLeast(partNotesMap.size)
 
+        // Compile a measure-level choral lyric timeline across all parts
+        // In shared-staff or standard choral scores, lyrics are often engraved under Staff 1 (Soprano/Alto)
+        // and omitted from Staff 2 (Tenor/Bass), or placed only on the root chord note.
+        val measureLyricPool = mutableMapOf<Int, MutableMap<Int, String>>() // measureIndex -> (startTimeDivisions -> lyric)
+        partMeasuresMap.values.forEach { measuresInPart ->
+            measuresInPart.forEachIndexed { mIdx, measure ->
+                val mPool = measureLyricPool.getOrPut(mIdx) { mutableMapOf() }
+                measure.notes.forEach { note ->
+                    val lyr = note.lyric?.trim()
+                    if (!lyr.isNullOrBlank() && !mPool.containsKey(note.startTimeDivisions)) {
+                        mPool[note.startTimeDivisions] = lyr
+                    }
+                }
+            }
+        }
+
         partMeasuresMap.entries.sortedBy { it.key }.forEach { entry ->
             val partIndex = entry.key
             val originalMeasuresInPart = entry.value
 
-            val adjustedMeasures = originalMeasuresInPart.map { measure ->
+            val adjustedMeasures = originalMeasuresInPart.mapIndexed { mIdx, measure ->
                 val notesByTime = measure.notes.groupBy { it.startTimeDivisions }
+                val mPool = measureLyricPool[mIdx] ?: emptyMap()
 
                 val adjustedNotes = measure.notes.map { note ->
                     val group = notesByTime[note.startTimeDivisions] ?: listOf(note)
@@ -544,7 +589,33 @@ fun parseMusicXmlScoreFromText(
                         }
                         else -> note.originalVoice
                     }
-                    note.copy(voice = isolatedVoice)
+
+                    // Choral & Chord Lyric association:
+                    // Inherit from chord group or cross-part measure pool at this onset
+                    val chordLyric = group.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric
+                        ?: mPool[note.startTimeDivisions]
+                    val resolvedLyric = if (note.lyric.isNullOrBlank()) chordLyric else note.lyric
+
+                    val chordStem = group.firstOrNull { !it.stem.isNullOrBlank() }?.stem
+                    val resolvedStem = if (note.stem.isNullOrBlank()) chordStem else note.stem
+
+                    val chordBeam = group.firstOrNull { !it.beam.isNullOrBlank() }?.beam
+                    val resolvedBeam = if (note.beam.isNullOrBlank()) chordBeam else note.beam
+
+                    val chordBeam2 = group.firstOrNull { !it.beam2.isNullOrBlank() }?.beam2
+                    val resolvedBeam2 = if (note.beam2.isNullOrBlank()) chordBeam2 else note.beam2
+
+                    val chordBeam3 = group.firstOrNull { !it.beam3.isNullOrBlank() }?.beam3
+                    val resolvedBeam3 = if (note.beam3.isNullOrBlank()) chordBeam3 else note.beam3
+
+                    note.copy(
+                        voice = isolatedVoice,
+                        lyric = resolvedLyric,
+                        stem = resolvedStem,
+                        beam = resolvedBeam,
+                        beam2 = resolvedBeam2,
+                        beam3 = resolvedBeam3
+                    )
                 }
                 finalNotes.addAll(adjustedNotes)
                 measure.copy(notes = adjustedNotes)
@@ -612,7 +683,24 @@ fun parseMusicXmlScoreFromText(
                         }
                         else -> note.originalVoice
                     }
-                    note.copy(voice = isolatedVoice)
+                    val chordLyric = group.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric
+                    val resolvedLyric = if (note.lyric.isNullOrBlank()) chordLyric else note.lyric
+                    val chordStem = group.firstOrNull { !it.stem.isNullOrBlank() }?.stem
+                    val resolvedStem = if (note.stem.isNullOrBlank()) chordStem else note.stem
+                    val chordBeam = group.firstOrNull { !it.beam.isNullOrBlank() }?.beam
+                    val resolvedBeam = if (note.beam.isNullOrBlank()) chordBeam else note.beam
+                    val chordBeam2 = group.firstOrNull { !it.beam2.isNullOrBlank() }?.beam2
+                    val resolvedBeam2 = if (note.beam2.isNullOrBlank()) chordBeam2 else note.beam2
+                    val chordBeam3 = group.firstOrNull { !it.beam3.isNullOrBlank() }?.beam3
+                    val resolvedBeam3 = if (note.beam3.isNullOrBlank()) chordBeam3 else note.beam3
+                    note.copy(
+                        voice = isolatedVoice,
+                        lyric = resolvedLyric,
+                        stem = resolvedStem,
+                        beam = resolvedBeam,
+                        beam2 = resolvedBeam2,
+                        beam3 = resolvedBeam3
+                    )
                 }
                 finalNotes.addAll(adjustedNotes)
                 finalParts.add(
