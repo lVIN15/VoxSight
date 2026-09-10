@@ -1068,7 +1068,18 @@ private fun onImageCaptured(
 
             // Extract actual file name and MIME type to support PDFs correctly
             val originalFileName = getFileName(context, imageUri)
-            val mimeType = context.contentResolver.getType(imageUri) ?: "application/octet-stream"
+            // Infer MIME type from filename extension when ContentResolver returns null (file:// URIs)
+            val mimeType = context.contentResolver.getType(imageUri) ?: run {
+                val lower = originalFileName.lowercase()
+                when {
+                    lower.endsWith(".pdf") -> "application/pdf"
+                    lower.endsWith(".png") -> "image/png"
+                    lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+                    lower.endsWith(".musicxml") || lower.endsWith(".xml") -> "application/xml"
+                    lower.endsWith(".mxl") -> "application/vnd.recordare.musicxml"
+                    else -> "image/jpeg"
+                }
+            }
             
             // Copy URI content to a temp file so Retrofit can send it
             val tempFile = File(context.cacheDir, "upload_$originalFileName")
@@ -1128,12 +1139,44 @@ private fun validateImageQuality(imageUri: Uri): Boolean {
  * Extracts a human-readable file name from a content URI.
  */
 private fun getFileName(context: Context, uri: Uri): String {
-    var name = "score_image"
+    var name = "score_image.jpg"
+
+    // For file:// URIs (camera captures), extract the actual filename from the path
+    if (uri.scheme == "file") {
+        val path = uri.path
+        if (!path.isNullOrBlank()) {
+            val fileName = java.io.File(path).name
+            if (fileName.isNotBlank()) {
+                name = fileName
+            }
+        }
+        return name
+    }
+
+    // For content:// URIs (file picker, gallery)
     context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
         val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (nameIndex >= 0 && cursor.moveToFirst()) {
-            name = cursor.getString(nameIndex)
+            val displayName = cursor.getString(nameIndex)
+            if (!displayName.isNullOrBlank()) {
+                name = displayName
+            }
         }
+    }
+
+    // Ensure the filename has an extension for backend format detection
+    val lower = name.lowercase()
+    if (!lower.endsWith(".jpg") && !lower.endsWith(".jpeg") && !lower.endsWith(".png")
+        && !lower.endsWith(".pdf") && !lower.endsWith(".musicxml")
+        && !lower.endsWith(".xml") && !lower.endsWith(".mxl")) {
+        // Infer extension from MIME type
+        val mimeType = context.contentResolver.getType(uri)
+        val ext = when {
+            mimeType?.contains("pdf") == true -> ".pdf"
+            mimeType?.contains("png") == true -> ".png"
+            else -> ".jpg"
+        }
+        name = name + ext
     }
     return name
 }

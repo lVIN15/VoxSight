@@ -216,19 +216,30 @@ public class OmrController {
 
     /**
      * Sanitizes input filename to prevent path traversal attacks.
+     * Ensures the filename always has a valid extension for format detection.
      */
     private String sanitizeFilename(String filename) {
-        if (filename == null) return "uploaded_score";
+        if (filename == null) return "uploaded_score.jpg";
         String cleanName = new File(filename).getName(); // Remove path prefixes
         cleanName = cleanName.replaceAll("[^a-zA-Z0-9._-]", "_"); // Strip unsafe chars
-        return cleanName.isBlank() ? "uploaded_score" : cleanName;
+        if (cleanName.isBlank()) return "uploaded_score.jpg";
+        // Ensure the filename has a recognizable extension
+        String lower = cleanName.toLowerCase();
+        if (!lower.endsWith(".jpg") && !lower.endsWith(".jpeg") && !lower.endsWith(".png")
+                && !lower.endsWith(".pdf") && !lower.endsWith(".mxl")
+                && !lower.endsWith(".musicxml") && !lower.endsWith(".xml")) {
+            cleanName = cleanName + ".jpg";
+        }
+        return cleanName;
     }
 
     /**
      * Pre-processes uploaded scores for Audiveris OMR.
-     * Checks if input PDFs or images exceed safe dimensions (> 18 Megapixels),
-     * and normalizes them via score_normalizer.py to standard 300 DPI Letter/A4 bounds
-     * to avoid Audiveris 20MP crashes.
+     * Runs score_normalizer.py which:
+     * - Trims dark borders (desk/screen edges)
+     * - Applies adaptive background normalization (shadow & lighting removal)
+     * - Deskews tilted staff lines
+     * - Scales to safe Audiveris bounds (≤18MP, ≤3300px)
      */
     private File prepareScoreForOmr(File inputFile, File uploadsDir) {
         if (inputFile == null || !inputFile.exists()) return inputFile;
@@ -241,6 +252,9 @@ public class OmrController {
             }
             String baseName = getBaseName(inputFile.getName());
             String ext = getExtension(inputFile.getName());
+            if (ext.isEmpty()) {
+                ext = ".jpg"; // Default to JPEG if no extension
+            }
             File normalizedFile = new File(uploadsDir, "norm_" + baseName + ext);
 
             ProcessBuilder pb = new ProcessBuilder(
@@ -257,7 +271,7 @@ public class OmrController {
                     log.info("[Score Normalizer] {}", line);
                 }
             }
-            boolean finished = p.waitFor(30, TimeUnit.SECONDS);
+            boolean finished = p.waitFor(60, TimeUnit.SECONDS);
             if (finished && p.exitValue() == 0 && normalizedFile.exists() && normalizedFile.length() > 0) {
                 log.info("[Score Normalizer] Using normalized score: {} ({} bytes)", normalizedFile.getName(), normalizedFile.length());
                 return normalizedFile;

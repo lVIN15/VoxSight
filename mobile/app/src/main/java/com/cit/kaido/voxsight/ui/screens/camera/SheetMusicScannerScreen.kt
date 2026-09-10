@@ -93,6 +93,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.atan2
 import kotlin.math.sqrt
+import android.graphics.RectF
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 
 private const val TAG = "SheetMusicScanner"
 
@@ -118,6 +121,10 @@ fun SheetMusicScannerScreen(
     var pitchAngle by remember { mutableFloatStateOf(0f) }
     var rollAngle by remember { mutableFloatStateOf(0f) }
     var isLevel by remember { mutableStateOf(false) }
+
+    // Viewfinder crop tracking: normalized coordinates (0.0–1.0) relative to camera preview
+    var containerSize by remember { mutableStateOf(android.util.Size(1, 1)) }
+    var viewfinderRect by remember { mutableStateOf<RectF?>(null) }
 
     // Accelerometer listener for tilt leveling
     DisposableEffect(Unit) {
@@ -163,6 +170,9 @@ fun SheetMusicScannerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onGloballyPositioned { coords ->
+                containerSize = android.util.Size(coords.size.width, coords.size.height)
+            }
     ) {
         // Camera Preview
         AndroidView(
@@ -303,7 +313,18 @@ fun SheetMusicScannerScreen(
                     .fillMaxWidth()
                     .aspectRatio(0.72f)
                     .clip(RoundedCornerShape(12.dp))
-                    .border(2.dp, frameBorderColor, RoundedCornerShape(12.dp)),
+                    .border(2.dp, frameBorderColor, RoundedCornerShape(12.dp))
+                    .onGloballyPositioned { coords ->
+                        val pos = coords.positionInRoot()
+                        val cw = containerSize.width.toFloat().coerceAtLeast(1f)
+                        val ch = containerSize.height.toFloat().coerceAtLeast(1f)
+                        viewfinderRect = RectF(
+                            (pos.x / cw).coerceIn(0f, 1f),
+                            (pos.y / ch).coerceIn(0f, 1f),
+                            ((pos.x + coords.size.width) / cw).coerceIn(0f, 1f),
+                            ((pos.y + coords.size.height) / ch).coerceIn(0f, 1f)
+                        )
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -435,7 +456,8 @@ fun SheetMusicScannerScreen(
                                                 val finalFile = ImageOptimizationHelper.optimizeSheetMusicImage(
                                                     context,
                                                     Uri.fromFile(tempRawFile),
-                                                    optimizedFile
+                                                    optimizedFile,
+                                                    cropRect = viewfinderRect
                                                 )
                                                 tempRawFile.delete()
 

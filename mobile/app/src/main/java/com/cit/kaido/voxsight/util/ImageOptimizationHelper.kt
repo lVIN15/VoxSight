@@ -8,6 +8,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import android.media.ExifInterface
 import android.net.Uri
@@ -16,21 +17,31 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 object ImageOptimizationHelper {
 
     private const val TAG = "ImageOptimizer"
-    // Optimal height for 200 DPI sheet music scan (standard 11-inch letter paper at 200 DPI = 2200px)
-    private const val TARGET_MAX_DIMENSION = 2200
+    // Optimal height for 300 DPI sheet music scan (standard 11-inch letter paper at 300 DPI ≈ 3300px)
+    private const val TARGET_MAX_DIMENSION = 3200
 
     /**
      * Optimizes a captured sheet music photo:
      * 1. Fixes camera sensor EXIF rotation.
-     * 2. Rescales to standard 200 DPI equivalent resolution (~2200px) using inSampleSize.
-     * 3. Enhances contrast to remove shadows and make faded notes deep black on clean white paper.
-     * 4. Saves as high-quality compressed JPEG (~400KB - 800KB).
+     * 2. Optionally crops to viewfinder bounds (removing surrounding desk/clutter).
+     * 3. Rescales to standard 300 DPI equivalent resolution (~3200px) using inSampleSize.
+     * 4. Applies clean grayscale conversion with gentle contrast preservation.
+     * 5. Saves as high-quality compressed JPEG.
+     *
+     * @param cropRect Optional normalized crop rectangle (0.0–1.0) relative to the full image.
+     *                 Used to crop the photo to the viewfinder guide box bounds.
      */
-    fun optimizeSheetMusicImage(context: Context, sourceUri: Uri, outputFile: File): File {
+    fun optimizeSheetMusicImage(
+        context: Context,
+        sourceUri: Uri,
+        outputFile: File,
+        cropRect: RectF? = null
+    ): File {
         var inputStream: InputStream? = null
         try {
             // Step 1: Read EXIF orientation
@@ -65,7 +76,7 @@ object ImageOptimizationHelper {
             options.inSampleSize = sampleSize
             options.inPreferredConfig = Bitmap.Config.ARGB_8888
 
-            val rawBitmap = context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            var bitmap = context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
             } ?: run {
                 Log.w(TAG, "Failed to decode bitmap. Copying raw file.")
@@ -74,24 +85,23 @@ object ImageOptimizationHelper {
             }
 
             // Step 5: Apply EXIF Rotation & Rescale to target dimension
-            val rotatedAndScaledBitmap = rotateAndScaleBitmap(rawBitmap, orientation, TARGET_MAX_DIMENSION)
-            if (rotatedAndScaledBitmap != rawBitmap) {
-                rawBitmap.recycle()
+            bitmap = rotateAndScaleBitmap(bitmap, orientation, TARGET_MAX_DIMENSION)
+
+            // Step 6: Crop to viewfinder bounds if provided
+            if (cropRect != null) {
+                bitmap = cropToViewfinder(bitmap, cropRect)
             }
 
-            // Step 6: Apply High-Contrast Grayscale Filter for razor-sharp staff lines
-            val enhancedBitmap = enhanceContrast(rotatedAndScaledBitmap)
-            if (enhancedBitmap != rotatedAndScaledBitmap) {
-                rotatedAndScaledBitmap.recycle()
-            }
+            // Step 7: Apply clean grayscale conversion (preserving fine staff line detail)
+            bitmap = cleanGrayscaleConvert(bitmap)
 
-            // Step 7: Write to output file as compressed JPEG
+            // Step 8: Write to output file as high-quality JPEG
             FileOutputStream(outputFile).use { out ->
-                enhancedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
             }
-            enhancedBitmap.recycle()
+            bitmap.recycle()
 
-            Log.i(TAG, "Optimized image saved: ${outputFile.name} (${outputFile.length() / 1024} KB)")
+            Log.i(TAG, "Optimized image saved: ${outputFile.name} (${outputFile.length() / 1024} KB, ${bitmap.width}x${bitmap.height})")
             return outputFile
 
         } catch (e: Exception) {
@@ -101,6 +111,40 @@ object ImageOptimizationHelper {
         } finally {
             inputStream?.close()
         }
+    }
+
+    /**
+     * Crops the bitmap to the normalized viewfinder rectangle.
+     * The cropRect values are in 0.0–1.0 coordinates relative to the full bitmap.
+     * A 5% margin is added to avoid cutting edge notation.
+     */
+    private fun cropToViewfinder(bitmap: Bitmap, cropRect: RectF): Bitmap {
+        val w = bitmap.width
+        val h = bitmap.height
+
+        // Apply 5% safety margin to avoid cutting notes at the edge
+        val marginX = (cropRect.width() * 0.05f).coerceAtMost(0.05f)
+        val marginY = (cropRect.height() * 0.05f).coerceAtMost(0.05f)
+
+        val left = ((cropRect.left - marginX).coerceAtLeast(0f) * w).roundToInt()
+        val top = ((cropRect.top - marginY).coerceAtLeast(0f) * h).roundToInt()
+        val right = ((cropRect.right + marginX).coerceAtMost(1f) * w).roundToInt()
+        val bottom = ((cropRect.bottom + marginY).coerceAtMost(1f) * h).roundToInt()
+
+        val cropW = (right - left).coerceAtLeast(100)
+        val cropH = (bottom - top).coerceAtLeast(100)
+
+        if (cropW >= w * 0.9f && cropH >= h * 0.9f) {
+            // Crop would be nearly the whole image — skip
+            return bitmap
+        }
+
+        Log.i(TAG, "Cropping to viewfinder: ($left,$top)-($right,$bottom) from ${w}x${h}")
+        val cropped = Bitmap.createBitmap(bitmap, left, top, cropW.coerceAtMost(w - left), cropH.coerceAtMost(h - top))
+        if (cropped != bitmap) {
+            bitmap.recycle()
+        }
+        return cropped
     }
 
     private fun getExifOrientation(context: Context, uri: Uri): Int {
@@ -133,34 +177,42 @@ object ImageOptimizationHelper {
             matrix.postScale(scale, scale)
         }
 
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        val result = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (result != bitmap) {
+            bitmap.recycle()
+        }
+        return result
     }
 
     /**
-     * Boosts contrast and normalizes paper brightness:
-     * - Dark notes are pulled towards solid black.
-     * - Off-white / shadowy paper is pulled towards pure clean white.
+     * Clean grayscale conversion that preserves thin staff line detail.
+     * Uses standard luminance weights without destructive brightness offset.
+     * Applies gentle contrast (1.15x) to darken notation without blowing out lines.
      */
-    private fun enhanceContrast(source: Bitmap): Bitmap {
+    private fun cleanGrayscaleConvert(source: Bitmap): Bitmap {
         val result = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // ColorMatrix: Grayscale + Contrast Boost (1.35x contrast, +15 brightness)
-        val contrast = 1.35f
-        val brightness = 15f
+        // Gentle grayscale + slight contrast boost (1.15x, no brightness offset)
+        // This preserves thin anti-aliased staff lines instead of blowing them out
+        val contrast = 1.15f
+        val brightness = 0f  // No brightness offset — preserves line continuity
 
         val cm = ColorMatrix(
             floatArrayOf(
-                contrast * 0.33f, contrast * 0.59f, contrast * 0.11f, 0f, brightness,
-                contrast * 0.33f, contrast * 0.59f, contrast * 0.11f, 0f, brightness,
-                contrast * 0.33f, contrast * 0.59f, contrast * 0.11f, 0f, brightness,
+                contrast * 0.2126f, contrast * 0.7152f, contrast * 0.0722f, 0f, brightness,
+                contrast * 0.2126f, contrast * 0.7152f, contrast * 0.0722f, 0f, brightness,
+                contrast * 0.2126f, contrast * 0.7152f, contrast * 0.0722f, 0f, brightness,
                 0f, 0f, 0f, 1f, 0f
             )
         )
 
         paint.colorFilter = ColorMatrixColorFilter(cm)
         canvas.drawBitmap(source, 0f, 0f, paint)
+        if (source != result) {
+            source.recycle()
+        }
         return result
     }
 
