@@ -253,4 +253,38 @@ object ImageOptimizationHelper {
         }
         return outputPdfFile
     }
+
+    /**
+     * Quickly checks if a bitmap appears to be blank or nearly empty (less than 0.4% dark pixels).
+     * Fast grid sampling (< 1ms overhead) suitable for UI display.
+     */
+    fun isBitmapBlank(bitmap: Bitmap): Boolean {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return true
+
+        val sampleSteps = 50
+        val stepX = (w / sampleSteps).coerceAtLeast(1)
+        val stepY = (h / sampleSteps).coerceAtLeast(1)
+        var darkCount = 0
+        var totalCount = 0
+
+        for (y in 0 until h step stepY) {
+            for (x in 0 until w step stepX) {
+                val pixel = bitmap.getPixel(x, y)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                val lum = (0.2126f * r + 0.7152f * g + 0.0722f * b)
+                if (lum < 180) {
+                    darkCount++
+                }
+                totalCount++
+            }
+        }
+
+        if (totalCount == 0) return true
+        val darkRatio = darkCount.toFloat() / totalCount.toFloat()
+        return darkRatio < 0.004f // Less than 0.4% dark pixels
+    }
 }

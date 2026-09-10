@@ -178,6 +178,52 @@ def _determine_output_format(input_path: str, output_path: str):
         return {"format": "JPEG", "quality": 95}
 
 
+def _is_blank_or_non_music_page(img: Image.Image) -> tuple:
+    """
+    Analyzes an image to detect if it is blank, near-blank, or non-music back matter.
+    Returns (is_blank_or_non_music: bool, reason: str).
+    """
+    gray = img.convert("L")
+    w, h = gray.size
+
+    if HAS_NUMPY:
+        arr = np.array(gray, dtype=np.uint8)
+        dark_pixels = np.count_nonzero(arr < 180)
+        total_pixels = w * h
+        ink_ratio = dark_pixels / total_pixels
+
+        # 1. Extremely low ink: blank or nearly blank page (e.g. trailing publisher page)
+        if ink_ratio < 0.0025:
+            return True, f"Blank/sparse page ({ink_ratio*100:.3f}% ink < 0.25% threshold)"
+
+        # 2. Moderate to low ink (< 2.0%): check if there are horizontal staff lines
+        if ink_ratio < 0.020:
+            scale = min(1.0, 800.0 / w)
+            sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
+            small = gray.resize((sw, sh), Image.Resampling.BILINEAR)
+            s_arr = np.array(small, dtype=np.uint8)
+
+            binary = (s_arr < 180).astype(np.float32)
+            row_coverage = np.sum(binary, axis=1) / sw
+
+            # Staff lines typically span at least 25% of the page width horizontally
+            staff_line_candidates = np.where(row_coverage > 0.25)[0]
+
+            # Real sheet music contains at least 5 lines per staff (usually 10-30+ across systems)
+            if len(staff_line_candidates) < 5:
+                return True, f"Non-music page (ink={ink_ratio*100:.2f}%, staff_lines={len(staff_line_candidates)} < 5)"
+
+        return False, f"Valid sheet music page (ink={ink_ratio*100:.2f}%)"
+    else:
+        # Fallback without numpy: use histogram
+        hist = gray.histogram()
+        dark_pixels = sum(hist[:180])
+        ink_ratio = dark_pixels / (w * h)
+        if ink_ratio < 0.003:
+            return True, f"Blank page (ink={ink_ratio*100:.3f}%)"
+        return False, f"Valid page (ink={ink_ratio*100:.2f}%)"
+
+
 def normalize_pdf(input_path: str, output_path: str) -> bool:
     try:
         import pypdfium2 as pdfium
@@ -190,25 +236,12 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
     if page_count == 0:
         return False
 
-    # Check if any page is oversized at 300 DPI (scale = 300 / 72 = 4.1667)
+    print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s))...")
+
+    rendered_pages = []
+    pruned_indices = []
     needs_downscale = False
-    for page in pdf:
-        w_pt, h_pt = page.get_size()
-        w_px = int(w_pt * (300.0 / 72.0))
-        h_px = int(h_pt * (300.0 / 72.0))
-        if (w_px * h_px) > MAX_SAFE_PIXELS or max(w_px, h_px) > 4500:
-            needs_downscale = True
-            break
 
-    if not needs_downscale:
-        print(f"[ScoreNormalizer] PDF {input_path} is within safe dimensions. No normalization needed.")
-        if input_path != output_path:
-            shutil.copy2(input_path, output_path)
-        return True
-
-    print(f"[ScoreNormalizer] PDF {input_path} is oversized (> {MAX_SAFE_PIXELS:,} px). Normalizing {page_count} page(s)...")
-
-    images = []
     for i, page in enumerate(pdf):
         w_pt, h_pt = page.get_size()
         dpi_scale = 300.0 / 72.0
@@ -216,22 +249,48 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
         target_h = int(h_pt * dpi_scale)
 
         if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
+            needs_downscale = True
             factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
             dpi_scale *= factor
 
         rendered_img = page.render(scale=dpi_scale).to_pil().convert("RGB")
-        print(f"[ScoreNormalizer] Page {i+1}/{page_count}: {rendered_img.size[0]}x{rendered_img.size[1]} ({rendered_img.size[0]*rendered_img.size[1]:,} px)")
-        images.append(rendered_img)
 
-    if images:
-        images[0].save(
+        # Check if page is blank or non-music back matter
+        is_blank, reason = _is_blank_or_non_music_page(rendered_img)
+        if is_blank:
+            print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
+            pruned_indices.append(i + 1)
+        else:
+            print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
+            rendered_pages.append(rendered_img)
+
+    # Safety guard: if ALL pages were pruned, retain page 1 so downstream gets a valid sheet to inspect
+    if not rendered_pages and page_count > 0:
+        print(f"[ScoreNormalizer] WARNING: All {page_count} page(s) were flagged as blank/non-music. Retaining page 1 as fallback.")
+        first_img = pdf[0].render(scale=300.0 / 72.0).to_pil().convert("RGB")
+        rendered_pages.append(first_img)
+        if 1 in pruned_indices:
+            pruned_indices.remove(1)
+
+    # If no pages were pruned and no downscale needed, keep original file
+    if not pruned_indices and not needs_downscale:
+        print(f"[ScoreNormalizer] PDF {input_path} is clean and within safe bounds. No modification needed.")
+        if input_path != output_path:
+            shutil.copy2(input_path, output_path)
+        return True
+
+    # Otherwise, write the cleaned/rescaled PDF
+    if rendered_pages:
+        rendered_pages[0].save(
             output_path,
             save_all=True,
-            append_images=images[1:],
+            append_images=rendered_pages[1:],
             resolution=300.0,
             format="PDF"
         )
-        print(f"[ScoreNormalizer] Successfully saved normalized PDF to: {output_path}")
+        print(f"[ScoreNormalizer] Successfully saved normalized PDF ({len(rendered_pages)}/{page_count} pages) to: {output_path}")
+        if pruned_indices:
+            print(f"[ScoreNormalizer] Filtered out {len(pruned_indices)} blank/non-music page(s): pages {pruned_indices}")
         return True
 
     return False

@@ -580,6 +580,9 @@ fun SheetMusicScannerScreen(
                             val bitmap = remember(file.absolutePath) {
                                 BitmapFactory.decodeFile(file.absolutePath)
                             }
+                            val isBlank = remember(file.absolutePath) {
+                                bitmap?.let { ImageOptimizationHelper.isBitmapBlank(it) } ?: false
+                            }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
@@ -587,7 +590,11 @@ fun SheetMusicScannerScreen(
                                     modifier = Modifier
                                         .size(100.dp, 135.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                                        .border(
+                                            width = if (isBlank) 2.dp else 1.dp,
+                                            color = if (isBlank) Color(0xFFD97706) else Color.Gray,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
                                 ) {
                                     if (bitmap != null) {
                                         Image(
@@ -596,6 +603,26 @@ fun SheetMusicScannerScreen(
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
                                         )
+                                    }
+
+                                    // Blank / Empty warning banner
+                                    if (isBlank) {
+                                        Surface(
+                                            color = Color(0xFFD97706).copy(alpha = 0.9f),
+                                            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = "Blank?",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(vertical = 2.dp)
+                                            )
+                                        }
                                     }
 
                                     // Delete button

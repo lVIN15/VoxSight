@@ -271,7 +271,7 @@ public class OmrController {
                     log.info("[Score Normalizer] {}", line);
                 }
             }
-            boolean finished = p.waitFor(60, TimeUnit.SECONDS);
+            boolean finished = p.waitFor(90, TimeUnit.SECONDS);
             if (finished && p.exitValue() == 0 && normalizedFile.exists() && normalizedFile.length() > 0) {
                 log.info("[Score Normalizer] Using normalized score: {} ({} bytes)", normalizedFile.getName(), normalizedFile.length());
                 return normalizedFile;
