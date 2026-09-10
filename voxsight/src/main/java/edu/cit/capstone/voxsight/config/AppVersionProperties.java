@@ -9,14 +9,14 @@ public class AppVersionProperties {
 
     /**
      * Minimum required Android versionCode (1 = v1.0.0, 2 = v1.1.0).
-     * Requests from versions below this will be rejected with HTTP 426.
+     * Requests from versions below this will be rejected with HTTP 426 only if forceUpdate is true.
      */
-    private int minVersionCode = 2;
+    private int minVersionCode = 1;
 
     /**
      * Human-readable minimum required version name.
      */
-    private String minVersionName = "1.1.0";
+    private String minVersionName = "1.0.0";
 
     /**
      * Current latest available version name.
@@ -32,6 +32,19 @@ public class AppVersionProperties {
      * URL to the release notes on GitHub.
      */
     private String releaseNotesUrl = "https://github.com/lVIN15/VoxSight/releases/tag/v1.1.0";
+
+    /**
+     * Whether force update enforcement is active. Default false.
+     */
+    private boolean forceUpdate = false;
+
+    public boolean isForceUpdate() {
+        return forceUpdate;
+    }
+
+    public void setForceUpdate(boolean forceUpdate) {
+        this.forceUpdate = forceUpdate;
+    }
 
     public int getMinVersionCode() {
         return minVersionCode;

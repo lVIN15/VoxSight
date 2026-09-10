@@ -40,6 +40,11 @@ public class AppVersionInterceptor implements HandlerInterceptor {
             }
         }
 
+        // If force update enforcement is disabled, allow all requests through
+        if (!properties.isForceUpdate()) {
+            return true;
+        }
+
         int minRequired = properties.getMinVersionCode();
 
         // Reject if version code header is missing (e.g. v1.0.0 clients) or below minimum required

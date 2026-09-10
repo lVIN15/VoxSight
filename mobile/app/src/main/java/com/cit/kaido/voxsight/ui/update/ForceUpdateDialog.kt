@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -49,6 +50,11 @@ fun ForceUpdateDialog(
     val downloadUrl = updateInfo?.downloadUrl?.ifEmpty {
         "https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk"
     } ?: "https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk"
+
+    // If installed version already meets or exceeds required version, do not render dialog
+    if (currentVersion.equals(requiredVersion, ignoreCase = true) || BuildConfig.VERSION_CODE >= (updateInfo?.minVersionCode ?: 1)) {
+        return
+    }
 
     Dialog(
         onDismissRequest = { /* Non-dismissible */ },

@@ -31,11 +31,14 @@ object AppUpdateManager {
                 val api = ApiClient.versionApi
                 val response = api.getAppVersion()
                 val currentVersionCode = BuildConfig.VERSION_CODE
-                Log.d(TAG, "Current versionCode=$currentVersionCode, minRequired=${response.minVersionCode}")
+                Log.d(TAG, "Current versionCode=$currentVersionCode, minRequired=${response.minVersionCode}, forceUpdate=${response.forceUpdate}")
 
+                // Only require update if user's version code is strictly lower than minVersionCode AND forceUpdate is enabled
                 if (currentVersionCode < response.minVersionCode && response.forceUpdate) {
                     _updateInfo.value = response
                     _isUpdateRequired.value = true
+                } else {
+                    _isUpdateRequired.value = false
                 }
             } catch (e: Exception) {
                 // Network failure / offline: allow graceful offline usage
@@ -53,7 +56,16 @@ object AppUpdateManager {
             downloadUrl = downloadUrl.ifEmpty { "https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk" },
             forceUpdate = true
         )
-        _updateInfo.value = current
-        _isUpdateRequired.value = true
+
+        // Safety Guard: If client is already on or above the required version, DO NOT trap the user!
+        val isAlreadyUpdated = BuildConfig.VERSION_CODE >= current.minVersionCode ||
+                BuildConfig.VERSION_NAME.equals(current.minVersionName, ignoreCase = true)
+
+        if (!isAlreadyUpdated) {
+            _updateInfo.value = current
+            _isUpdateRequired.value = true
+        } else {
+            Log.d(TAG, "Ignoring triggerForceUpdate: app is already on v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
+        }
     }
 }

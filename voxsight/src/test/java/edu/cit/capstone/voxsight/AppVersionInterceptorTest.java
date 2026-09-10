@@ -21,7 +21,20 @@ class AppVersionInterceptorTest {
         properties.setMinVersionName("1.1.0");
         properties.setLatestVersionName("1.1.0");
         properties.setDownloadUrl("https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk");
+        properties.setForceUpdate(true);
         interceptor = new AppVersionInterceptor(properties);
+    }
+
+    @Test
+    void shouldAllowRequestWhenForceUpdateIsDisabled() throws Exception {
+        properties.setForceUpdate(false);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/omr/analyze");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        boolean result = interceptor.preHandle(request, response, new Object());
+
+        assertTrue(result, "Request must be allowed when forceUpdate is false even without version headers");
+        assertEquals(200, response.getStatus());
     }
 
     @Test

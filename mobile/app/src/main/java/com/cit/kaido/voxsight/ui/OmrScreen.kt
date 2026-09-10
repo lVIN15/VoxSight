@@ -455,6 +455,8 @@ private suspend fun uploadAndAnalyze(
 
             val request = Request.Builder()
                 .url("$baseUrl/api/analyze")
+                .header("X-App-Version-Code", com.cit.kaido.voxsight.BuildConfig.VERSION_CODE.toString())
+                .header("X-App-Version", com.cit.kaido.voxsight.BuildConfig.VERSION_NAME)
                 .post(requestBody)
                 .build()
 

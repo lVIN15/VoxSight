@@ -27,7 +27,7 @@ public class AppVersionController {
         response.put("latestVersionName", appVersionProperties.getLatestVersionName());
         response.put("downloadUrl", appVersionProperties.getDownloadUrl());
         response.put("releaseNotesUrl", appVersionProperties.getReleaseNotesUrl());
-        response.put("forceUpdate", true);
+        response.put("forceUpdate", appVersionProperties.isForceUpdate());
         return ResponseEntity.ok(response);
     }
 }
