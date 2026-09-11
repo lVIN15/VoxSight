@@ -6,7 +6,7 @@ export const PROJECT_INFO = {
   tagline: 'Bridging the literacy gap in amateur choral ensembles with AI-driven sheet music scanning, voice isolation, and real-time pitch feedback.',
   teamCode: '2526-sem2-it332-51',
   apkVersion: '1.2',
-  apkSize: '30.2 MB',
+  apkSize: '30 MB',
   minAndroidVersion: 'Android 8.0 (API 26)+',
   downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk',
   releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.2',
@@ -24,7 +24,8 @@ export const CORE_FEATURES: FeatureItem[] = [
     badge: 'OMR Engine',
     highlights: [
       'Approx. 80–85% SATB structural separation accuracy under controlled input',
-      'Supports high-contrast digital sheet music scans (JPEG, PNG, PDF)',
+      'Supports high-contrast camera scans & multi-page PDFs with adaptive background normalization',
+      'Automatic blank & non-music page detection and filtering for multi-page scores',
       'Parses timing, measure breaks, and pitch notation into standard MusicXML',
       'Eliminates manual score re-entry for weekly choir repertoire'
     ]
