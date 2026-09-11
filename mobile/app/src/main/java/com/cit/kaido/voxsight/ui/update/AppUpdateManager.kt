@@ -50,10 +50,10 @@ object AppUpdateManager {
     /**
      * Triggered if a 426 Upgrade Required is received during an active API call.
      */
-    fun triggerForceUpdate(downloadUrl: String = "", minVersionName: String = "1.1.0") {
+    fun triggerForceUpdate(downloadUrl: String = "", minVersionName: String = "1.2") {
         val current = _updateInfo.value ?: AppVersionResponse(
             minVersionName = minVersionName,
-            downloadUrl = downloadUrl.ifEmpty { "https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk" },
+            downloadUrl = downloadUrl.ifEmpty { "https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk" },
             forceUpdate = true
         )
 

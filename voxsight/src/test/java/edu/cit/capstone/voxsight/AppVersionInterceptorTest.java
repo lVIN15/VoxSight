@@ -19,8 +19,8 @@ class AppVersionInterceptorTest {
         properties = new AppVersionProperties();
         properties.setMinVersionCode(2);
         properties.setMinVersionName("1.1.0");
-        properties.setLatestVersionName("1.1.0");
-        properties.setDownloadUrl("https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk");
+        properties.setLatestVersionName("1.2");
+        properties.setDownloadUrl("https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk");
         properties.setForceUpdate(true);
         interceptor = new AppVersionInterceptor(properties);
     }

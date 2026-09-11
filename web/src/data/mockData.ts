@@ -5,11 +5,11 @@ export const PROJECT_INFO = {
   subtitle: 'A Mobile Application for Independent Choral Sight-Reading Practice',
   tagline: 'Bridging the literacy gap in amateur choral ensembles with AI-driven sheet music scanning, voice isolation, and real-time pitch feedback.',
   teamCode: '2526-sem2-it332-51',
-  apkVersion: '1.1.0',
+  apkVersion: '1.2',
   apkSize: '30.2 MB',
   minAndroidVersion: 'Android 8.0 (API 26)+',
-  downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.1.0/voxsight-v1.1.0.apk',
-  releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.1.0',
+  downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk',
+  releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.2',
   githubRepo: 'https://github.com/lVIN15/VoxSight',
 };
 
