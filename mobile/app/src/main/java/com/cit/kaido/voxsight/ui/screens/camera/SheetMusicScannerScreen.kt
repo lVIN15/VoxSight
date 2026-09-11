@@ -58,11 +58,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -108,10 +110,40 @@ fun SheetMusicScannerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var isTorchOn by remember { mutableStateOf(false) }
     var isProcessingCapture by remember { mutableStateOf(false) }
     var isFinalizingPdf by remember { mutableStateOf(false) }
+
+    val currentCamera by rememberUpdatedState(camera)
+    val currentCameraProvider by rememberUpdatedState(cameraProvider)
+
+    val safeClose = {
+        isTorchOn = false
+        try {
+            currentCamera?.cameraControl?.enableTorch(false)
+        } catch (_: Exception) {}
+        try {
+            currentCameraProvider?.unbindAll()
+        } catch (_: Exception) {}
+        onClose()
+    }
+
+    BackHandler {
+        safeClose()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                currentCamera?.cameraControl?.enableTorch(false)
+            } catch (_: Exception) {}
+            try {
+                currentCameraProvider?.unbindAll()
+            } catch (_: Exception) {}
+        }
+    }
 
     // Multi-page batch state: list of normalized page images
     val capturedPages = remember { mutableStateListOf<File>() }
@@ -195,7 +227,8 @@ fun SheetMusicScannerScreen(
 
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
+                    val provider = cameraProviderFuture.get()
+                    cameraProvider = provider
 
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
@@ -210,8 +243,8 @@ fun SheetMusicScannerScreen(
                     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
                     try {
-                        cameraProvider.unbindAll()
-                        camera = cameraProvider.bindToLifecycle(
+                        provider.unbindAll()
+                        camera = provider.bindToLifecycle(
                             lifecycleOwner,
                             cameraSelector,
                             preview,
@@ -249,7 +282,7 @@ fun SheetMusicScannerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onClose,
+                    onClick = safeClose,
                     modifier = Modifier
                         .size(44.dp)
                         .background(Color.Black.copy(alpha = 0.5f), CircleShape)
@@ -503,6 +536,13 @@ fun SheetMusicScannerScreen(
                                 Button(
                                     onClick = {
                                         if (capturedPages.isEmpty()) return@Button
+                                        isTorchOn = false
+                                        try {
+                                            currentCamera?.cameraControl?.enableTorch(false)
+                                        } catch (_: Exception) {}
+                                        try {
+                                            currentCameraProvider?.unbindAll()
+                                        } catch (_: Exception) {}
                                         isFinalizingPdf = true
 
                                         CoroutineScope(Dispatchers.IO).launch {
