@@ -8,15 +8,15 @@ import org.springframework.context.annotation.Configuration;
 public class AppVersionProperties {
 
     /**
-     * Minimum required Android versionCode (1 = v1.0.0, 2 = v1.1.0).
+     * Minimum required Android versionCode (1 = v1.0.0, 2 = v1.1.0, 3 = v1.2).
      * Requests from versions below this will be rejected with HTTP 426 only if forceUpdate is true.
      */
-    private int minVersionCode = 1;
+    private int minVersionCode = 3;
 
     /**
      * Human-readable minimum required version name.
      */
-    private String minVersionName = "1.0.0";
+    private String minVersionName = "1.2";
 
     /**
      * Current latest available version name.
@@ -34,9 +34,9 @@ public class AppVersionProperties {
     private String releaseNotesUrl = "https://github.com/lVIN15/VoxSight/releases/tag/v1.2";
 
     /**
-     * Whether force update enforcement is active. Default false.
+     * Whether force update enforcement is active. Default true for active gating.
      */
-    private boolean forceUpdate = false;
+    private boolean forceUpdate = true;
 
     public boolean isForceUpdate() {
         return forceUpdate;

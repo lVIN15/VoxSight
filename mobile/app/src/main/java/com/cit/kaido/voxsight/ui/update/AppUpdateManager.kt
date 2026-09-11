@@ -48,6 +48,33 @@ object AppUpdateManager {
     }
 
     /**
+     * Actively verifies if an update is mandatory before a critical action (camera/import).
+     * If outdated, updates state to display ForceUpdateDialog and returns true (action should be aborted).
+     * If up-to-date or server cannot be reached, returns false (action is allowed).
+     */
+    suspend fun checkIsUpdateRequired(context: Context): Boolean {
+        if (_isUpdateRequired.value) return true
+
+        return try {
+            val response = ApiClient.versionApi.getAppVersion()
+            val currentVersionCode = BuildConfig.VERSION_CODE
+            Log.d(TAG, "Pre-action version check: current=$currentVersionCode, minRequired=${response.minVersionCode}, forceUpdate=${response.forceUpdate}")
+
+            if (currentVersionCode < response.minVersionCode && response.forceUpdate) {
+                _updateInfo.value = response
+                _isUpdateRequired.value = true
+                true
+            } else {
+                _isUpdateRequired.value = false
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Pre-action version check failed: ${e.message}")
+            _isUpdateRequired.value
+        }
+    }
+
+    /**
      * Triggered if a 426 Upgrade Required is received during an active API call.
      */
     fun triggerForceUpdate(downloadUrl: String = "", minVersionName: String = "1.2") {

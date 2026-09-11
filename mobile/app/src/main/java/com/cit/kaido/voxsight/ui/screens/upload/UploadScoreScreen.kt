@@ -89,6 +89,7 @@ import com.cit.kaido.voxsight.ui.components.VoxErrorDialog
 import com.cit.kaido.voxsight.ui.components.VoxErrorDialogData
 import com.cit.kaido.voxsight.ui.components.resolveErrorDialogData
 import com.cit.kaido.voxsight.ui.screens.camera.SheetMusicScannerScreen
+import com.cit.kaido.voxsight.ui.update.AppUpdateManager
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
@@ -479,20 +480,31 @@ fun UploadScoreScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            val runIfUpToDate: (() -> Unit) -> Unit = { action ->
+                coroutineScope.launch {
+                    val isOutdated = AppUpdateManager.checkIsUpdateRequired(context)
+                    if (!isOutdated) {
+                        action()
+                    }
+                }
+            }
+
             // ===== Take Photo Card =====
             ActionCard(
                 icon = Icons.Outlined.CameraAlt,
                 title = stringResource(R.string.take_photo_title),
                 subtitle = stringResource(R.string.take_photo_subtitle),
                 onClick = {
-                    val hasPermission = ContextCompat.checkSelfPermission(
-                        context, Manifest.permission.CAMERA
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    runIfUpToDate {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.CAMERA
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-                    if (hasPermission) {
-                        showCustomScanner = true
-                    } else {
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        if (hasPermission) {
+                            showCustomScanner = true
+                        } else {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
                     }
                 },
                 modifier = Modifier.spotlightTarget(uploadTourState, "take_photo")
@@ -506,17 +518,19 @@ fun UploadScoreScreen(
                 title = stringResource(R.string.import_file_title),
                 subtitle = stringResource(R.string.import_file_subtitle),
                 onClick = {
-                    // openGallery() — launch file picker for MusicXML, images, and PDFs
-                    filePickerLauncher.launch(
-                        arrayOf(
-                            "application/vnd.recordare.musicxml",
-                            "application/vnd.recordare.musicxml+xml",
-                            "application/xml",
-                            "text/xml",
-                            "image/*",
-                            "application/pdf"
+                    runIfUpToDate {
+                        // openGallery() — launch file picker for MusicXML, images, and PDFs
+                        filePickerLauncher.launch(
+                            arrayOf(
+                                "application/vnd.recordare.musicxml",
+                                "application/vnd.recordare.musicxml+xml",
+                                "application/xml",
+                                "text/xml",
+                                "image/*",
+                                "application/pdf"
+                            )
                         )
-                    )
+                    }
                 },
                 modifier = Modifier.spotlightTarget(uploadTourState, "import_file")
             )
