@@ -11,6 +11,7 @@ export const PROJECT_INFO = {
   downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk',
   releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.2',
   githubRepo: 'https://github.com/lVIN15/VoxSight',
+  demoVideoUrl: 'https://www.youtube.com/watch?v=31P9AGV1Fak',
 };
 
 export const CORE_FEATURES: FeatureItem[] = [

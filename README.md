@@ -2,6 +2,11 @@
 
 VoxSight is a mobile application designed to optimize independent sight-reading practice for amateur choir members. It allows users to upload a piece of music in MusicXML format, and the app will process it and provide feedback on their performance.
 
+## System Demonstration
+Watch the live end-to-end system walkthrough on YouTube:  
+[![VoxSight Demo](https://img.youtube.com/vi/31P9AGV1Fak/maxresdefault.jpg)](https://www.youtube.com/watch?v=31P9AGV1Fak)
+- **Direct Video Link**: [https://www.youtube.com/watch?v=31P9AGV1Fak](https://www.youtube.com/watch?v=31P9AGV1Fak)
+
 ## Tech Stack
 - Frontend: Kotlin (Android)
 - Backend: Java Spring Boot (API)

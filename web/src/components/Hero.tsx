@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, ArrowRight, Music, Mic } from 'lucide-react';
+import { Download, ArrowRight, Music, Mic, Play } from 'lucide-react';
 import { PROJECT_INFO } from '../data/mockData';
 
 export const Hero: React.FC = () => {
@@ -46,11 +46,19 @@ export const Hero: React.FC = () => {
               </a>
 
               <a
-                href="#features"
+                href="#demo"
                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 text-xs sm:text-sm font-sans font-semibold text-slate-700 hover:text-violet-900 bg-[#F4EFEA] hover:bg-[#EBE3DB] border border-[#E3D7CB] rounded-2xl transition-all duration-200 min-h-[48px]"
               >
-                <span>Explore Core Features</span>
-                <ArrowRight className="w-4 h-4 text-amber-700" />
+                <Play className="w-4 h-4 text-violet-700 fill-violet-700" />
+                <span>Watch Demo</span>
+              </a>
+
+              <a
+                href="#features"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-3.5 text-xs sm:text-sm font-sans font-semibold text-slate-600 hover:text-violet-900 hover:bg-[#F4EFEA] rounded-2xl transition-all duration-200 min-h-[48px]"
+              >
+                <span>Features</span>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
               </a>
             </div>
 

@@ -4,6 +4,7 @@ import { AboutSection } from './components/AboutSection';
 import { ProblemSection } from './components/ProblemSection';
 import { FeaturesSection } from './components/FeaturesSection';
 import { HowItWorksSection } from './components/HowItWorksSection';
+import { VideoDemoSection } from './components/VideoDemoSection';
 import { ScreenshotsSection } from './components/ScreenshotsSection';
 import { TechStackSection } from './components/TechStackSection';
 import { TeamSection } from './components/TeamSection';
@@ -20,6 +21,7 @@ function App() {
         <ProblemSection />
         <FeaturesSection />
         <HowItWorksSection />
+        <VideoDemoSection />
         <ScreenshotsSection />
         <TechStackSection />
         <TeamSection />
