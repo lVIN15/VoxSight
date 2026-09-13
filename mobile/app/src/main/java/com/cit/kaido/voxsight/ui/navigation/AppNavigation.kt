@@ -22,10 +22,10 @@ import com.cit.kaido.voxsight.ui.screens.upload.UploadScoreScreen
 import com.cit.kaido.voxsight.ui.screens.upload.ScoreReviewScreen
 import com.cit.kaido.voxsight.ui.screens.upload.regenerateEventsJsonFromScore
 import com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel
+import com.cit.kaido.voxsight.ui.screens.settings.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import io.github.jan.supabase.postgrest.postgrest
 
 @Composable
 fun AppNavigation() {
@@ -55,39 +55,51 @@ fun AppNavigation() {
                 onSignInClicked = { email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Hash the password the same way we did in Registration
-                            val md = java.security.MessageDigest.getInstance("SHA-256")
-                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
-                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
-                            
-                            val client = com.cit.kaido.voxsight.network.Supabase.client
-                            
-                            // Query the custom User table
-                            val users = client.postgrest["User"].select {
-                                filter {
-                                    eq("email", email)
-                                    eq("password_hash", hashString)
-                                }
-                            }.decodeList<com.cit.kaido.voxsight.model.User>()
-                            
-                            if (users.isNotEmpty()) {
-                                val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-                                prefs.edit().putString("logged_in_username", users.first().username).apply()
+                            val response = com.cit.kaido.voxsight.network.ApiClient.authService.login(
+                                com.cit.kaido.voxsight.network.LoginRequest(
+                                    identifier = email,
+                                    password = password
+                                )
+                            )
 
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Welcome back, ${users.first().username}!", android.widget.Toast.LENGTH_SHORT).show()
+                            withContext(Dispatchers.Main) {
+                                if (response.isSuccessful && response.body()?.success == true) {
+                                    val authBody = response.body()!!
+                                    val user = authBody.user
+                                    val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+                                    val editor = prefs.edit()
+                                    if (user != null) {
+                                        editor.putLong("logged_in_user_id", user.id)
+                                        editor.putString("logged_in_username", user.username)
+                                        editor.putString("logged_in_email", user.email)
+                                        user.defaultVoicePart?.let { editor.putString("setting_voice_part", it) }
+                                        user.memberStatus?.let { editor.putString("logged_in_status", it) }
+                                    } else {
+                                        editor.putString("logged_in_username", email)
+                                    }
+                                    authBody.token?.let { editor.putString("auth_token", it) }
+                                    editor.apply()
+
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Welcome back, ${user?.username ?: email}!",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                     navController.navigate("upload") {
                                         popUpTo("landing") { inclusive = true }
                                     }
-                                }
-                            } else {
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Invalid email or password", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val errStr = response.errorBody()?.string()
+                                    val parsedMessage = try {
+                                        errStr?.let { org.json.JSONObject(it).optString("message") }?.takeIf { it.isNotBlank() }
+                                    } catch (_: Exception) { null }
+                                    val msg = response.body()?.message ?: parsedMessage ?: errStr?.takeIf { it.isNotBlank() } ?: "Error ${response.code()}: Invalid email or password."
+                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                                 }
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, "Login Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                android.widget.Toast.makeText(context, "Network Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -109,32 +121,48 @@ fun AppNavigation() {
                 onSignUpClicked = { name, email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Simple SHA-256 hash for demonstration (NOT recommended for production)
-                            val md = java.security.MessageDigest.getInstance("SHA-256")
-                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
-                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
-
-                            val newUser = com.cit.kaido.voxsight.model.User(
-                                username = name,
-                                email = email,
-                                passwordHash = hashString
+                            val response = com.cit.kaido.voxsight.network.ApiClient.authService.register(
+                                com.cit.kaido.voxsight.network.RegisterRequest(
+                                    username = name,
+                                    email = email,
+                                    password = password
+                                )
                             )
-                            
-                            val client = com.cit.kaido.voxsight.network.Supabase.client
-                            client.postgrest["User"].insert(newUser)
-                            
-                            val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-                            prefs.edit().putString("logged_in_username", name).apply()
-                            
+
                             withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, "Registration Successful!", android.widget.Toast.LENGTH_SHORT).show()
-                                navController.navigate("upload") {
-                                    popUpTo("landing") { inclusive = true }
+                                if (response.isSuccessful && response.body()?.success == true) {
+                                    val authBody = response.body()!!
+                                    val user = authBody.user
+                                    val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+                                    val editor = prefs.edit()
+                                    if (user != null) {
+                                        editor.putLong("logged_in_user_id", user.id)
+                                        editor.putString("logged_in_username", user.username)
+                                        editor.putString("logged_in_email", user.email)
+                                        user.defaultVoicePart?.let { editor.putString("setting_voice_part", it) }
+                                        user.memberStatus?.let { editor.putString("logged_in_status", it) }
+                                    } else {
+                                        editor.putString("logged_in_username", name)
+                                    }
+                                    authBody.token?.let { editor.putString("auth_token", it) }
+                                    editor.apply()
+
+                                    android.widget.Toast.makeText(context, "Registration Successful!", android.widget.Toast.LENGTH_SHORT).show()
+                                    navController.navigate("upload") {
+                                        popUpTo("landing") { inclusive = true }
+                                    }
+                                } else {
+                                    val errStr = response.errorBody()?.string()
+                                    val parsedMessage = try {
+                                        errStr?.let { org.json.JSONObject(it).optString("message") }?.takeIf { it.isNotBlank() }
+                                    } catch (_: Exception) { null }
+                                    val msg = response.body()?.message ?: parsedMessage ?: errStr?.takeIf { it.isNotBlank() } ?: "Error ${response.code()}: Registration failed."
+                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                                 }
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                android.widget.Toast.makeText(context, "Network Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -167,8 +195,15 @@ fun AppNavigation() {
             ProfileScreen(
                 username = username,
                 onBackClicked = { navController.popBackStack() },
+                onSettingsClicked = { navController.navigate("settings") },
                 onLogoutClicked = {
-                    prefs.edit().remove("logged_in_username").apply()
+                    prefs.edit()
+                        .remove("logged_in_username")
+                        .remove("logged_in_user_id")
+                        .remove("logged_in_email")
+                        .remove("logged_in_status")
+                        .remove("auth_token")
+                        .apply()
                     // Navigate back to landing and clear the backstack
                     navController.navigate("landing") {
                         popUpTo(0) { inclusive = true }
@@ -177,6 +212,12 @@ fun AppNavigation() {
                 onUpgradeToPremiumClicked = {
                     navController.navigate("premium_upgrade")
                 }
+            )
+        }
+
+        composable("settings") {
+            SettingsScreen(
+                onBackClicked = { navController.popBackStack() }
             )
         }
 

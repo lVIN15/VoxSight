@@ -13,3 +13,9 @@ voxsight/test_*.py
 voxsight/scratch_*.py
 voxsight/scratch_*.js
 *.apk
+.env
+*.env
+.env.*
+!.env.example
+!*.env.example
+local.properties

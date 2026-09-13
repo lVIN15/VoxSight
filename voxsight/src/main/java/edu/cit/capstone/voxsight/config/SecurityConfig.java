@@ -15,12 +15,17 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(Customizer.withDefaults())
-            .csrf(csrf -> csrf.disable()) // Disable CSRF for OMR stateless API file uploads
+            .csrf(csrf -> csrf.disable()) // Stateless REST API
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health", "/api/**", "/outputs/**", "/musicxml/**").permitAll()
-                .anyRequest().permitAll() // Permit all for MVP/development simplicity
+                .anyRequest().permitAll()
             );
         return http.build();
+    }
+
+    @Bean
+    public org.springframework.security.crypto.password.PasswordEncoder passwordEncoder() {
+        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(12);
     }
 }
 

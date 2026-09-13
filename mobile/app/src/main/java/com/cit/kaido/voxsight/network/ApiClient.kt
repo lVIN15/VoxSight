@@ -17,6 +17,8 @@ object ApiClient {
     private var cachedRetrofit: Retrofit? = null
     private var cachedService: OmrService? = null
     private var cachedVersionApi: AppVersionApi? = null
+    private var cachedAuthService: AuthService? = null
+    private var cachedUserService: UserService? = null
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
@@ -42,8 +44,11 @@ object ApiClient {
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         var storedUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
-        // Auto-migrate legacy local emulator IPs or old Render URLs to Railway
-        if (storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.") || storedUrl.contains("onrender.com")) {
+        // In debug builds, always sync with BuildConfig.BASE_URL for seamless local/cloud testing
+        if (BuildConfig.DEBUG) {
+            storedUrl = DEFAULT_BASE_URL
+            prefs.edit().putString(KEY_BASE_URL, storedUrl).apply()
+        } else if (storedUrl.contains("onrender.com") || storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.")) {
             storedUrl = DEFAULT_BASE_URL
             prefs.edit().putString(KEY_BASE_URL, storedUrl).apply()
         }
@@ -86,22 +91,30 @@ object ApiClient {
                     .build()
                 cachedService = cachedRetrofit!!.create(OmrService::class.java)
                 cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                cachedAuthService = cachedRetrofit!!.create(AuthService::class.java)
+                cachedUserService = cachedRetrofit!!.create(UserService::class.java)
             }
+        }
+    }
+
+    private fun ensureServices() {
+        if (cachedRetrofit == null || cachedService == null) {
+            cachedRetrofit = Retrofit.Builder()
+                .baseUrl(activeUrl)
+                .client(okHttpClient)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+            cachedService = cachedRetrofit!!.create(OmrService::class.java)
+            cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+            cachedAuthService = cachedRetrofit!!.create(AuthService::class.java)
+            cachedUserService = cachedRetrofit!!.create(UserService::class.java)
         }
     }
 
     val omrService: OmrService
         get() {
             synchronized(this) {
-                if (cachedService == null) {
-                    cachedRetrofit = Retrofit.Builder()
-                        .baseUrl(activeUrl)
-                        .client(okHttpClient)
-                        .addConverterFactory(GsonConverterFactory.create())
-                        .build()
-                    cachedService = cachedRetrofit!!.create(OmrService::class.java)
-                    cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
-                }
+                ensureServices()
                 return cachedService!!
             }
         }
@@ -109,16 +122,24 @@ object ApiClient {
     val versionApi: AppVersionApi
         get() {
             synchronized(this) {
-                if (cachedVersionApi == null) {
-                    cachedRetrofit = Retrofit.Builder()
-                        .baseUrl(activeUrl)
-                        .client(okHttpClient)
-                        .addConverterFactory(GsonConverterFactory.create())
-                        .build()
-                    cachedService = cachedRetrofit!!.create(OmrService::class.java)
-                    cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
-                }
+                ensureServices()
                 return cachedVersionApi!!
+            }
+        }
+
+    val authService: AuthService
+        get() {
+            synchronized(this) {
+                ensureServices()
+                return cachedAuthService!!
+            }
+        }
+
+    val userService: UserService
+        get() {
+            synchronized(this) {
+                ensureServices()
+                return cachedUserService!!
             }
         }
 }

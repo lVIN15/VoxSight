@@ -1,49 +1,95 @@
 package com.cit.kaido.voxsight.ui.screens.profile
 
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
-import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.Crown
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cit.kaido.voxsight.network.ApiClient
+import com.cit.kaido.voxsight.network.UpdateProfileRequest
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
+import com.composables.icons.lucide.Crown
+import com.composables.icons.lucide.Lucide
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ProfileScreen(
     username: String,
     onBackClicked: () -> Unit,
     onLogoutClicked: () -> Unit,
+    onSettingsClicked: () -> Unit = {},
     onUpgradeToPremiumClicked: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("voxsight_prefs", Context.MODE_PRIVATE) }
+    val userId = remember { prefs.getLong("logged_in_user_id", -1L) }
+
+    var currentUsername by remember { mutableStateOf(username) }
+    var currentEmail by remember { mutableStateOf(prefs.getString("logged_in_email", "") ?: "") }
+    var memberStatus by remember { mutableStateOf(prefs.getString("logged_in_status", "FREE") ?: "FREE") }
+    var voicePart by remember { mutableStateOf(prefs.getString("setting_voice_part", "SOPRANO") ?: "SOPRANO") }
+
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+
+    // Edit fields
+    var editUsername by remember { mutableStateOf("") }
+    var editEmail by remember { mutableStateOf("") }
+    var editVoicePart by remember { mutableStateOf("SOPRANO") }
+    var isUpdating by remember { mutableStateOf(false) }
+
+    // Fetch latest profile from backend if logged in
+    LaunchedEffect(Unit) {
+        if (userId > 0L) {
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val response = ApiClient.userService.getProfile(userId)
+                    if (response.isSuccessful && response.body() != null) {
+                        val profile = response.body()!!
+                        withContext(Dispatchers.Main) {
+                            currentUsername = profile.username
+                            currentEmail = profile.email
+                            memberStatus = profile.memberStatus ?: "FREE"
+                            profile.defaultVoicePart?.let { voicePart = it }
+
+                            prefs.edit()
+                                .putString("logged_in_username", currentUsername)
+                                .putString("logged_in_email", currentEmail)
+                                .putString("logged_in_status", memberStatus)
+                                .putString("setting_voice_part", voicePart)
+                                .apply()
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     val topPurple = Color(0xFF38036B)
     val lightPurple = Color(0xFFEFE8F5)
     val orangeLight = Color(0xFFFFE0B2)
@@ -99,7 +145,7 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.Person,
+                            imageVector = Icons.Filled.Person,
                             contentDescription = "Profile Picture",
                             tint = Color(0xFFE6EAEB),
                             modifier = Modifier
@@ -113,15 +159,20 @@ fun ProfileScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = username,
+                                text = currentUsername,
                                 color = Color.White,
                                 fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 28.sp
+                                fontSize = 26.sp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            androidx.compose.material3.IconButton(
-                                onClick = { /* Edit Profile Action */ },
+                            IconButton(
+                                onClick = {
+                                    editUsername = currentUsername
+                                    editEmail = currentEmail
+                                    editVoicePart = voicePart
+                                    showEditDialog = true
+                                },
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
@@ -131,14 +182,42 @@ fun ProfileScreen(
                                 )
                             }
                         }
+                        if (currentEmail.isNotBlank()) {
+                            Text(
+                                text = currentEmail,
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 12.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "FREE MEMBER",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp,
-                            letterSpacing = 1.sp
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                color = Color.White.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = "$memberStatus MEMBER",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 1.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                            Surface(
+                                color = orangeDark.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = voicePart,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 1.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -153,9 +232,6 @@ fun ProfileScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-
-
-            // Custom icon for crown using Lucide icons
             ProfileCard(
                 title = "Upgrade to Premium",
                 subtitle = "Unlock infinite scores",
@@ -167,10 +243,11 @@ fun ProfileScreen(
 
             ProfileCard(
                 title = "Settings",
+                subtitle = "Practice preferences, soundfonts & audio",
                 icon = Icons.Outlined.Settings,
                 iconBgColor = lightPurple,
                 iconColor = topPurple,
-                onClick = {}
+                onClick = onSettingsClicked
             )
         }
 
@@ -192,6 +269,131 @@ fun ProfileScreen(
                 onClick = { showLogoutDialog = true }
             )
         }
+    }
+
+    // Edit Profile Dialog
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isUpdating) showEditDialog = false },
+            title = { Text("Edit Profile", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editUsername,
+                        onValueChange = { editUsername = it },
+                        label = { Text("Display Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editEmail,
+                        onValueChange = { editEmail = it },
+                        label = { Text("Email Address") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Preferred Voice Part", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("SOPRANO", "ALTO", "TENOR", "BASS").forEach { part ->
+                            val isSel = editVoicePart.equals(part, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSel) topPurple else lightPurple)
+                                    .clickable { editVoicePart = part },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = part.take(3),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (isSel) Color.White else topPurple
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !isUpdating,
+                    onClick = {
+                        if (editUsername.isBlank() || editEmail.isBlank()) {
+                            Toast.makeText(context, "Username and email cannot be empty", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (userId <= 0L) {
+                            currentUsername = editUsername
+                            currentEmail = editEmail
+                            voicePart = editVoicePart
+                            prefs.edit()
+                                .putString("logged_in_username", editUsername)
+                                .putString("logged_in_email", editEmail)
+                                .putString("setting_voice_part", editVoicePart)
+                                .apply()
+                            showEditDialog = false
+                            return@Button
+                        }
+
+                        isUpdating = true
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val response = ApiClient.userService.updateProfile(
+                                    userId = userId,
+                                    request = UpdateProfileRequest(
+                                        username = editUsername,
+                                        email = editEmail,
+                                        defaultVoicePart = editVoicePart
+                                    )
+                                )
+                                withContext(Dispatchers.Main) {
+                                    isUpdating = false
+                                    if (response.isSuccessful && response.body() != null) {
+                                        val updated = response.body()!!
+                                        currentUsername = updated.username
+                                        currentEmail = updated.email
+                                        updated.defaultVoicePart?.let { voicePart = it }
+
+                                        prefs.edit()
+                                            .putString("logged_in_username", currentUsername)
+                                            .putString("logged_in_email", currentEmail)
+                                            .putString("setting_voice_part", voicePart)
+                                            .apply()
+
+                                        Toast.makeText(context, "Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                                        showEditDialog = false
+                                    } else {
+                                        Toast.makeText(context, "Failed to update profile", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    isUpdating = false
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = topPurple)
+                ) {
+                    if (isUpdating) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp))
+                    } else {
+                        Text("Save")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isUpdating,
+                    onClick = { showEditDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (showLogoutDialog) {
@@ -239,19 +441,19 @@ fun ProfileCard(
             .shadow(
                 elevation = 8.dp,
                 shape = RoundedCornerShape(16.dp),
-                ambientColor = Color.Black.copy(alpha = 0.05f),
-                spotColor = Color.Black.copy(alpha = 0.05f)
+                ambientColor = Color.Black.copy(alpha = 0.04f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
             )
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White)
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(12.dp))
                 .background(iconBgColor),
             contentAlignment = Alignment.Center
         ) {
@@ -285,8 +487,8 @@ fun ProfileCard(
         if (showArrow) {
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = null,
-                tint = Color.Gray,
+                contentDescription = "Arrow",
+                tint = Color.Gray.copy(alpha = 0.6f),
                 modifier = Modifier.size(20.dp)
             )
         }

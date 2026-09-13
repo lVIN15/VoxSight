@@ -16,7 +16,7 @@ android {
     }
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"https://voxsight-production.up.railway.app/\"")
+            buildConfigField("String", "BASE_URL", "\"http://192.168.1.3:8080/\"")
         }
         release {
             isMinifyEnabled = false
