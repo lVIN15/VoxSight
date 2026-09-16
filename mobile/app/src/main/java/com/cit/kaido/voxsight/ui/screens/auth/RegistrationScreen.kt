@@ -64,6 +64,8 @@ import com.cit.kaido.voxsight.ui.theme.VoxM3SurfaceVariant
 fun RegistrationScreen(
     onBackClicked: () -> Unit,
     onSignInClicked: () -> Unit,
+    onGoogleSignInClicked: () -> Unit = {},
+    onFacebookSignInClicked: () -> Unit = {},
     onSignUpClicked: (name: String, email: String, password: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
@@ -361,13 +363,15 @@ fun RegistrationScreen(
                 SocialLoginButton(
                     label = "Google",
                     iconResId = R.drawable.ic_google,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = onGoogleSignInClicked
                 )
                 SocialLoginButton(
                     label = "Facebook",
                     labelColor = Color(0xFF1877F2),
                     iconResId = R.drawable.ic_facebook,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = onFacebookSignInClicked
                 )
             }
         }

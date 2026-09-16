@@ -43,6 +43,11 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.lifecycle.runtime.ktx)
 
+    // Credential Manager for Google Sign-In
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+
     // Navigation for fragment-based views (ViewBinding layouts)
     implementation(libs.androidx.navigation.fragment.ktx)
     implementation(libs.androidx.navigation.ui.ktx)
@@ -60,6 +65,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation("com.composables:icons-lucide:1.0.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Credential Manager for Facebook Sign-In
+    implementation("com.facebook.android:facebook-login:latest.release")
 
     // CameraX
     val cameraxVersion = "1.3.4"

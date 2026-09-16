@@ -45,6 +45,17 @@ fun AppNavigation() {
             val context = androidx.compose.ui.platform.LocalContext.current
             val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
+            val initiateFacebookLogin = FacebookLoginHandler(
+                onSuccess = { email, name ->
+                    coroutineScope.launch(Dispatchers.IO) {
+                        handleSocialLoginSuccess(context, navController, email, name, "FACEBOOK")
+                    }
+                },
+                onError = { error ->
+                    android.widget.Toast.makeText(context, "Facebook Login Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            )
+
             LoginScreen(
                 onBackClicked = { navController.popBackStack() },
                 onGetStartedClicked = { 
@@ -52,6 +63,12 @@ fun AppNavigation() {
                         popUpTo("landing")
                     }
                 },
+                onGoogleSignInClicked = {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        handleGoogleLoginOrRegister(context, navController)
+                    }
+                },
+                onFacebookSignInClicked = initiateFacebookLogin,
                 onSignInClicked = { email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
@@ -99,6 +116,17 @@ fun AppNavigation() {
             val context = androidx.compose.ui.platform.LocalContext.current
             val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
+            val initiateFacebookLogin = FacebookLoginHandler(
+                onSuccess = { email, name ->
+                    coroutineScope.launch(Dispatchers.IO) {
+                        handleSocialLoginSuccess(context, navController, email, name, "FACEBOOK")
+                    }
+                },
+                onError = { error ->
+                    android.widget.Toast.makeText(context, "Facebook Login Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            )
+
             RegistrationScreen(
                 onBackClicked = { navController.popBackStack() },
                 onSignInClicked = { 
@@ -106,6 +134,12 @@ fun AppNavigation() {
                         popUpTo("landing")
                     }
                 },
+                onGoogleSignInClicked = {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        handleGoogleLoginOrRegister(context, navController)
+                    }
+                },
+                onFacebookSignInClicked = initiateFacebookLogin,
                 onSignUpClicked = { name, email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
@@ -405,5 +439,129 @@ fun AppNavigation() {
                 }
             )
         }
+    }
+}
+
+private suspend fun handleGoogleLoginOrRegister(
+    context: android.content.Context,
+    navController: androidx.navigation.NavController
+) {
+    try {
+        val credentialManager = androidx.credentials.CredentialManager.create(context)
+        
+        
+        val webClientId = "780600362616-v3u37mq8kgo8qksgep3b42gkvsf764om.apps.googleusercontent.com"
+        
+        val googleIdOption = com.google.android.libraries.identity.googleid.GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(webClientId)
+            .setAutoSelectEnabled(true)
+            .build()
+            
+        val request = androidx.credentials.GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+            
+        val result = credentialManager.getCredential(
+            request = request,
+            context = context
+        )
+        
+        val credential = result.credential
+        if (credential is androidx.credentials.CustomCredential &&
+            credential.type == com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            
+            val googleIdTokenCredential = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(credential.data)
+            
+            val email = googleIdTokenCredential.id
+            val name = googleIdTokenCredential.displayName ?: "Google User"
+            
+            handleSocialLoginSuccess(context, navController, email, name, "GOOGLE")
+        }
+    } catch (e: Exception) {
+        if (e is androidx.credentials.exceptions.GetCredentialCancellationException) {
+            // Cancelled
+        } else {
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, "Google Sign In Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+}
+
+private suspend fun handleSocialLoginSuccess(
+    context: android.content.Context,
+    navController: androidx.navigation.NavController,
+    email: String,
+    name: String,
+    provider: String
+) {
+    val client = com.cit.kaido.voxsight.network.Supabase.client
+            
+    val users = client.postgrest["User"].select {
+        filter { eq("email", email) }
+    }.decodeList<com.cit.kaido.voxsight.model.User>()
+    
+    if (users.isEmpty()) {
+        val newUser = com.cit.kaido.voxsight.model.User(
+            username = name,
+            email = email,
+            passwordHash = "${provider}_OAUTH"
+        )
+        client.postgrest["User"].insert(newUser)
+    }
+    
+    val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+    prefs.edit().putString("logged_in_username", name).apply()
+
+    withContext(Dispatchers.Main) {
+        android.widget.Toast.makeText(context, "Welcome, $name!", android.widget.Toast.LENGTH_SHORT).show()
+        navController.navigate("upload") {
+            popUpTo("landing") { inclusive = true }
+        }
+    }
+}
+
+@Composable
+fun FacebookLoginHandler(
+    onSuccess: (email: String, name: String) -> Unit,
+    onError: (Exception) -> Unit
+): () -> Unit {
+    val callbackManager = androidx.compose.runtime.remember { com.facebook.CallbackManager.Factory.create() }
+    val loginManager = com.facebook.login.LoginManager.getInstance()
+    
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        loginManager.registerCallback(callbackManager, object : com.facebook.FacebookCallback<com.facebook.login.LoginResult> {
+            override fun onSuccess(result: com.facebook.login.LoginResult) {
+                val request = com.facebook.GraphRequest.newMeRequest(result.accessToken) { obj, response ->
+                    try {
+                        val email = obj?.getString("email") ?: ""
+                        val name = obj?.getString("name") ?: "Facebook User"
+                        onSuccess(email, name)
+                    } catch (e: Exception) {
+                        onError(e)
+                    }
+                }
+                val parameters = android.os.Bundle()
+                parameters.putString("fields", "id,name,email")
+                request.parameters = parameters
+                request.executeAsync()
+            }
+            override fun onCancel() {}
+            override fun onError(error: com.facebook.FacebookException) {
+                onError(error)
+            }
+        })
+        onDispose {
+            loginManager.unregisterCallback(callbackManager)
+        }
+    }
+    
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = loginManager.createLogInActivityResultContract(callbackManager, null)
+    ) { }
+    
+    return {
+        launcher.launch(listOf("email", "public_profile"))
     }
 }

@@ -52,4 +52,9 @@
     <string name="next">Next</string>
     <string name="previous">Previous</string>
     <string name="lorem_ipsum">Placeholder text.</string>
+
+    <!-- Facebook Login -->
+    <string name="facebook_app_id">829202213583943</string>
+    <string name="fb_login_protocol_scheme">fb829202213583943</string>
+    <string name="facebook_client_token">bc48396363c533ec57ff9d1472e96886</string>
 </resources>

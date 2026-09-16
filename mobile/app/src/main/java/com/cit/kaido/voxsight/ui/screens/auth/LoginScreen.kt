@@ -87,6 +87,8 @@ fun LoginScreen(
     onBackClicked: () -> Unit,
     onGetStartedClicked: () -> Unit,
     onSignInClicked: (email: String, password: String) -> Unit,
+    onGoogleSignInClicked: () -> Unit = {},
+    onFacebookSignInClicked: () -> Unit = {},
     onForgotPasswordClicked: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
@@ -345,14 +347,16 @@ fun LoginScreen(
                 SocialLoginButton(
                     label = "Google",
                     iconResId = R.drawable.ic_google,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = onGoogleSignInClicked
                 )
                 // Facebook
                 SocialLoginButton(
                     label = "Facebook",
                     labelColor = Color(0xFF1877F2),
                     iconResId = R.drawable.ic_facebook,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = onFacebookSignInClicked
                 )
             }
         }
