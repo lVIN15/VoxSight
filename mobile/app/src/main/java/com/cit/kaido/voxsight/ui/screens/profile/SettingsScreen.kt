@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun SettingsScreen(
-    onBackClicked: () -> Unit
+    onBackClicked: () -> Unit,
+    onAboutClicked: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -74,7 +75,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Outlined.Info,
                     title = "About VoxSight",
-                    onClick = { /* TODO */ }
+                    onClick = onAboutClicked
                 )
                 SettingsItem(
                     icon = Icons.Outlined.MenuBook,

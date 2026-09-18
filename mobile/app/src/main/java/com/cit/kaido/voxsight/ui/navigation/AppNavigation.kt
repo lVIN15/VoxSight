@@ -29,10 +29,15 @@ import io.github.jan.supabase.postgrest.postgrest
 
 @Composable
 fun AppNavigation() {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
     val practiceViewModel: PracticeViewModel = viewModel()
+    
+    val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+    val isLoggedIn = prefs.getString("logged_in_username", null) != null
+    val startDest = if (isLoggedIn) "upload" else "landing"
 
-    NavHost(navController = navController, startDestination = "landing") {
+    NavHost(navController = navController, startDestination = startDest) {
         
         composable("landing") {
             LandingScreen(
@@ -213,12 +218,40 @@ fun AppNavigation() {
                 },
                 onSettingsClicked = {
                     navController.navigate("settings")
+                },
+                onEditProfileClicked = {
+                    navController.navigate("edit_profile")
+                }
+            )
+        }
+
+        composable("edit_profile") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+            val username = prefs.getString("logged_in_username", "Guest User") ?: "Guest User"
+
+            com.cit.kaido.voxsight.ui.screens.profile.EditProfileScreen(
+                currentName = username,
+                onBackClicked = { navController.popBackStack() },
+                onSaveClicked = { newName ->
+                    if (newName.isNotBlank()) {
+                        prefs.edit().putString("logged_in_username", newName).apply()
+                        android.widget.Toast.makeText(context, "Profile updated!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    navController.popBackStack()
                 }
             )
         }
 
         composable("settings") {
             com.cit.kaido.voxsight.ui.screens.profile.SettingsScreen(
+                onBackClicked = { navController.popBackStack() },
+                onAboutClicked = { navController.navigate("about") }
+            )
+        }
+
+        composable("about") {
+            com.cit.kaido.voxsight.ui.screens.profile.AboutScreen(
                 onBackClicked = { navController.popBackStack() }
             )
         }

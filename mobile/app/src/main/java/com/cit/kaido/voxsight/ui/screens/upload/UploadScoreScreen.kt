@@ -11,6 +11,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -661,21 +664,15 @@ private fun TopBar(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Music note icon
-        Box(
+        // App logo
+        Image(
+            painter = painterResource(id = R.drawable.voxsight_logo_cropped),
+            contentDescription = "VoxSight Logo",
+            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(28.dp)
                 .clip(CircleShape)
-                .background(VoxPurplePrimary),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.MusicNote,
-                contentDescription = stringResource(R.string.cd_music_note),
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        )
 
         Spacer(modifier = Modifier.width(8.dp))
 

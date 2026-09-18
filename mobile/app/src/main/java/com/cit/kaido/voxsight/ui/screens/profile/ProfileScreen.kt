@@ -48,7 +48,8 @@ fun ProfileScreen(
     onBackClicked: () -> Unit,
     onLogoutClicked: () -> Unit,
     onUpgradeToPremiumClicked: () -> Unit = {},
-    onSettingsClicked: () -> Unit = {}
+    onSettingsClicked: () -> Unit = {},
+    onEditProfileClicked: () -> Unit = {}
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     val topPurple = Color(0xFF38036B)
@@ -69,7 +70,7 @@ fun ProfileScreen(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
                 .background(topPurple)
-                .padding(top = 48.dp, bottom = 48.dp, start = 24.dp, end = 24.dp)
+                .padding(top = 24.dp, bottom = 32.dp, start = 24.dp, end = 24.dp)
         ) {
             Column {
                 // Close Button Row (X on top right)
@@ -89,7 +90,7 @@ fun ProfileScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Profile Info Row
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -117,7 +118,8 @@ fun ProfileScreen(
                             color = Color.White,
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 28.sp
+                            fontSize = 28.sp,
+                            lineHeight = 32.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -130,7 +132,7 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { /* Edit Profile Action */ }
+                            modifier = Modifier.clickable { onEditProfileClicked() }
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
