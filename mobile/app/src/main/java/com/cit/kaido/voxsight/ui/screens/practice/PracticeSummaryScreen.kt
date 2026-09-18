@@ -61,6 +61,12 @@ fun PracticeSummaryScreen(
     onRepeatPractice: () -> Unit = {}
 ) {
     val accuracy = summary.accuracyPercentage.toInt()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        com.cit.kaido.voxsight.util.StreakManager.addStreakToday(context)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

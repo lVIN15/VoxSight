@@ -10,8 +10,20 @@ import { TechStackSection } from './components/TechStackSection';
 import { TeamSection } from './components/TeamSection';
 import { DownloadSection } from './components/DownloadSection';
 import { Footer } from './components/Footer';
+import { PrivacyPolicy } from './pages/PrivacyPolicy';
+import { TermsOfService } from './pages/TermsOfService';
 
 function App() {
+  const path = window.location.pathname;
+
+  if (path === '/privacy-policy') {
+    return <PrivacyPolicy />;
+  }
+
+  if (path === '/terms-of-service') {
+    return <TermsOfService />;
+  }
+
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-slate-900 selection:bg-amber-300 selection:text-slate-950 overflow-x-hidden">
       <Navbar />

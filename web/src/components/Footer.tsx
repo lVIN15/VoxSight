@@ -33,6 +33,11 @@ export const Footer: React.FC = () => {
               <span>Team Code:</span>
               <span className="text-amber-400 font-bold">{PROJECT_INFO.teamCode}</span>
             </div>
+
+            <div className="flex gap-6 mt-2 text-xs font-semibold text-slate-400">
+              <a href="/terms-of-service" className="hover:text-amber-400 transition-colors">Terms of Service</a>
+              <a href="/privacy-policy" className="hover:text-amber-400 transition-colors">Privacy Policy</a>
+            </div>
           </div>
 
           {/* Navigation Links */}

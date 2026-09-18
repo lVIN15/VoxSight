@@ -210,7 +210,16 @@ fun AppNavigation() {
                 },
                 onUpgradeToPremiumClicked = {
                     navController.navigate("premium_upgrade")
+                },
+                onSettingsClicked = {
+                    navController.navigate("settings")
                 }
+            )
+        }
+
+        composable("settings") {
+            com.cit.kaido.voxsight.ui.screens.profile.SettingsScreen(
+                onBackClicked = { navController.popBackStack() }
             )
         }
 

@@ -380,7 +380,7 @@ fun VoxOutlinedField(
 ) {
     TextField(
         value = value,
-        onValueChange = onValueChange,
+        onValueChange = { if (it.length <= 30) onValueChange(it) },
         label = {
             Text(
                 text = label,

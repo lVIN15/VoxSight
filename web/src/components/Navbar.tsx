@@ -37,7 +37,7 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center justify-between">
           
           {/* Logo */}
-          <a href="#" className="flex items-center gap-2.5 sm:gap-3 group min-w-0">
+          <a href="/" className="flex items-center gap-2.5 sm:gap-3 group min-w-0">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-violet-900 via-violet-800 to-indigo-700 p-0.5 shadow-md shadow-violet-900/10 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-full h-full bg-[#FAF8F5] rounded-[10px] flex items-center justify-center">
                 <Music className="w-4 h-4 sm:w-5 sm:h-5 text-violet-900" />
