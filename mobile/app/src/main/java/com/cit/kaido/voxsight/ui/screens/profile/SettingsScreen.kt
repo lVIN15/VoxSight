@@ -20,11 +20,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.composables.icons.lucide.Component
 
 @Composable
 fun SettingsScreen(
     onBackClicked: () -> Unit,
-    onAboutClicked: () -> Unit
+    onAboutClicked: () -> Unit,
+    onChangeHeaderUIClicked: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -71,6 +73,14 @@ fun SettingsScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
         ) {
+            SettingsGroup(title = "Practice Mode") {
+                SettingsItem(
+                    icon = com.composables.icons.lucide.Lucide.Component,
+                    title = "Change Header UI",
+                    onClick = onChangeHeaderUIClicked
+                )
+            }
+            
             SettingsGroup(title = "General") {
                 SettingsItem(
                     icon = Icons.Outlined.Info,

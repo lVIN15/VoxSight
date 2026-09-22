@@ -246,7 +246,22 @@ fun AppNavigation() {
         composable("settings") {
             com.cit.kaido.voxsight.ui.screens.profile.SettingsScreen(
                 onBackClicked = { navController.popBackStack() },
-                onAboutClicked = { navController.navigate("about") }
+                onAboutClicked = { navController.navigate("about") },
+                onChangeHeaderUIClicked = { navController.navigate("change_header_ui") }
+            )
+        }
+
+        composable("change_header_ui") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+            val currentHeaderUI = prefs.getString("header_ui_preference", "default") ?: "default"
+
+            com.cit.kaido.voxsight.ui.screens.profile.ChangeHeaderUIScreen(
+                onBackClicked = { navController.popBackStack() },
+                currentSelection = currentHeaderUI,
+                onSelectionChanged = { newSelection ->
+                    prefs.edit().putString("header_ui_preference", newSelection).apply()
+                }
             )
         }
 

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
@@ -118,8 +119,14 @@ fun Module2PracticeScreen(
     val staffNotes = remember(resolvedScore) {
         buildStaffNotes(resolvedScore.notes)
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val headerUIPreference = remember(context) {
+        context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
+            .getString("header_ui_preference", "default") ?: "default"
+    }
 
     var selectedPart by remember { mutableStateOf(VoicePart.Soprano) }
+    var audioMutePart by remember { mutableStateOf(VoicePart.Soprano) }
     var audioMuteEnabled by remember { mutableStateOf(false) }
     var visualFocusEnabled by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -142,7 +149,6 @@ fun Module2PracticeScreen(
     val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
 
     // ── Interactive Guided Tour Setup (New Install Only) ───────
-    val context = LocalContext.current
     val isTourCompleted = remember {
         TourPreferences.isTourCompleted(context, TourPreferences.KEY_PRACTICE_TOUR)
     }
@@ -242,18 +248,26 @@ fun Module2PracticeScreen(
 
             VoicePartCard(
                 selectedPart = selectedPart,
-                onPartSelected = { selectedPart = it },
+                audioMutePart = audioMutePart,
+                onPartSelected = { 
+                    selectedPart = it
+                    if (headerUIPreference != "dropdown") {
+                        audioMutePart = it
+                    }
+                },
+                onAudioMutePartSelected = { audioMutePart = it },
                 audioMuteEnabled = audioMuteEnabled,
                 onAudioMuteChange = { audioMuteEnabled = it },
                 visualFocusEnabled = visualFocusEnabled,
                 onVisualFocusChange = { visualFocusEnabled = it },
                 isSelectorEnabled = isSelectorEnabled,
+                headerUIPreference = headerUIPreference,
                 modifier = Modifier.spotlightTarget(tourState, "voice_chips")
             )
 
-            LaunchedEffect(selectedPart, audioMuteEnabled, midiController) {
+            LaunchedEffect(audioMutePart, audioMuteEnabled, midiController) {
                 if (audioMuteEnabled) {
-                    midiController?.mutePart(selectedPart.shortLabel.first().toString())
+                    midiController?.mutePart(audioMutePart.shortLabel.first().toString())
                 } else {
                     midiController?.unmuteAllParts()
                 }
@@ -287,7 +301,7 @@ fun Module2PracticeScreen(
                         midiController = controller
                         currentBpm = controller.getBaseBPM()
                         if (audioMuteEnabled) {
-                            controller.mutePart(selectedPart.shortLabel.first().toString())
+                            controller.mutePart(audioMutePart.shortLabel.first().toString())
                         }
                         if (visualFocusEnabled) {
                             controller.setVisualFocus(selectedPart.shortLabel.first().toString())
@@ -581,6 +595,46 @@ private fun LegendItem(part: String, color: Color) {
 @Composable
 private fun VoicePartCard(
     selectedPart: VoicePart,
+    audioMutePart: VoicePart,
+    onPartSelected: (VoicePart) -> Unit,
+    onAudioMutePartSelected: (VoicePart) -> Unit,
+    audioMuteEnabled: Boolean,
+    onAudioMuteChange: (Boolean) -> Unit,
+    visualFocusEnabled: Boolean,
+    onVisualFocusChange: (Boolean) -> Unit,
+    isSelectorEnabled: Boolean,
+    headerUIPreference: String = "default",
+    modifier: Modifier = Modifier
+) {
+    if (headerUIPreference == "dropdown") {
+        DropdownVoicePartCard(
+            selectedPart = selectedPart,
+            audioMutePart = audioMutePart,
+            onPartSelected = onPartSelected,
+            onAudioMutePartSelected = onAudioMutePartSelected,
+            audioMuteEnabled = audioMuteEnabled,
+            onAudioMuteChange = onAudioMuteChange,
+            visualFocusEnabled = visualFocusEnabled,
+            onVisualFocusChange = onVisualFocusChange,
+            modifier = modifier
+        )
+    } else {
+        DefaultVoicePartCard(
+            selectedPart = selectedPart,
+            onPartSelected = onPartSelected,
+            audioMuteEnabled = audioMuteEnabled,
+            onAudioMuteChange = onAudioMuteChange,
+            visualFocusEnabled = visualFocusEnabled,
+            onVisualFocusChange = onVisualFocusChange,
+            isSelectorEnabled = isSelectorEnabled,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun DefaultVoicePartCard(
+    selectedPart: VoicePart,
     onPartSelected: (VoicePart) -> Unit,
     audioMuteEnabled: Boolean,
     onAudioMuteChange: (Boolean) -> Unit,
@@ -633,6 +687,178 @@ private fun VoicePartCard(
                     checked = visualFocusEnabled,
                     onCheckedChange = onVisualFocusChange
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DropdownVoicePartCard(
+    selectedPart: VoicePart,
+    audioMutePart: VoicePart,
+    onPartSelected: (VoicePart) -> Unit,
+    onAudioMutePartSelected: (VoicePart) -> Unit,
+    audioMuteEnabled: Boolean,
+    onAudioMuteChange: (Boolean) -> Unit,
+    visualFocusEnabled: Boolean,
+    onVisualFocusChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = VoxCardBackground,
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            DropdownSection(
+                modifier = Modifier.padding(16.dp),
+                icon = Icons.AutoMirrored.Outlined.VolumeOff,
+                label = stringResource(R.string.audio_mute_label),
+                isEnabled = audioMuteEnabled,
+                currentPart = audioMutePart,
+                onPartChanged = { part ->
+                    if (part == null) {
+                        onAudioMuteChange(false)
+                    } else {
+                        onAudioMutePartSelected(part)
+                        onAudioMuteChange(true)
+                    }
+                }
+            )
+        }
+
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = VoxCardBackground,
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            DropdownSection(
+                modifier = Modifier.padding(16.dp),
+                icon = Icons.Outlined.Visibility,
+                label = stringResource(R.string.visual_focus_label),
+                isEnabled = visualFocusEnabled,
+                currentPart = selectedPart,
+                onPartChanged = { part ->
+                    if (part == null) {
+                        onVisualFocusChange(false)
+                    } else {
+                        onPartSelected(part)
+                        onVisualFocusChange(true)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DropdownSection(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isEnabled: Boolean,
+    currentPart: VoicePart,
+    onPartChanged: (VoicePart?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .clickable { expanded = true }
+                    .padding(8.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = VoxPurplePrimary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                // Handle multi-line labels like "Audio\nMute" properly by limiting width or replacing space
+                Text(
+                    text = label.replace(" ", "\n"),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = VoxTextPrimary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = VoxPurplePrimary
+                )
+            }
+
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(Color.White)
+            ) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("None", color = Color.Black) },
+                    onClick = {
+                        expanded = false
+                        onPartChanged(null)
+                    }
+                )
+                VoicePart.values().forEach { part ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .background(part.color, androidx.compose.foundation.shape.CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(part.label, color = Color.Black)
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onPartChanged(part)
+                        }
+                    )
+                }
+            }
+        }
+
+        // The Pill Area
+        Box(
+            modifier = Modifier
+                .height(34.dp)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isEnabled) {
+                Surface(
+                    color = currentPart.color,
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = currentPart.label.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color.White
+                        )
+                    }
+                }
             }
         }
     }
