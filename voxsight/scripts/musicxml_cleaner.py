@@ -680,15 +680,14 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 'is_accomp': is_accomp,
                 'measures': measures
             }
+        # ─── Solo Detection & Assembly (Two-Strategy) ──────────────────────
+        # Strategy A: Name-based — if any part is explicitly labeled "SOLO"
+        # Strategy B: Position-based — detect solo by musical structure
+        # Then: Multi-fragment assembly — merge all Solo parts into one
 
-        # Solo continuation harmonization:
-        # In staggered choral arrangements (e.g. hymns, cantatas, "Be Not Afraid"), a soloist
-        # sings alone on initial staves (labeled "SOLO") and subsequent systems continue with
-        # shorthand single vocal staves (labeled "S" or "S.") before the full choir enters.
-        # Recognize that single-staff vocal sections strictly preceding the choral entrance
-        # belong to the Solo voice line, preventing the choir Soprano part from hijacking them.
-        has_solo = any(info['is_solo'] for info in part_info.values())
-        if has_solo:
+        # Strategy A: Solo continuation harmonization (if explicit SOLO label exists)
+        has_explicit_solo = any(info['is_solo'] for info in part_info.values())
+        if has_explicit_solo:
             choir_measures = set()
             for pid, info in part_info.items():
                 if info['tier'] == 2 or 'alto' in info['norm_name'].lower():
@@ -704,6 +703,139 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                         info['is_solo'] = True
                         info['norm_name'] = 'Solo'
                         info['tier'] = 0
+
+        # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
+        # Detects staggered choral entrances by musical structure, not part names.
+        if not any(info['is_solo'] for info in part_info.values()):
+            non_accomp_pids = [pid for pid, info in part_info.items() if not info['is_accomp']]
+
+            # Count how many non-accomp parts have notes at each measure
+            measure_active_parts = {}
+            for pid in non_accomp_pids:
+                for m, cnt in part_info[pid]['measures'].items():
+                    if cnt > 0 and m.isdigit():
+                        mi = int(m)
+                        measure_active_parts.setdefault(mi, set()).add(pid)
+
+            # Detect choir entrance:
+            # 1. First measure with 3+ parts active simultaneously (full choir chord)
+            # 2. First measure where bass-clef (F-clef) parts enter (choir Tenor/Bass)
+            # IMPORTANT: For bass clef, only check the FIRST measure's clef (initial clef).
+            first_poly_m = 9999
+            for mi in sorted(measure_active_parts.keys()):
+                if len(measure_active_parts[mi]) >= 3:
+                    first_poly_m = mi
+                    break
+
+            bass_clef_pids = set()
+            for pid in non_accomp_pids:
+                p_elem = part_info[pid]['element']
+                first_m = p_elem.find('measure')
+                if first_m is not None:
+                    clef_sign = first_m.find('.//clef/sign')
+                    if clef_sign is not None and clef_sign.text == 'F':
+                        bass_clef_pids.add(pid)
+
+            first_bass_m = 9999
+            for pid in bass_clef_pids:
+                for m, cnt in part_info[pid]['measures'].items():
+                    if cnt > 0 and m.isdigit():
+                        first_bass_m = min(first_bass_m, int(m))
+
+            choir_entrance_m = min(first_poly_m, first_bass_m)
+
+            if measure_active_parts:
+                earliest_m = min(measure_active_parts.keys())
+
+                # Solo condition: choir enters later than score starting point,
+                # AND all measures before the choir entrance are monophonic/duet (<= 2 parts)
+                if choir_entrance_m > earliest_m:
+                    intro_measures = [m for m in measure_active_parts if m < choir_entrance_m]
+                    is_solo_intro = intro_measures and all(len(measure_active_parts[m]) <= 2 for m in intro_measures)
+
+                    if is_solo_intro:
+                        # All non-accomp treble parts active in the intro are Solo fragments!
+                        for pid in non_accomp_pids:
+                            if pid in bass_clef_pids:
+                                continue
+                            active_m = [int(m) for m, cnt in part_info[pid]['measures'].items() if cnt > 0 and m.isdigit()]
+                            if active_m and any(m < choir_entrance_m for m in active_m):
+                                part_info[pid]['is_solo'] = True
+                                part_info[pid]['norm_name'] = 'Solo'
+                                part_info[pid]['tier'] = 0
+
+        # Multi-fragment Solo assembly: merge ALL Solo parts into one anchor.
+        # Audiveris often shatters a single Solo vocal line across 3–5+ parts
+        # (one per system/page), sometimes with OCR-garbled names ('E', 'a').
+        # This reassembles them into a single continuous Solo part.
+        solo_pids = [pid for pid, info in part_info.items() if info['is_solo']]
+        if len(solo_pids) > 1:
+            import copy as _copy
+            # Pick anchor = the Solo part with the most total notes
+            solo_pids.sort(key=lambda pid: sum(part_info[pid]['measures'].get(m, 0) for m in part_info[pid]['measures']), reverse=True)
+            anchor_pid = solo_pids[0]
+            anchor_p = part_info[anchor_pid]['element']
+            anchor_sp = part_info[anchor_pid]['score_part']
+
+            # Rename anchor to "Solo"
+            if anchor_sp is not None:
+                pn = anchor_sp.find('part-name')
+                if pn is None:
+                    pn = ET.SubElement(anchor_sp, 'part-name')
+                pn.text = 'Solo'
+                pa = anchor_sp.find('part-abbreviation')
+                if pa is None:
+                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                pa.text = 'Solo'
+
+            merged_solo_count = 0
+            for frag_pid in solo_pids[1:]:
+                frag_p = part_info[frag_pid]['element']
+                frag_sp = part_info[frag_pid]['score_part']
+
+                # Merge fragment's note-containing measures into anchor
+                for m2 in list(frag_p.findall('measure')):
+                    mnum = m2.get('number')
+                    m2_non_rest = [n for n in m2.findall('note') if n.find('rest') is None]
+                    if not m2_non_rest:
+                        continue
+
+                    m1_candidates = [m for m in anchor_p.findall(f"measure[@number='{mnum}']")]
+                    if m1_candidates:
+                        target_m1 = m1_candidates[0]
+                        t_non_rest = [n for n in target_m1.findall('note') if n.find('rest') is None]
+                        if not t_non_rest:
+                            # Anchor has rest at this measure → replace with fragment's notes
+                            m2_clone = _copy.deepcopy(m2)
+                            m2_attrs = m2_clone.find('attributes')
+                            t_attrs = target_m1.find('attributes')
+                            if t_attrs is not None and m2_attrs is None:
+                                m2_clone.insert(0, _copy.deepcopy(t_attrs))
+                            elif t_attrs is not None and m2_attrs is not None:
+                                for child in list(t_attrs):
+                                    if child.tag != 'measure-style' and m2_attrs.find(child.tag) is None:
+                                        m2_attrs.append(_copy.deepcopy(child))
+                            idx = list(anchor_p).index(target_m1)
+                            anchor_p.remove(target_m1)
+                            anchor_p.insert(idx, m2_clone)
+                    else:
+                        anchor_p.append(_copy.deepcopy(m2))
+
+                # Ensure staff-details are visible
+                for sd in anchor_p.findall('.//staff-details'):
+                    if sd.get('print-object') == 'no':
+                        sd.set('print-object', 'yes')
+
+                # Remove fragment from score
+                if frag_p in list(root):
+                    root.remove(frag_p)
+                if frag_sp is not None and frag_sp in list(part_list):
+                    part_list.remove(frag_sp)
+                merged_solo_count += 1
+
+            if merged_solo_count > 0:
+                modified = True
+
 
         # Find complementary pairs
         pids = [p.get('id') for p in parts]

@@ -1821,8 +1821,9 @@
             // shorthand single vocal staves (labeled "S" or "S.") before the full choir enters.
             // Recognize that single-staff vocal sections strictly preceding the choral entrance
             // belong to the Solo voice line, preventing the choir Soprano part from hijacking them.
-            var hasSolo = partInfo.some(function(info) { return info.isSolo; });
-            if (hasSolo) {
+            // Strategy A: Name-based Solo continuation harmonization
+            var hasExplicitSolo = partInfo.some(function(info) { return info.isSolo; });
+            if (hasExplicitSolo) {
                 var choirMeasures = new Set();
                 partInfo.forEach(function(info) {
                     if (info.tier === 2 || info.normName.toLowerCase().indexOf('alto') !== -1) {
@@ -1849,6 +1850,146 @@
                             info.tier = 0;
                         }
                     }
+                });
+            }
+
+            // Strategy B: Position-based Universal Solo Detection (when Audiveris labels everything "Voice")
+            if (!partInfo.some(function(info) { return info.isSolo; })) {
+                var nonAccompParts = partInfo.filter(function(info) { return !info.isAccomp; });
+                var measureActiveParts = {};
+                nonAccompParts.forEach(function(info) {
+                    for (var m in info.measures) {
+                        if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                            var mi = parseInt(m, 10);
+                            if (!measureActiveParts[mi]) measureActiveParts[mi] = new Set();
+                            measureActiveParts[mi].add(info.pid);
+                        }
+                    }
+                });
+
+                var firstPolyM = 9999;
+                var allActiveMs = Object.keys(measureActiveParts).map(function(k) { return parseInt(k, 10); }).sort(function(a, b) { return a - b; });
+                for (var idx = 0; idx < allActiveMs.length; idx++) {
+                    var mNum = allActiveMs[idx];
+                    if (measureActiveParts[mNum].size >= 3) {
+                        firstPolyM = mNum;
+                        break;
+                    }
+                }
+
+                var bassClefPids = new Set();
+                nonAccompParts.forEach(function(info) {
+                    var firstM = info.element.getElementsByTagName('measure')[0];
+                    if (firstM) {
+                        var clefSign = firstM.querySelector('clef > sign');
+                        if (clefSign && (clefSign.textContent || '').trim() === 'F') {
+                            bassClefPids.add(info.pid);
+                        }
+                    }
+                });
+
+                var firstBassM = 9999;
+                bassClefPids.forEach(function(pid) {
+                    var info = partInfo.find(function(pi) { return pi.pid === pid; });
+                    if (info) {
+                        for (var m in info.measures) {
+                            if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                                var mi = parseInt(m, 10);
+                                if (mi < firstBassM) firstBassM = mi;
+                            }
+                        }
+                    }
+                });
+
+                var choirEntranceM = Math.min(firstPolyM, firstBassM);
+                if (allActiveMs.length > 0) {
+                    var earliestM = allActiveMs[0];
+                    if (choirEntranceM > earliestM) {
+                        var introMeasures = allActiveMs.filter(function(m) { return m < choirEntranceM; });
+                        var isSoloIntro = introMeasures.length > 0 && introMeasures.every(function(m) {
+                            return measureActiveParts[m].size <= 2;
+                        });
+
+                        if (isSoloIntro) {
+                            nonAccompParts.forEach(function(info) {
+                                if (bassClefPids.has(info.pid)) return;
+                                var activeM = [];
+                                for (var m in info.measures) {
+                                    if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                                        activeM.push(parseInt(m, 10));
+                                    }
+                                }
+                                if (activeM.length > 0 && activeM.some(function(m) { return m < choirEntranceM; })) {
+                                    info.isSolo = true;
+                                    info.normName = 'Solo';
+                                    info.tier = 0;
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Multi-fragment Solo assembly: consolidate all Solo-tagged parts into one continuous line
+            var soloParts = partInfo.filter(function(info) { return info.isSolo; });
+            if (soloParts.length > 1) {
+                soloParts.sort(function(a, b) {
+                    var sumA = Object.values(a.measures).reduce(function(acc, val) { return acc + val; }, 0);
+                    var sumB = Object.values(b.measures).reduce(function(acc, val) { return acc + val; }, 0);
+                    return sumB - sumA;
+                });
+                var anchor = soloParts[0];
+                var anchorP = anchor.element;
+                var anchorSp = anchor.scorePart;
+                if (anchorSp) {
+                    var pn = anchorSp.getElementsByTagName('part-name')[0];
+                    if (!pn) { pn = doc.createElement('part-name'); anchorSp.appendChild(pn); }
+                    pn.textContent = 'Solo';
+                    var pa = anchorSp.getElementsByTagName('part-abbreviation')[0];
+                    if (!pa) { pa = doc.createElement('part-abbreviation'); anchorSp.appendChild(pa); }
+                    pa.textContent = 'Solo';
+                }
+
+                for (var sIdx = 1; sIdx < soloParts.length; sIdx++) {
+                    var frag = soloParts[sIdx];
+                    var fragP = frag.element;
+                    var fragSp = frag.scorePart;
+                    var fragMeasures = Array.from(fragP.getElementsByTagName('measure'));
+
+                    for (var fmIdx = 0; fmIdx < fragMeasures.length; fmIdx++) {
+                        var m2 = fragMeasures[fmIdx];
+                        var mnum = m2.getAttribute('number');
+                        var m2Notes = Array.from(m2.getElementsByTagName('note')).filter(function(n) {
+                            return n.getElementsByTagName('rest').length === 0;
+                        });
+                        if (m2Notes.length === 0) continue;
+
+                        var m1Candidates = Array.from(anchorP.querySelectorAll("measure[number='" + mnum + "']"));
+                        if (m1Candidates.length > 0) {
+                            var targetM1 = m1Candidates[0];
+                            var tNonRest = Array.from(targetM1.getElementsByTagName('note')).filter(function(n) {
+                                return n.getElementsByTagName('rest').length === 0;
+                            });
+                            if (tNonRest.length === 0) {
+                                var m2Clone = m2.cloneNode(true);
+                                var m2Attrs = m2Clone.querySelector('attributes');
+                                var tAttrs = targetM1.querySelector('attributes');
+                                if (tAttrs && !m2Attrs) {
+                                    m2Clone.insertBefore(tAttrs.cloneNode(true), m2Clone.firstChild);
+                                }
+                                anchorP.replaceChild(m2Clone, targetM1);
+                            }
+                        } else {
+                            anchorP.appendChild(m2.cloneNode(true));
+                        }
+                    }
+
+                    if (fragP.parentNode) fragP.parentNode.removeChild(fragP);
+                    if (fragSp && fragSp.parentNode) fragSp.parentNode.removeChild(fragSp);
+                }
+
+                partInfo = partInfo.filter(function(info) {
+                    return !soloParts.slice(1).some(function(frag) { return frag.pid === info.pid; });
                 });
             }
 

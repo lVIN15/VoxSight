@@ -105,7 +105,7 @@ public class OmrController {
         this.satbAnalysisService = satbAnalysisService;
     }
 
-    private static final String CACHE_VERSION_SALT = "v3.9-solo-multiverse";
+    private static final String CACHE_VERSION_SALT = "v4.0-solo-universal";
 
     private String calculateSha256(byte[] data) {
         try {
