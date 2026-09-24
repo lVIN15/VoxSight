@@ -681,6 +681,30 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 'measures': measures
             }
 
+        # Solo continuation harmonization:
+        # In staggered choral arrangements (e.g. hymns, cantatas, "Be Not Afraid"), a soloist
+        # sings alone on initial staves (labeled "SOLO") and subsequent systems continue with
+        # shorthand single vocal staves (labeled "S" or "S.") before the full choir enters.
+        # Recognize that single-staff vocal sections strictly preceding the choral entrance
+        # belong to the Solo voice line, preventing the choir Soprano part from hijacking them.
+        has_solo = any(info['is_solo'] for info in part_info.values())
+        if has_solo:
+            choir_measures = set()
+            for pid, info in part_info.items():
+                if info['tier'] == 2 or 'alto' in info['norm_name'].lower():
+                    for m, cnt in info['measures'].items():
+                        if cnt > 0 and m.isdigit():
+                            choir_measures.add(int(m))
+            first_choir_m = min(choir_measures) if choir_measures else 9999
+
+            for pid, info in part_info.items():
+                if not info['is_solo'] and not info['is_accomp']:
+                    active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
+                    if active_m and all(m < first_choir_m for m in active_m):
+                        info['is_solo'] = True
+                        info['norm_name'] = 'Solo'
+                        info['tier'] = 0
+
         # Find complementary pairs
         pids = [p.get('id') for p in parts]
         merged_pids = set()
@@ -720,7 +744,7 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     overlap = any(mnum in m2 and m1[mnum] > 0 and m2[mnum] > 0 for mnum in m1)
                     
                     if not overlap:
-                        canon_name, canon_abbr = get_canonical_name_and_abbr(info1['raw_name'], info2['raw_name'])
+                        canon_name, canon_abbr = ('Solo', 'Solo') if is_solo1 else get_canonical_name_and_abbr(info1['raw_name'], info2['raw_name'])
                         merge_pairs.append((pid1, pid2, canon_name, canon_abbr))
                         merged_pids.add(pid1)
                         merged_pids.add(pid2)

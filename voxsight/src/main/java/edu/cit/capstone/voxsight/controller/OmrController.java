@@ -105,9 +105,12 @@ public class OmrController {
         this.satbAnalysisService = satbAnalysisService;
     }
 
+    private static final String CACHE_VERSION_SALT = "v3.9-solo-multiverse";
+
     private String calculateSha256(byte[] data) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(CACHE_VERSION_SALT.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             byte[] hash = digest.digest(data);
             StringBuilder hexString = new StringBuilder();
             for (byte b : hash) {
@@ -117,7 +120,7 @@ public class OmrController {
             }
             return hexString.toString();
         } catch (Exception e) {
-            return String.valueOf(java.util.Arrays.hashCode(data));
+            return CACHE_VERSION_SALT + "_" + java.util.Arrays.hashCode(data);
         }
     }
 

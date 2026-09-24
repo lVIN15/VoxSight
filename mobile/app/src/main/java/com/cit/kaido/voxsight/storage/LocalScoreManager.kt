@@ -35,6 +35,22 @@ object LocalScoreManager {
 
     suspend fun saveScore(context: Context, score: MusicXmlScore): LocalScoreMetadata = withContext(Dispatchers.IO) {
         val scoresDir = getScoresDir(context)
+
+        // Purge any previously saved copy with matching title to ensure fresh overwrite
+        val existingFiles = scoresDir.listFiles() ?: emptyArray()
+        val gson = Gson()
+        for (f in existingFiles) {
+            if (f.name.endsWith(".json")) {
+                try {
+                    val meta = gson.fromJson(f.readText(Charsets.UTF_8), LocalScoreMetadata::class.java)
+                    if (meta.title.trim().equals(score.title.trim(), ignoreCase = true)) {
+                        File(scoresDir, meta.xmlFileName).delete()
+                        f.delete()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         val id = UUID.randomUUID().toString()
         val xmlFileName = "$id.musicxml"
         val xmlFile = File(scoresDir, xmlFileName)

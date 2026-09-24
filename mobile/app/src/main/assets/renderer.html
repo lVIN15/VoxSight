@@ -1815,6 +1815,43 @@
                 partInfo.push({ element: p, scorePart: sp, pid: pid, rawName: rawName, rawAbbr: rawAbbr, normName: normName, tier: tier, isSolo: isSolo, isAccomp: isAccomp, measures: measures });
             }
 
+            // Solo continuation harmonization:
+            // In staggered choral arrangements (e.g. hymns, cantatas, "Be Not Afraid"), a soloist
+            // sings alone on initial staves (labeled "SOLO") and subsequent systems continue with
+            // shorthand single vocal staves (labeled "S" or "S.") before the full choir enters.
+            // Recognize that single-staff vocal sections strictly preceding the choral entrance
+            // belong to the Solo voice line, preventing the choir Soprano part from hijacking them.
+            var hasSolo = partInfo.some(function(info) { return info.isSolo; });
+            if (hasSolo) {
+                var choirMeasures = new Set();
+                partInfo.forEach(function(info) {
+                    if (info.tier === 2 || info.normName.toLowerCase().indexOf('alto') !== -1) {
+                        for (var m in info.measures) {
+                            if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                                choirMeasures.add(parseInt(m, 10));
+                            }
+                        }
+                    }
+                });
+                var firstChoirM = choirMeasures.size > 0 ? Math.min.apply(null, Array.from(choirMeasures)) : 9999;
+
+                partInfo.forEach(function(info) {
+                    if (!info.isSolo && !info.isAccomp) {
+                        var activeM = [];
+                        for (var m in info.measures) {
+                            if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                                activeM.push(parseInt(m, 10));
+                            }
+                        }
+                        if (activeM.length > 0 && activeM.every(function(m) { return m < firstChoirM; })) {
+                            info.isSolo = true;
+                            info.normName = 'Solo';
+                            info.tier = 0;
+                        }
+                    }
+                });
+            }
+
             var mergedPids = new Set();
             var mergePairs = [];
             for (var i = 0; i < partInfo.length; i++) {
@@ -1838,7 +1875,7 @@
                             }
                         }
                         if (!overlap) {
-                            var compNames = getCompositePartNameAndAbbr(p1.rawName, p2.rawName);
+                            var compNames = p1.isSolo ? ['Solo', 'Solo'] : getCompositePartNameAndAbbr(p1.rawName, p2.rawName);
                             mergePairs.push({ p1: p1, p2: p2, canonName: compNames[0], canonAbbr: compNames[1] });
                             mergedPids.add(p1.pid);
                             mergedPids.add(p2.pid);
