@@ -218,6 +218,7 @@ fun UploadScoreScreen(
                 context = context,
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
+                bypassCache = true,
                 onProgress = { progress -> processingProgress = progress },
                 onSuccess = { musicXml, title ->
                     isProcessing = false
@@ -272,6 +273,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = it,
                     coroutineScope = coroutineScope,
+                    bypassCache = true,
                     onProgress = { progress -> processingProgress = progress },
                     onSuccess = { musicXml, title ->
                         isProcessing = false
@@ -335,6 +337,11 @@ fun UploadScoreScreen(
                         coroutineScope.launch {
                             LocalScoreManager.clearAllScores(context)
                             recentScores.clear()
+                            try {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.cit.kaido.voxsight.network.ApiClient.omrService.clearCache()
+                                }
+                            } catch (ignored: Exception) {}
                             showClearAllConfirm = false
                         }
                     }
@@ -368,6 +375,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = optimizedUri,
                     coroutineScope = coroutineScope,
+                    bypassCache = true,
                     onProgress = { progress -> processingProgress = progress },
                     onSuccess = { musicXml, title ->
                         isProcessing = false
@@ -1056,6 +1064,7 @@ private fun onImageCaptured(
     context: Context,
     imageUri: Uri,
     coroutineScope: kotlinx.coroutines.CoroutineScope,
+    bypassCache: Boolean = false,
     onProgress: (Float) -> Unit,
     onSuccess: (musicXml: String, title: String) -> Unit,
     onError: (String) -> Unit
@@ -1106,7 +1115,7 @@ private fun onImageCaptured(
             val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
             val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
             
-            val response = ApiClient.omrService.analyzeScore(body)
+            val response = ApiClient.omrService.analyzeScore(body, bypassCache)
             
             if (response.success && response.musicXml != null) {
                 val scoreTitle = deriveTitleFromFileName(originalFileName)

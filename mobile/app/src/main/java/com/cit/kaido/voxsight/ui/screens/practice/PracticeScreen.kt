@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.MusicOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -267,7 +268,12 @@ fun Module2PracticeScreen(
 
             LaunchedEffect(audioMutePart, audioMuteEnabled, midiController) {
                 if (audioMuteEnabled) {
-                    midiController?.mutePart(audioMutePart.shortLabel.first().toString())
+                    val muteKey = when (audioMutePart) {
+                        VoicePart.Solo -> "SOLO"
+                        VoicePart.Others -> "OTHER"
+                        else -> audioMutePart.shortLabel.first().toString()
+                    }
+                    midiController?.mutePart(muteKey)
                 } else {
                     midiController?.unmuteAllParts()
                 }
@@ -275,7 +281,12 @@ fun Module2PracticeScreen(
 
             LaunchedEffect(selectedPart, visualFocusEnabled, midiController) {
                 if (visualFocusEnabled) {
-                    midiController?.setVisualFocus(selectedPart.shortLabel.first().toString())
+                    val partKey = when (selectedPart) {
+                        VoicePart.Solo -> "SOLO"
+                        VoicePart.Others -> "OTHER"
+                        else -> selectedPart.shortLabel.first().toString()
+                    }
+                    midiController?.setVisualFocus(partKey)
                 } else {
                     midiController?.clearVisualFocus()
                 }
@@ -294,17 +305,31 @@ fun Module2PracticeScreen(
                 MidiPlaybackEngine(
                     score = resolvedScore,
                     tempo = 120,
-                    isMicEnabled = isMicEnabled,
-                    selectedVoicePart = selectedPart.shortLabel.first().toString().uppercase(),
+                    isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others,
+                    selectedVoicePart = when (selectedPart) {
+                        VoicePart.Solo -> "SOLO"
+                        VoicePart.Others -> "OTHER"
+                        else -> selectedPart.shortLabel.first().toString().uppercase()
+                    },
                     pitchAttempts = pitchAttempts,
                     onReady = { controller ->
                         midiController = controller
                         currentBpm = controller.getBaseBPM()
+                        val partKey = when (selectedPart) {
+                            VoicePart.Solo -> "SOLO"
+                            VoicePart.Others -> "OTHER"
+                            else -> selectedPart.shortLabel.first().toString()
+                        }
                         if (audioMuteEnabled) {
-                            controller.mutePart(audioMutePart.shortLabel.first().toString())
+                            val muteKey = when (audioMutePart) {
+                                VoicePart.Solo -> "SOLO"
+                                VoicePart.Others -> "OTHER"
+                                else -> audioMutePart.shortLabel.first().toString()
+                            }
+                            controller.mutePart(muteKey)
                         }
                         if (visualFocusEnabled) {
-                            controller.setVisualFocus(selectedPart.shortLabel.first().toString())
+                            controller.setVisualFocus(partKey)
                         } else {
                             controller.clearVisualFocus()
                         }
@@ -319,18 +344,37 @@ fun Module2PracticeScreen(
                         onPlaybackComplete()
                     },
                     onNoteOn = { event ->
-                        if (isMicEnabled) {
-                            val partLetter = selectedPart.shortLabel.first().toString().uppercase()
-                            if (event.satbVoice.firstOrNull()?.toString()?.uppercase() == partLetter) {
+                        if (isMicEnabled && selectedPart != VoicePart.Others) {
+                            val partLetter = when (selectedPart) {
+                                VoicePart.Solo -> "SOLO"
+                                VoicePart.Others -> "OTHER"
+                                else -> selectedPart.shortLabel.first().toString().uppercase()
+                            }
+                            val eventVoice = event.satbVoice.uppercase()
+                            val matches = when (partLetter) {
+                                "SOLO" -> eventVoice.startsWith("SOLO")
+                                "OTHER" -> eventVoice.startsWith("OTHER")
+                                else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
+                            }
+                            if (matches) {
                                 onNoteOn(event)
                             }
                         }
                     },
                     onWaitPitch = { events ->
-                        if (isMicEnabled) {
-                            val partLetter = selectedPart.shortLabel.first().toString().uppercase()
-                            val targetEvents = events.filter { 
-                                it.satbVoice.firstOrNull()?.toString()?.uppercase() == partLetter 
+                        if (isMicEnabled && selectedPart != VoicePart.Others) {
+                            val partLetter = when (selectedPart) {
+                                VoicePart.Solo -> "SOLO"
+                                VoicePart.Others -> "OTHER"
+                                else -> selectedPart.shortLabel.first().toString().uppercase()
+                            }
+                            val targetEvents = events.filter {
+                                val eventVoice = it.satbVoice.uppercase()
+                                when (partLetter) {
+                                    "SOLO" -> eventVoice.startsWith("SOLO")
+                                    "OTHER" -> eventVoice.startsWith("OTHER")
+                                    else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
+                                }
                             }
                             if (targetEvents.isNotEmpty()) {
                                 onWaitPitch(targetEvents)
@@ -342,8 +386,34 @@ fun Module2PracticeScreen(
             }
 
             if (isMicEnabled) {
-                Box(modifier = Modifier.spotlightTarget(tourState, "pitch_feedback")) {
-                    PitchFeedbackIndicator(state = pitchUiState)
+                if (selectedPart == VoicePart.Others) {
+                    Surface(
+                        color = Color(0xFF607D8B).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.MusicOff,
+                                contentDescription = null,
+                                tint = Color(0xFF607D8B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Test Pitch disabled for instrumental track (Others)",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                                color = Color(0xFF455A64)
+                            )
+                        }
+                    }
+                } else {
+                    Box(modifier = Modifier.spotlightTarget(tourState, "pitch_feedback")) {
+                        PitchFeedbackIndicator(state = pitchUiState)
+                    }
                 }
             }
 
@@ -426,7 +496,9 @@ private enum class VoicePart(val label: String, val shortLabel: String, val colo
     Soprano("Soprano", "S.", Color(0xFFE91E63)),
     Alto("Alto", "A.", Color(0xFF9C27B0)),
     Tenor("Tenor", "T.", Color(0xFF2196F3)),
-    Bass("Bass", "B.", Color(0xFF4CAF50))
+    Bass("Bass", "B.", Color(0xFF4CAF50)),
+    Solo("Solo", "Solo", Color(0xFFFF9800)),
+    Others("Others", "Other", Color(0xFF607D8B))
 }
 
 private data class StaffNote(
@@ -870,29 +942,64 @@ private fun PartSelectorUI(
     onPartSelected: (VoicePart) -> Unit,
     enabled: Boolean
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        VoicePart.values().forEach { part ->
-            val isSelected = part == selectedPart
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp)
-                    .clickable(enabled = enabled) { onPartSelected(part) },
-                color = if (isSelected) part.color else Color.White,
-                shape = RoundedCornerShape(999.dp),
-                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = part.label,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = if (isSelected) Color.White else VoxTextSecondary
-                    )
+        // Row 1: Core SATB parts
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass).forEach { part ->
+                val isSelected = part == selectedPart
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clickable(enabled = enabled) { onPartSelected(part) },
+                    color = if (isSelected) part.color else Color.White,
+                    shape = RoundedCornerShape(999.dp),
+                    border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = part.label,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = if (isSelected) Color.White else VoxTextSecondary
+                        )
+                    }
+                }
+            }
+        }
+
+        // Row 2: Solo & Others parts
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(VoicePart.Solo, VoicePart.Others).forEach { part ->
+                val isSelected = part == selectedPart
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clickable(enabled = enabled) { onPartSelected(part) },
+                    color = if (isSelected) part.color else Color.White,
+                    shape = RoundedCornerShape(999.dp),
+                    border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = part.label,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = if (isSelected) Color.White else VoxTextSecondary
+                        )
+                    }
                 }
             }
         }

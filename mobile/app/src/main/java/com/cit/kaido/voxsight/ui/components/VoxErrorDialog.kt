@@ -71,32 +71,17 @@ fun resolveErrorDialogData(rawError: String): VoxErrorDialogData {
     val lower = rawError.lowercase()
 
     return when {
-        lower.contains("unsupported score") || lower.contains("solo voices or piano") ||
-        lower.contains("solo voice") || lower.contains("piano accompaniment") ||
-        lower.contains("accompaniment notation") || lower.contains("too many parts") ||
-        lower.contains("single vocal melody") || lower.contains("grand staff") -> {
+        lower.contains("unsupported score") || lower.contains("purely instrumental") ||
+        lower.contains("without satb or choral") || lower.contains("instrumental score") -> {
             val detailsList = mutableListOf<String>()
-            if (lower.contains("piano") || lower.contains("keyboard") || lower.contains("accompaniment")) {
-                detailsList.add("Piano, keyboard, or accompaniment notation detected")
-            }
-            if (lower.contains("solo")) {
-                detailsList.add("Solo vocal part or lead sheet detected")
-            }
-            if (lower.contains("too many parts")) {
-                detailsList.add("Detected more than 4 choral voices/staves")
-            }
-            if (lower.contains("single vocal melody") || lower.contains("only 1 staff")) {
-                detailsList.add("Single voice melody (expected 2–4 SATB staves)")
-            }
-            if (detailsList.isEmpty()) {
-                detailsList.add("Contains non-choral voices or accompaniment notation")
-            }
+            detailsList.add("Purely instrumental score detected (no vocal/choral parts)")
+            detailsList.add("No Soprano, Alto, Tenor, Bass, or choral lyrics found")
 
             VoxErrorDialogData(
-                title = "SATB Choral Score Required",
-                message = "VoxSight is built specifically for pure SATB (Soprano, Alto, Tenor, Bass) choral scores. Scores with piano accompaniment or solo leads cannot be practiced.",
+                title = "Choral or SATB Component Required",
+                message = "VoxSight is built for choral and vocal music. Purely instrumental scores (such as solo piano, guitar, or orchestra without vocal parts) cannot be processed.",
                 details = detailsList,
-                actionableTip = "Tip: Upload an SATB choral arrangement without piano or organ accompaniment.",
+                actionableTip = "Tip: Upload a choral score or an arrangement that includes SATB vocal parts (even if accompanied by piano or soloists).",
                 category = ErrorCategory.UNSUPPORTED_SCORE,
                 primaryButtonText = "CHOOSE ANOTHER SCORE"
             )

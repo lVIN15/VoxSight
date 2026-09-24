@@ -283,7 +283,10 @@ public class OmrController {
     }
 
     @PostMapping("/convert")
-    public ResponseEntity<OmrResponse> convert(@RequestParam("musicFile") MultipartFile file) {
+    public ResponseEntity<OmrResponse> convert(
+            @RequestParam("musicFile") MultipartFile file,
+            @RequestParam(value = "bypassCache", required = false, defaultValue = "false") boolean bypassCache
+    ) {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(OmrResponse.ofError("File is empty"));
         }
@@ -301,12 +304,17 @@ public class OmrController {
                     .body(OmrResponse.ofError("Failed to read uploaded file"));
         }
 
-        // Check SHA-256 Cache for instant response (0.05s)
+        // Check SHA-256 Cache for instant response (0.05s) unless bypassCache is requested
         String fileHash = calculateSha256(fileBytes);
-        OmrResponse cached = CONVERT_CACHE.get(fileHash);
-        if (cached != null) {
-            log.info("[OMR Cache HIT] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
-            return ResponseEntity.ok(cached);
+        if (bypassCache) {
+            log.info("[OMR Cache BYPASS] Bypassing convert cache for: {} (hash: {})", rawFilename, fileHash);
+            CONVERT_CACHE.remove(fileHash);
+        } else {
+            OmrResponse cached = CONVERT_CACHE.get(fileHash);
+            if (cached != null) {
+                log.info("[OMR Cache HIT] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
+                return ResponseEntity.ok(cached);
+            }
         }
 
         // In-flight deduplication: If another thread is actively converting this score, attach to it
@@ -324,7 +332,7 @@ public class OmrController {
         }
 
         try {
-            ResponseEntity<OmrResponse> response = executeConvert(rawFilename, fileBytes, fileHash);
+            ResponseEntity<OmrResponse> response = executeConvert(rawFilename, fileBytes, fileHash, bypassCache);
             future.complete(response);
             return response;
         } catch (Exception e) {
@@ -337,7 +345,7 @@ public class OmrController {
         }
     }
 
-    private ResponseEntity<OmrResponse> executeConvert(String rawFilename, byte[] fileBytes, String fileHash) {
+    private ResponseEntity<OmrResponse> executeConvert(String rawFilename, byte[] fileBytes, String fileHash, boolean bypassCache) {
         boolean acquired = false;
         try {
             log.info("[OMR Queue] Request for {} waiting for permit (Available: {}/{}, Queue depth: {})...",
@@ -351,10 +359,12 @@ public class OmrController {
             }
 
             // Post-Lock Double-Check Cache: In case another thread finished the same file while we queued
-            OmrResponse postLockCached = CONVERT_CACHE.get(fileHash);
-            if (postLockCached != null) {
-                log.info("[OMR Cache HIT Post-Lock] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
-                return ResponseEntity.ok(postLockCached);
+            if (!bypassCache) {
+                OmrResponse postLockCached = CONVERT_CACHE.get(fileHash);
+                if (postLockCached != null) {
+                    log.info("[OMR Cache HIT Post-Lock] Returning cached conversion for: {} (hash: {})", rawFilename, fileHash);
+                    return ResponseEntity.ok(postLockCached);
+                }
             }
 
             String originalFilename = sanitizeFilename(rawFilename);
@@ -441,16 +451,11 @@ public class OmrController {
 
                     cleanMusicXml(targetFile);
 
-                    // Upload Validation Gate: Ensure score does not contain Piano or Solo staves
+                    // Pre-analysis check / cache warm-up
                     try {
                         satbAnalysisService.analyze(targetFile);
                     } catch (SatbAnalysisService.SatbAnalysisException e) {
-                        if (e.getMessage() != null && (e.getMessage().contains("Unsupported Score") || e.getMessage().contains("Solo voices or Piano"))) {
-                            targetFile.delete();
-                            String cleanMsg = e.getMessage().replace("SATB analysis failed: ", "");
-                            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                    .body(OmrResponse.ofError(cleanMsg));
-                        }
+                        log.warn("[Convert] SATB pre-analysis advisory: {}", e.getMessage());
                     }
 
                     String fileUrl = "/outputs/" + baseName + extension;
@@ -485,7 +490,10 @@ public class OmrController {
      * Enhanced endpoint: Audiveris OMR → SATB Analysis Pipeline with In-Flight Deduplication & Concurrency Lock.
      */
     @PostMapping("/analyze")
-    public ResponseEntity<OmrAnalysisResponse> analyze(@RequestParam("musicFile") MultipartFile file) {
+    public ResponseEntity<OmrAnalysisResponse> analyze(
+            @RequestParam("musicFile") MultipartFile file,
+            @RequestParam(value = "bypassCache", required = false, defaultValue = "false") boolean bypassCache
+    ) {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(OmrAnalysisResponse.ofError("File is empty"));
         }
@@ -503,12 +511,17 @@ public class OmrController {
                     .body(OmrAnalysisResponse.ofError("Failed to read uploaded file"));
         }
 
-        // Check SHA-256 Cache for instant response (0.05s)
+        // Check SHA-256 Cache for instant response (0.05s) unless bypassCache is requested
         String fileHash = calculateSha256(fileBytes);
-        OmrAnalysisResponse cached = ANALYSIS_CACHE.get(fileHash);
-        if (cached != null) {
-            log.info("[OMR Cache HIT] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
-            return ResponseEntity.ok(cached);
+        if (bypassCache) {
+            log.info("[OMR Cache BYPASS] Bypassing analyze cache for: {} (hash: {})", rawFilename, fileHash);
+            ANALYSIS_CACHE.remove(fileHash);
+        } else {
+            OmrAnalysisResponse cached = ANALYSIS_CACHE.get(fileHash);
+            if (cached != null) {
+                log.info("[OMR Cache HIT] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
+                return ResponseEntity.ok(cached);
+            }
         }
 
         // In-flight deduplication: If another thread is actively analyzing this score, attach to it
@@ -526,7 +539,7 @@ public class OmrController {
         }
 
         try {
-            ResponseEntity<OmrAnalysisResponse> response = executeAnalyze(rawFilename, fileBytes, fileHash);
+            ResponseEntity<OmrAnalysisResponse> response = executeAnalyze(rawFilename, fileBytes, fileHash, bypassCache);
             future.complete(response);
             return response;
         } catch (Exception e) {
@@ -539,7 +552,7 @@ public class OmrController {
         }
     }
 
-    private ResponseEntity<OmrAnalysisResponse> executeAnalyze(String rawFilename, byte[] fileBytes, String fileHash) {
+    private ResponseEntity<OmrAnalysisResponse> executeAnalyze(String rawFilename, byte[] fileBytes, String fileHash, boolean bypassCache) {
         boolean acquired = false;
         try {
             log.info("[OMR Queue] Request for {} waiting for permit (Available: {}/{}, Queue depth: {})...",
@@ -553,10 +566,12 @@ public class OmrController {
             }
 
             // Post-Lock Double-Check Cache: In case another thread finished the same file while we queued
-            OmrAnalysisResponse postLockCached = ANALYSIS_CACHE.get(fileHash);
-            if (postLockCached != null) {
-                log.info("[OMR Cache HIT Post-Lock] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
-                return ResponseEntity.ok(postLockCached);
+            if (!bypassCache) {
+                OmrAnalysisResponse postLockCached = ANALYSIS_CACHE.get(fileHash);
+                if (postLockCached != null) {
+                    log.info("[OMR Cache HIT Post-Lock] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
+                    return ResponseEntity.ok(postLockCached);
+                }
             }
 
             String originalFilename = sanitizeFilename(rawFilename);
@@ -672,20 +687,8 @@ public class OmrController {
 
             } catch (SatbAnalysisService.SatbAnalysisException e) {
                 log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
-                if (e.getMessage() != null && (e.getMessage().contains("Unsupported Score") || e.getMessage().contains("Solo voices or Piano") || e.getMessage().contains("UNSUPPORTED_SCORE_SOLO_PIANO"))) {
-                    String cleanMsg = e.getMessage().replace("SATB analysis failed: ", "");
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body(OmrAnalysisResponse.ofError(cleanMsg));
-                }
                 try {
                     String rawXml = extractXmlContent(targetFile);
-                    String lowerXml = rawXml.toLowerCase();
-                    if (lowerXml.contains("piano") || lowerXml.contains("keyboard") || lowerXml.contains("organ") ||
-                        lowerXml.contains("solo voice") || lowerXml.contains("vocal solo") || lowerXml.contains("soloist")) {
-                    log.warn("[Analyze] Fallback detected Piano/Solo keywords in rawXml, rejecting as unsupported score");
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body(OmrAnalysisResponse.ofError("Unsupported Score: Piano accompaniment or Solo voice detected. VoxSight exclusively supports pure SATB (Soprano, Alto, Tenor, Bass) choral scores."));
-                }
                 OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
                         rawXml, java.util.Map.of(
                             "structure_type", "UNCERTAIN",

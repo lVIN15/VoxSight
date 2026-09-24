@@ -6,13 +6,17 @@ import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
+import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface OmrService {
     /** Legacy endpoint: Audiveris only, returns URL to MusicXML file */
     @Multipart
     @POST("api/convert")
-    suspend fun convertScore(@Part file: MultipartBody.Part): OmrResponse
+    suspend fun convertScore(
+        @Part file: MultipartBody.Part,
+        @Query("bypassCache") bypassCache: Boolean = false
+    ): OmrResponse
 
     /**
      * Enhanced endpoint: Audiveris + SATB Analysis Pipeline.
@@ -21,9 +25,15 @@ interface OmrService {
      */
     @Multipart
     @POST("api/analyze")
-    suspend fun analyzeScore(@Part file: MultipartBody.Part): OmrAnalysisResponse
+    suspend fun analyzeScore(
+        @Part file: MultipartBody.Part,
+        @Query("bypassCache") bypassCache: Boolean = false
+    ): OmrAnalysisResponse
 
     @GET
     suspend fun downloadXml(@Url url: String): ResponseBody
+
+    @POST("api/clear-cache")
+    suspend fun clearCache(): retrofit2.Response<Map<String, Any>>
 }
 

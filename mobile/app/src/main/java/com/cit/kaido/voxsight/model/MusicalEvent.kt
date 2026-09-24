@@ -3,12 +3,14 @@ package com.cit.kaido.voxsight.model
 import com.google.gson.annotations.SerializedName
 
 enum class SATBVoice {
-    SOPRANO, ALTO, TENOR, BASS, UNKNOWN;
+    SOPRANO, ALTO, TENOR, BASS, SOLO, OTHERS, UNKNOWN;
 
     companion object {
         fun fromString(value: String?): SATBVoice {
             if (value == null) return UNKNOWN
             val upper = value.uppercase()
+            if (upper.startsWith("SOLO")) return SOLO
+            if (upper.startsWith("OTHER")) return OTHERS
             if (upper.startsWith("S")) return SOPRANO
             if (upper.startsWith("A")) return ALTO
             if (upper.startsWith("T")) return TENOR

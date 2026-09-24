@@ -68,6 +68,8 @@ fun RealMeasureNotationView(
         SATBVoice.ALTO -> 2
         SATBVoice.TENOR -> 3
         SATBVoice.BASS -> 4
+        SATBVoice.SOLO -> 5
+        SATBVoice.OTHERS -> 6
         SATBVoice.UNKNOWN -> 1
     }
 
@@ -81,6 +83,8 @@ fun RealMeasureNotationView(
                 SATBVoice.ALTO -> part.name.contains("alto", true) || part.id == 2
                 SATBVoice.TENOR -> part.name.contains("tenor", true) || part.id == 3
                 SATBVoice.BASS -> part.name.contains("bass", true) || part.id == 4
+                SATBVoice.SOLO -> part.name.contains("solo", true) || part.name.contains("cantor", true) || part.name.contains("leader", true) || part.id == 5
+                SATBVoice.OTHERS -> part.name.contains("other", true) || part.name.contains("accomp", true) || part.name.contains("piano", true) || part.name.contains("organ", true) || part.name.contains("keyboard", true) || part.name.contains("guitar", true) || part.id == 6
                 else -> part.id == 1
             }
         } ?: score?.parts?.getOrNull(voiceIndex - 1) ?: score?.parts?.firstOrNull()

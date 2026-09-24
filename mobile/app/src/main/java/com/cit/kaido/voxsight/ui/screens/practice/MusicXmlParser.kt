@@ -290,6 +290,17 @@ fun parseMusicXmlScoreFromText(
                                 partNamesMap[currentScorePartIndex] = pName
                             }
                         }
+                        "part-abbreviation" -> {
+                            val pAbbr = parser.nextText().trim()
+                            if (pAbbr.isNotBlank() && currentScorePartIndex > 0) {
+                                val existing = partNamesMap[currentScorePartIndex]
+                                if (existing.isNullOrBlank()) {
+                                    partNamesMap[currentScorePartIndex] = pAbbr
+                                } else {
+                                    partNamesMap[currentScorePartIndex] = "$existing $pAbbr"
+                                }
+                            }
+                        }
                         "sound" -> {
                             val tAttr = parser.getAttributeValue(null, "tempo")?.toFloatOrNull()
                             if (tAttr != null && parsedTempo == null) parsedTempo = tAttr
@@ -562,7 +573,7 @@ fun parseMusicXmlScoreFromText(
                     val isChordGroup = group.size > 1 && !note.isRest
 
                     val isolatedVoice = when {
-                        note.customVoice != null && note.customVoice in 1..4 -> note.customVoice
+                        note.customVoice != null && note.customVoice in 1..6 -> note.customVoice
                         totalParts >= 4 -> partIndex
                         totalParts == 2 || totalParts == 3 -> {
                             if (partIndex == 1) {
@@ -630,6 +641,8 @@ fun parseMusicXmlScoreFromText(
                 totalParts == 2 -> if (partIndex == 1) "Soprano / Alto" else "Tenor / Bass"
                 totalParts == 3 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Bass"; else -> "Part $partIndex" }
                 totalParts == 4 -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Tenor"; 4 -> "Bass"; else -> "Part $partIndex" }
+                totalParts == 5 -> when (partIndex) { 1 -> "Solo"; 2 -> "Soprano"; 3 -> "Alto"; 4 -> "Tenor"; 5 -> "Bass"; else -> "Part $partIndex" }
+                totalParts >= 6 -> when (partIndex) { 1 -> "Solo"; 2 -> "Soprano"; 3 -> "Alto"; 4 -> "Tenor"; 5 -> "Bass"; 6 -> "Accompaniment"; else -> "Part $partIndex" }
                 else -> "Part $partIndex"
             }
 
@@ -656,7 +669,7 @@ fun parseMusicXmlScoreFromText(
                     val isChordGroup = group.size > 1 && !note.isRest
 
                     val isolatedVoice = when {
-                        note.customVoice != null && note.customVoice in 1..4 -> note.customVoice
+                        note.customVoice != null && note.customVoice in 1..6 -> note.customVoice
                         totalPartsFallback >= 4 -> partIndex
                         totalPartsFallback == 2 || totalPartsFallback == 3 -> {
                             if (partIndex == 1) {
@@ -706,7 +719,11 @@ fun parseMusicXmlScoreFromText(
                 finalParts.add(
                     MusicXmlPart(
                         id = partIndex,
-                        name = when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Tenor"; 4 -> "Bass"; else -> "Part $partIndex" },
+                        name = when {
+                            totalPartsFallback == 5 -> when (partIndex) { 1 -> "Solo"; 2 -> "Soprano"; 3 -> "Alto"; 4 -> "Tenor"; 5 -> "Bass"; else -> "Part $partIndex" }
+                            totalPartsFallback >= 6 -> when (partIndex) { 1 -> "Solo"; 2 -> "Soprano"; 3 -> "Alto"; 4 -> "Tenor"; 5 -> "Bass"; 6 -> "Accompaniment"; else -> "Part $partIndex" }
+                            else -> when (partIndex) { 1 -> "Soprano"; 2 -> "Alto"; 3 -> "Tenor"; 4 -> "Bass"; else -> "Part $partIndex" }
+                        },
                         notes = adjustedNotes,
                         measures = listOf(MusicXmlMeasure(1, adjustedNotes))
                     )
@@ -740,15 +757,41 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
 
     parts.forEach { part ->
         part.notes.forEach { note ->
+            val nameLower = part.name.lowercase()
             val satbVoiceStr = when {
-                note.customVoice != null && note.customVoice in 1..4 -> when (note.customVoice) {
+                note.customVoice != null && note.customVoice in 1..6 -> when (note.customVoice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
                     3 -> "TENOR"
                     4 -> "BASS"
+                    5 -> "SOLO"
+                    6 -> "OTHERS"
                     else -> "SOPRANO"
                 }
-                parts.size >= 4 -> when (part.id) {
+                nameLower.contains("solo") || nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") -> "SOLO"
+                nameLower.contains("piano") || nameLower.contains("organ") || nameLower.contains("keyboard") || nameLower.contains("guitar") || nameLower.contains("accomp") || nameLower.contains("orch") || nameLower.contains("strings") || nameLower.contains("other") -> "OTHERS"
+                nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") -> "SOPRANO"
+                nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") -> "ALTO"
+                nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") -> "TENOR"
+                nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") -> "BASS"
+                parts.size == 5 -> when (part.id) {
+                    1 -> "SOLO"
+                    2 -> "SOPRANO"
+                    3 -> "ALTO"
+                    4 -> "TENOR"
+                    5 -> "BASS"
+                    else -> "OTHERS"
+                }
+                parts.size >= 6 -> when (part.id) {
+                    1 -> "SOLO"
+                    2 -> "SOPRANO"
+                    3 -> "ALTO"
+                    4 -> "TENOR"
+                    5 -> "BASS"
+                    6 -> "OTHERS"
+                    else -> "OTHERS"
+                }
+                parts.size == 4 -> when (part.id) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
                     3 -> "TENOR"

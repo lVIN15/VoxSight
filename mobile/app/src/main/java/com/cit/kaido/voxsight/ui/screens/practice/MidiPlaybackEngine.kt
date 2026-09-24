@@ -336,24 +336,32 @@ open class MidiPlayerController(
      * This mutes ONLY that single voice so the user can sing along without hearing it.
      */
     fun mutePart(part: String) {
-        val targetLabel = part.firstOrNull()?.toString()?.uppercase() ?: "S"
+        val targetLabel = when {
+            part.uppercase().startsWith("SOLO") -> "SOLO"
+            part.uppercase().startsWith("OTHER") -> "OTHER"
+            else -> part.firstOrNull()?.toString()?.uppercase() ?: "S"
+        }
         mutedVoicesList = listOf(targetLabel)
         
         // Mute all parts EXCEPT the selected target part (so the user can hear their part clearly)
-        listOf("S", "A", "T", "B").forEach { v ->
+        listOf("S", "A", "T", "B", "SOLO", "OTHER").forEach { v ->
             playbackEngine.muteVoice(v, v != targetLabel)
         }
     }
 
     fun unmuteAllParts() {
         mutedVoicesList = emptyList()
-        listOf("S", "A", "T", "B").forEach { v ->
+        listOf("S", "A", "T", "B", "SOLO", "OTHER").forEach { v ->
             playbackEngine.muteVoice(v, false)
         }
     }
 
     fun setVisualFocus(part: String) {
-        val targetLabel = part.firstOrNull()?.toString()?.uppercase() ?: "S"
+        val targetLabel = when {
+            part.uppercase().startsWith("SOLO") -> "SOLO"
+            part.uppercase().startsWith("OTHER") -> "OTHER"
+            else -> part.firstOrNull()?.toString()?.uppercase() ?: "S"
+        }
         visualFocusPart = targetLabel
         if (isRendered) {
             webView.post { webView.evaluateJavascript("setVisualFocus('$targetLabel');", null) }
@@ -434,15 +442,28 @@ open class MidiPlayerController(
 
     private fun renderHighlights() {
         val targetFilterPart = if (isMicEnabled) {
-            selectedVoicePart?.firstOrNull()?.toString()?.uppercase() ?: visualFocusPart
+            when {
+                selectedVoicePart?.uppercase()?.startsWith("SOLO") == true -> "SOLO"
+                selectedVoicePart?.uppercase()?.startsWith("OTHER") == true -> "OTHER"
+                else -> selectedVoicePart?.firstOrNull()?.toString()?.uppercase() ?: visualFocusPart
+            }
         } else {
             visualFocusPart
         }
 
-        // Inject colors based on SATB part mapping
+        // Inject colors based on SATB / Solo / Others part mapping
         val coloredNotes = lastHighlights.mapNotNull { highlight ->
             val event = eventStream.find { it.eventId == highlight.eventId }
-            val part = event?.satbVoice?.firstOrNull()?.toString()?.uppercase() ?: "S"
+            val voiceUpper = event?.satbVoice?.uppercase().orEmpty()
+            val part = when {
+                voiceUpper.startsWith("SOLO") -> "SOLO"
+                voiceUpper.startsWith("OTHER") -> "OTHER"
+                voiceUpper.startsWith("S") -> "S"
+                voiceUpper.startsWith("A") -> "A"
+                voiceUpper.startsWith("T") -> "T"
+                voiceUpper.startsWith("B") -> "B"
+                else -> "S"
+            }
             
             // Visual Focus / Active singing voice filtering
             if (targetFilterPart != null && part != targetFilterPart) {
@@ -454,6 +475,8 @@ open class MidiPlayerController(
                 "A" -> "#9C27B0" // Purple
                 "T" -> "#2196F3" // Blue
                 "B" -> "#4CAF50" // Green
+                "SOLO" -> "#FF9800" // Vibrant Amber / Orange
+                "OTHER" -> "#607D8B" // Slate / Blue Grey
                 else -> "#6366f1" // Indigo fallback
             }
 
@@ -554,12 +577,23 @@ open class MidiPlayerController(
                 val initialColors = eventStream.mapNotNull { event ->
                     val match = syncManager.getCoordinateForEvent(event.eventId)
                     if (match != null) {
-                        val part = event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                        val voiceUpper = event.satbVoice.uppercase()
+                        val part = when {
+                            voiceUpper.startsWith("SOLO") -> "SOLO"
+                            voiceUpper.startsWith("OTHER") -> "OTHER"
+                            voiceUpper.startsWith("S") -> "S"
+                            voiceUpper.startsWith("A") -> "A"
+                            voiceUpper.startsWith("T") -> "T"
+                            voiceUpper.startsWith("B") -> "B"
+                            else -> "S"
+                        }
                         val hexColor = when (part) {
                             "S" -> "#E91E63" // Pink
                             "A" -> "#9C27B0" // Purple
                             "T" -> "#2196F3" // Blue
                             "B" -> "#4CAF50" // Green
+                            "SOLO" -> "#FF9800" // Vibrant Amber / Orange
+                            "OTHER" -> "#607D8B" // Slate / Blue Grey
                             else -> "#E91E63"
                         }
                         mapOf(

@@ -199,17 +199,21 @@ def synchronize_choral_lyrics(root: ET.Element) -> int:
         if not measure_pool:
             continue
 
-        for p in parts:
-            pid = p.get('id')
-            if pid not in part_notes:
-                continue
-
-            p_lyr_map = part_lyrics.get(pid, {})
-            for onset, note in part_notes[pid]:
-                if onset not in p_lyr_map and onset in measure_pool:
-                    new_lyr = copy.deepcopy(measure_pool[onset])
-                    note.append(new_lyr)
-                    synced_count += 1
+        # NOTE: Forced lyric cloning disabled to protect polyphony & staggered entrances.
+        # In pieces like "Be Not Afraid", the Solo sings while SATB rests — copying Solo lyrics
+        # onto resting choir parts corrupts the score. Lyrics are now only retained where
+        # Audiveris originally recognized them.
+        # for p in parts:
+        #     pid = p.get('id')
+        #     if pid not in part_notes:
+        #         continue
+        #
+        #     p_lyr_map = part_lyrics.get(pid, {})
+        #     for onset, note in part_notes[pid]:
+        #         if onset not in p_lyr_map and onset in measure_pool:
+        #             new_lyr = copy.deepcopy(measure_pool[onset])
+        #             note.append(new_lyr)
+        #             synced_count += 1
 
     return synced_count
 
@@ -223,16 +227,12 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
     for note in root.findall('.//note'):
         lyrics_to_remove = []
         for lyr in note.findall('lyric'):
-            num = lyr.get('number', '1')
             text_elems = lyr.findall('.//text')
             full_text = ' '.join(t.text.strip() for t in text_elems if t.text).strip().lower()
 
-            # Remove secondary orphan lyric layers (e.g. number != 1 which catches stray words like "Scott", "in", "optional")
-            if num != '1':
-                lyrics_to_remove.append(lyr)
-                continue
-
             # Check credit keywords, performance annotation words, or overly long non-lyric text
+            # Applied to ALL lyric numbers (including Verse 2, 3, etc.) so legitimate verses
+            # are preserved while OCR garbage is still filtered out.
             is_credit = any(kw in full_text for kw in CREDIT_KEYWORDS)
             is_stray_annotation = any(w in full_text for w in ['descnr', 'descant', 'optional', 'scott', 'jedscott', 'arranged', 'composer'])
             is_too_long = len(full_text) > 35 and ' ' in full_text
@@ -439,41 +439,23 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 'is_vocal_name': is_vocal_name
             })
 
-        # Identify choir vocal parts
-        choral_vocal_parts = [
-            m for m in part_info
-            if not m['is_explicit_solo'] and not m['is_explicit_accomp'] and (m['is_vocal_name'] or m['valid_lyrics'] >= 5)
-        ]
+        # Prune only true OCR artifacts (e.g. empty phantom staves with 0 notes).
+        # We explicitly preserve Vocal Solos, Choral Staves, and Instrumental Accompaniments (Others)
+        to_prune = []
+        for m in part_info:
+            if m['note_count'] == 0:
+                to_prune.append(m)
 
-        if len(choral_vocal_parts) >= 2 or (len(choral_vocal_parts) >= 1 and len(parts) >= 3):
-            to_prune = []
-            for idx, m in enumerate(part_info):
-                if m['is_explicit_accomp']:
-                    to_prune.append(m)
-                    continue
-                if m['is_explicit_solo'] and len(choral_vocal_parts) >= 2:
-                    to_prune.append(m)
-                    continue
-                if m['staves'] >= 2 and m['valid_lyrics'] < 5:
-                    to_prune.append(m)
-                    continue
-                # Non-vocal parts with negligible/no lyrics (e.g. instrument accompaniment or stray OCR staff)
-                if m not in choral_vocal_parts and not m['is_vocal_name']:
-                    lyric_ratio = (m['valid_lyrics'] / m['note_count']) if m['note_count'] > 0 else 0
-                    if lyric_ratio < 0.08 and (m['chords'] > 0 or m['valid_lyrics'] <= 2):
-                        to_prune.append(m)
-                        continue
-
-            if to_prune and (len(parts) - len(to_prune)) >= 1:
-                for m in to_prune:
-                    p = m['part']
-                    sp = m['score_part']
-                    if p in list(root):
-                        root.remove(p)
-                        modified = True
-                    if sp is not None and sp in list(part_list):
-                        part_list.remove(sp)
-                        modified = True
+        if to_prune and (len(parts) - len(to_prune)) >= 1:
+            for m in to_prune:
+                p = m['part']
+                sp = m['score_part']
+                if p in list(root):
+                    root.remove(p)
+                    modified = True
+                if sp is not None and sp in list(part_list):
+                    part_list.remove(sp)
+                    modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2d. Strip Dynamics (direction elements containing <dynamics>)
@@ -601,6 +583,9 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                             if sm_num and sm_num.isdigit():
                                 sm.set('number', str(int(sm_num) + offset))
 
+                        del p_measures[:]
+                        p_measures.extend(p.findall('measure'))
+
                     if matched_credit in list(root):
                         root.remove(matched_credit)
                     modified = True
@@ -673,6 +658,11 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
             norm_name = NAME_MAP.get(raw_name.strip().lower(), raw_name.strip())
             tier = get_tier(raw_name)
             
+            name_lower = raw_name.lower()
+            abbr_lower = raw_abbr.lower()
+            is_solo = any(kw in name_lower or kw in abbr_lower for kw in ['solo', 'cantor', 'leader', 'descant'])
+            is_accomp = any(kw in name_lower or kw in abbr_lower for kw in ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'])
+
             measures = {}
             for m in p.findall('measure'):
                 mnum = m.get('number')
@@ -686,6 +676,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 'raw_abbr': raw_abbr,
                 'norm_name': norm_name,
                 'tier': tier,
+                'is_solo': is_solo,
+                'is_accomp': is_accomp,
                 'measures': measures
             }
 
@@ -702,6 +694,9 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
             norm1 = info1['norm_name'].lower()
             tier1 = info1['tier']
 
+            is_solo1 = info1.get('is_solo', False)
+            is_accomp1 = info1.get('is_accomp', False)
+
             for j in range(i + 1, len(pids)):
                 pid2 = pids[j]
                 if pid2 in merged_pids:
@@ -709,6 +704,12 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 info2 = part_info[pid2]
                 norm2 = info2['norm_name'].lower()
                 tier2 = info2['tier']
+                is_solo2 = info2.get('is_solo', False)
+                is_accomp2 = info2.get('is_accomp', False)
+
+                # Never merge a Solo part with a non-Solo part, or an Accompaniment with a Vocal part
+                if is_solo1 != is_solo2 or is_accomp1 != is_accomp2:
+                    continue
 
                 tier_match = (tier1 != 0 and tier1 == tier2)
                 name_match = (norm1 == norm2) or tier_match or (len(parts) == 8 and j == i + 4)
@@ -870,6 +871,104 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 voice_el = ET.SubElement(note_el, 'voice')
                 voice_el.text = '1'
                 modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 6. Global Measure Synchronization & Padding for Staggered Entrances (e.g. Be Not Afraid)
+    # ─────────────────────────────────────────────────────────────────────────
+    all_parts = root.findall('part')
+    if len(all_parts) > 1:
+        canonical_measure_numbers = []
+        seen_mnums = set()
+        measure_templates = {}
+        global_divisions = 4
+        global_beats = 4
+        global_beat_type = 4
+
+        for p in all_parts:
+            current_div = global_divisions
+            for m in p.findall('measure'):
+                mnum = m.get('number')
+                d_elem = m.find('.//divisions')
+                if d_elem is not None and d_elem.text:
+                    try:
+                        current_div = int(d_elem.text.strip())
+                        global_divisions = current_div
+                    except ValueError:
+                        pass
+                b_elem = m.find('.//time/beats')
+                bt_elem = m.find('.//time/beat-type')
+                if b_elem is not None and b_elem.text:
+                    try:
+                        global_beats = int(b_elem.text.strip())
+                    except ValueError:
+                        pass
+                if bt_elem is not None and bt_elem.text:
+                    try:
+                        global_beat_type = int(bt_elem.text.strip())
+                    except ValueError:
+                        pass
+
+                if mnum and mnum not in seen_mnums:
+                    seen_mnums.add(mnum)
+                    canonical_measure_numbers.append(mnum)
+
+                if mnum and mnum not in measure_templates:
+                    m_dur = int(round(global_beats * (4.0 / global_beat_type) * current_div))
+                    m_attrs = m.find('attributes')
+                    measure_templates[mnum] = (m_dur, m_attrs, current_div)
+
+        try:
+            if all(m.isdigit() for m in canonical_measure_numbers):
+                canonical_measure_numbers.sort(key=lambda x: int(x))
+        except Exception:
+            pass
+
+        for p in all_parts:
+            existing_measures = {m.get('number'): m for m in p.findall('measure')}
+            part_pname = (p.get('id', '') + ' ' + (p.findtext('.//part-name') or '')).lower()
+            default_clef_sign = 'F' if any(w in part_pname for w in ['bass', 'tenor', 't/b', 'men']) else 'G'
+            default_clef_line = '4' if default_clef_sign == 'F' else '2'
+
+            for mnum in canonical_measure_numbers:
+                if mnum not in existing_measures:
+                    new_m = ET.Element('measure', {'number': mnum})
+                    dur_val, tmpl_attrs, div_val = measure_templates.get(mnum, (global_divisions * 4, None, global_divisions))
+
+                    new_attrs = ET.Element('attributes')
+                    d_el = ET.SubElement(new_attrs, 'divisions')
+                    d_el.text = str(div_val)
+                    if mnum == canonical_measure_numbers[0]:
+                        clef_el = ET.SubElement(new_attrs, 'clef')
+                        s_el = ET.SubElement(clef_el, 'sign')
+                        s_el.text = default_clef_sign
+                        l_el = ET.SubElement(clef_el, 'line')
+                        l_el.text = default_clef_line
+                    if tmpl_attrs is not None:
+                        key_el = tmpl_attrs.find('key')
+                        if key_el is not None:
+                            new_attrs.append(copy.deepcopy(key_el))
+                        time_el = tmpl_attrs.find('time')
+                        if time_el is not None:
+                            new_attrs.append(copy.deepcopy(time_el))
+                    new_m.append(new_attrs)
+
+                    note_el = ET.SubElement(new_m, 'note')
+                    ET.SubElement(note_el, 'rest', {'measure': 'yes'})
+                    dur_el = ET.SubElement(note_el, 'duration')
+                    dur_el.text = str(dur_val)
+                    voice_el = ET.SubElement(note_el, 'voice')
+                    voice_el.text = '1'
+
+                    p.append(new_m)
+                    modified = True
+
+            all_m_elems = list(p.findall('measure'))
+            m_by_num = {m.get('number'): m for m in all_m_elems}
+            for m in all_m_elems:
+                p.remove(m)
+            for mnum in canonical_measure_numbers:
+                if mnum in m_by_num:
+                    p.append(m_by_num[mnum])
 
     return modified
 

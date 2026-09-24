@@ -287,59 +287,18 @@ def check_unsupported_score(xml_path: str) -> tuple[bool, str]:
         if root is None:
             return False, ""
 
-        part_list = root.find("part-list")
         parts = root.findall("part")
-        if part_list is None or not parts:
+        if not parts:
             return False, ""
 
-        ACCOMP_KEYWORDS = [
-            "piano", "pno", "keyboard", "kbd", "organ", "org",
-            "accompaniment", "accomp", "acc.", "acc", "guitar", "gtr",
-            "strings", "orchestra", "orch", "harp", "harpsichord", "celesta",
-            "synthesizer", "synth", "continuo", "basso continuo", "b.c."
-        ]
-        SOLO_KEYWORDS = [
-            "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
-            "solo voice", "duet", "lead sheet", "fake book"
+        CHORAL_KEYWORDS = [
+            "soprano", "alto", "tenor", "bass", "choir", "chorus", "choral",
+            "satb", "s.a.t.b.", "voices", "vocal", "coro", "unison"
         ]
 
-        found_unsupported = []
-
-        # ── Layer 1: Text & Metadata Check (Title, Movement, Credits, Directions, Filename) ──
-        texts_to_check = []
-        fname_clean = p.stem.lower().replace("_", " ").replace("-", " ")
-        texts_to_check.append(("file name", fname_clean))
-
-        wt = root.findtext(".//work/work-title")
-        if wt:
-            texts_to_check.append(("work title", wt.lower()))
-        mt = root.findtext(".//movement-title")
-        if mt:
-            texts_to_check.append(("movement title", mt.lower()))
-
-        for c in root.findall(".//credit"):
-            for cw in c.findall(".//credit-words"):
-                if cw.text:
-                    texts_to_check.append(("credit", cw.text.strip().lower()))
-
-        for d in root.findall(".//direction"):
-            for w in d.findall(".//words"):
-                if w.text:
-                    texts_to_check.append(("direction", w.text.strip().lower()))
-
-        for origin, txt in texts_to_check:
-            for kw in SOLO_KEYWORDS:
-                if re.search(rf"\b{re.escape(kw)}\b", txt):
-                    found_unsupported.append(f"Solo notation '{kw}' in {origin}")
-                    break
-            for kw in ACCOMP_KEYWORDS:
-                if re.search(rf"\b{re.escape(kw)}\b", txt):
-                    found_unsupported.append(f"Accompaniment notation '{kw}' in {origin}")
-                    break
-
-        # ── Layer 2 & 4: Score-Part Definitions, MIDI, and Musical Texture ──
-        total_staves = 0
-        part_details = []
+        has_choral_component = False
+        total_lyrics = 0
+        total_notes = 0
 
         for p_elem in parts:
             pid = p_elem.get("id")
@@ -347,7 +306,6 @@ def check_unsupported_score(xml_path: str) -> tuple[bool, str]:
             p_name = ""
             p_abbr = ""
             instr_name = ""
-            midi_prog = -1
 
             if sp is not None:
                 pn = sp.find("part-name")
@@ -359,94 +317,39 @@ def check_unsupported_score(xml_path: str) -> tuple[bool, str]:
                 instr = sp.find(".//instrument-name")
                 if instr is not None and instr.text:
                     instr_name = instr.text.strip().lower()
-                mp = sp.find(".//midi-program")
-                if mp is not None and mp.text:
-                    try:
-                        midi_prog = int(mp.text.strip())
-                    except ValueError:
-                        pass
 
             combined = f"{p_name} {p_abbr} {instr_name}"
-            p_norm = p_name.replace(" ", "").replace(".", "")
-
-            for kw in SOLO_KEYWORDS:
-                if re.search(rf"\b{re.escape(kw)}\b", combined) or p_norm in ["sol", "solo"]:
-                    found_unsupported.append(f"Solo voice ('{p_name or pid}')")
+            for kw in CHORAL_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", combined):
+                    has_choral_component = True
                     break
 
-            for kw in ACCOMP_KEYWORDS:
-                if re.search(rf"\b{re.escape(kw)}\b", combined) or p_norm in ["piano", "pno", "org", "organ", "kbd", "keyboard", "gtr", "guitar"]:
-                    found_unsupported.append(f"Accompaniment ('{p_name or pid}')")
-                    break
-
-            # MIDI program accompaniment checks
-            if (1 <= midi_prog <= 8) or (17 <= midi_prog <= 24) or (25 <= midi_prog <= 32):
-                found_unsupported.append(f"Accompaniment instrument MIDI program {midi_prog} ('{p_name or pid}')")
-
-            # Inspect notes, staves, lyrics, chords
-            staves_found = set()
-            staves_elem = p_elem.find(".//attributes/staves")
-            if staves_elem is not None and staves_elem.text:
-                try:
-                    num_st = int(staves_elem.text.strip())
-                    for i in range(1, num_st + 1):
-                        staves_found.add(str(i))
-                except ValueError:
-                    pass
-
-            note_count = 0
-            chord_count = 0
-            lyric_count = 0
+            part_lyrics = 0
             for m in p_elem.findall("measure"):
                 for n in m.findall("note"):
-                    note_count += 1
-                    if n.find("chord") is not None:
-                        chord_count += 1
-                    s = n.findtext("staff")
-                    if s:
-                        staves_found.add(s)
+                    total_notes += 1
                     if n.find("lyric") is not None:
-                        lyric_count += 1
+                        part_lyrics += 1
+            total_lyrics += part_lyrics
 
-            num_staves = len(staves_found) or 1
-            total_staves += num_staves
+            # If a part has substantial lyrics (5 or more), it's a vocal/choral component
+            if part_lyrics >= 5:
+                has_choral_component = True
 
-            part_details.append({
-                "pid": pid,
-                "name": p_name,
-                "staves": num_staves,
-                "notes": note_count,
-                "chords": chord_count,
-                "lyrics": lyric_count
-            })
+        # Also check work title or credits for SATB / Choral keywords
+        wt = (root.findtext(".//work/work-title") or "").lower()
+        mt = (root.findtext(".//movement-title") or "").lower()
+        for kw in ["satb", "choir", "chorus", "choral"]:
+            if kw in wt or kw in mt:
+                has_choral_component = True
+                break
 
-            # Grand staff accompaniment (2 staves, e.g. piano, with low lyrics)
-            if num_staves >= 2 and lyric_count < 5:
-                found_unsupported.append(f"Piano/Accompaniment grand staff ('{p_name or pid}', {num_staves} staves, {lyric_count} lyrics)")
-
-            # Polyphonic instrumental accompaniment (high chord density, 0 lyrics)
-            if note_count > 15 and lyric_count == 0 and chord_count > 3:
-                found_unsupported.append(f"Instrumental accompaniment part without lyrics ('{p_name or pid}', {note_count} notes, {chord_count} chords)")
-
-        # ── Layer 3: Structural Part & Staff Count Validation ──
-        # Pure SATB domain definition:
-        # - Open SATB: 4 vocal parts/staves (S, A, T, B)
-        # - Condensed SATB: 2 vocal parts/staves (SA, TB) or 1 part with 2 staves
-        # - Condensed SAB: 3 vocal parts/staves
-        # A single 1-staff vocal melody is a solo lead sheet, not an SATB choral score
-        if len(parts) == 1 and total_staves == 1:
-            found_unsupported.append("Single vocal melody / Solo lead sheet (only 1 staff detected; expected 2-4 SATB choral staves)")
-
-        # If more than 4 parts or staves concurrently (e.g. Solo + SATB 5-9 staves)
-        if len(parts) > 4 or total_staves > 4:
-            found_unsupported.append(f"Too many parts/staves ({len(parts)} parts, {total_staves} staves; pure SATB choral scores support at most 4 voices, detected extra Solo or Accompaniment staves)")
-
-        if found_unsupported:
-            parts_str = ", ".join(dict.fromkeys(found_unsupported))
+        # If no choral/SATB component is found (e.g. 0 lyrics, no SATB names, purely instrumental)
+        if not has_choral_component and total_lyrics < 5:
             msg = (
-                f"Unsupported Score: Detected {parts_str}. "
-                "Scores containing Solo voices or Piano accompaniment staves are not supported. "
-                "VoxSight is designed exclusively for SATB choral sheet music. Please upload an SATB vocal score."
+                "Unsupported Score: Purely instrumental score without SATB or choral vocal parts. "
+                "VoxSight requires sheet music with a choral or SATB vocal component. "
+                "Scores intended exclusively for piano, guitar, or orchestra without vocal parts cannot be processed."
             )
             return True, msg
 
@@ -493,6 +396,62 @@ def analyze(xml_path: str) -> dict:
     # ─── Step 1-3: Extensible zone ────────────────────────────────────
     parts = list(score.parts)
     part_count = len(parts)
+    # ─── Step 0: Classify Part Categories (SATB, SOLO, OTHERS) ────────
+    part_categories = {}
+    choral_part_indices = []
+    solo_part_indices = []
+    others_part_indices = []
+
+    ACCOMP_KEYWORDS = [
+        "piano", "pno", "keyboard", "kbd", "organ", "org",
+        "accompaniment", "accomp", "acc.", "acc", "guitar", "gtr",
+        "strings", "orchestra", "orch", "harp", "harpsichord", "celesta",
+        "synthesizer", "synth", "continuo", "basso continuo", "b.c.",
+        "flute", "violin", "cello", "oboe", "clarinet", "trumpet", "horn"
+    ]
+    SOLO_KEYWORDS = [
+        "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
+        "solo voice", "duet", "lead sheet"
+    ]
+
+    for p_idx, part in enumerate(parts):
+        p_name = (part.partName or "").strip().lower()
+        p_abbr = (part.partAbbreviation or "").strip().lower()
+        combined_name = f"{p_name} {p_abbr}"
+
+        p_staves = set()
+        p_lyrics = 0
+        for m in part.getElementsByClass(music21.stream.Measure):
+            for el in m.flatten().notesAndRests:
+                if hasattr(el, 'editorial') and hasattr(el.editorial, 'staffNumber') and el.editorial.staffNumber:
+                    p_staves.add(el.editorial.staffNumber)
+                if el.isNote or el.isChord:
+                    if hasattr(el, 'lyric') and el.lyric:
+                        p_lyrics += 1
+        num_p_staves = len(p_staves) or 1
+
+        is_solo = any(re.search(rf"\b{re.escape(kw)}\b", combined_name) for kw in SOLO_KEYWORDS)
+        is_accomp = any(re.search(rf"\b{re.escape(kw)}\b", combined_name) for kw in ACCOMP_KEYWORDS)
+
+        # 2-staff grand staff with low lyrics is typically piano/accompaniment
+        if num_p_staves >= 2 and p_lyrics < 5 and not any(kw in combined_name for kw in ["soprano", "alto", "tenor", "bass", "choir", "satb"]):
+            is_accomp = True
+
+        if is_solo:
+            part_categories[p_idx + 1] = "Solo"
+            solo_part_indices.append(p_idx + 1)
+        elif is_accomp:
+            part_categories[p_idx + 1] = "Others"
+            others_part_indices.append(p_idx + 1)
+        else:
+            part_categories[p_idx + 1] = "SATB"
+            choral_part_indices.append(p_idx + 1)
+
+    if not choral_part_indices and parts:
+        choral_part_indices.append(1)
+        part_categories[1] = "SATB"
+
+    # Count staves
     staff_count = 0
 
     # Detect time signatures
@@ -526,18 +485,16 @@ def analyze(xml_path: str) -> dict:
                 measure_durations[m_num] = dur
             else:
                 measure_durations[m_num] = max(measure_durations[m_num], dur)
-                
+
     current_offset = 0.0
-    # Sorting ensures measures increment in order.
-    # Note: If m_num is 0 (pickup), it comes first.
-    # We must convert keys to string/int carefully if there are mixed types, but music21 measure numbers are ints or float/string if complex.
-    # We'll just sort them using a robust key.
     for m_num in sorted(measure_durations.keys(), key=lambda x: int(x) if isinstance(x, (int, float, str)) and str(x).isdigit() else 9999):
         global_measure_offsets[m_num] = current_offset
         current_offset += measure_durations[m_num]
 
-
     for part_idx, part in enumerate(parts):
+        part_num = part_idx + 1
+        part_category = part_categories.get(part_num, "SATB")
+
         # Compute staff pitch range for voice_signature
         pitches_in_part = []
         for n in part.flatten().notes:
@@ -561,37 +518,26 @@ def analyze(xml_path: str) -> dict:
             for element in measure.flatten().notesAndRests:
                 # Compute tick position
                 offset_in_measure = element.offset
-                # Force vertical measure alignment using the global offset rather than the drifting part offset
                 measure_offset = global_measure_offsets.get(measure_num, measure.offset)
                 global_offset = measure_offset + offset_in_measure
                 tick_position = normalize_to_ticks(global_offset, tpq)
                 duration_ticks = normalize_to_ticks(element.quarterLength, tpq)
 
-                # Staff detection — use part-relative staff mapping
-                staff_id = part_idx + 1  # Default: part index = staff
-                # music21 stores staff assignment in note's editorial or via <staff> tag
+                staff_id = part_idx + 1
                 if hasattr(element, 'editorial'):
                     ed = element.editorial
                     if hasattr(ed, 'staffNumber') and ed.staffNumber is not None:
                         staff_id = ed.staffNumber
-                # Also check if MusicXML had explicit <staff> element
-                if hasattr(element, 'storedInstrument'):
-                    pass  # keep staff_id from editorial
                 staves_in_part.add(staff_id)
 
-                # Voice detection — extract the actual MusicXML <voice> number
                 voice_source = 0
-                # Method 1: Check the Voice container the element lives in
                 if element.activeSite is not None:
                     site = element.activeSite
                     if isinstance(site, music21.stream.Voice):
-                        # music21 Voice objects have an .id that maps to MusicXML <voice>
                         try:
                             voice_source = int(site.id)
                         except (ValueError, TypeError):
-                            # music21 sometimes uses string IDs; map to sequential int
-                            voice_source = hash(str(site.id)) % 100  # stable small int
-                # Method 2: Some notes have a direct voice property
+                            voice_source = hash(str(site.id)) % 100
                 if voice_source == 0 and hasattr(element, 'voice'):
                     try:
                         voice_source = int(element.voice)
@@ -608,7 +554,7 @@ def analyze(xml_path: str) -> dict:
                         "duration_quarters": float(element.quarterLength),
                         "voice_source": voice_source,
                         "staff_id": staff_id,
-                        "part_id": part_idx + 1,
+                        "part_id": part_num,
                         "is_rest": True,
                         "is_chord_member": False,
                         "tie_type": None,
@@ -628,23 +574,26 @@ def analyze(xml_path: str) -> dict:
                     pitch_midi = note_obj.pitch.midi
                     pitch_name = str(note_obj.pitch)
 
-                    # Tie detection
                     tie_type = None
                     if note_obj.tie:
-                        tie_type = note_obj.tie.type  # 'start', 'stop', 'continue'
+                        tie_type = note_obj.tie.type
 
                     is_chord = element.isChord
-
-                    # Voice signature
                     sig = compute_voice_signature(staff_id, pitch_midi, staff_pitch_range)
 
-                    # SATB scoring
-                    pitch_scores = score_pitch(pitch_midi)
-                    staff_scores = score_staff(staff_id, part_count)
-                    sig_scores = score_voice_signature(sig)
-                    satb_voice, satb_confidence = classify_satb(
-                        pitch_scores, staff_scores, sig_scores
-                    )
+                    if part_category == "Solo":
+                        satb_voice = "Solo"
+                        satb_confidence = 1.0
+                    elif part_category == "Others":
+                        satb_voice = "Others"
+                        satb_confidence = 1.0
+                    else:
+                        pitch_scores = score_pitch(pitch_midi)
+                        staff_scores = score_staff(staff_id, len(choral_part_indices))
+                        sig_scores = score_voice_signature(sig)
+                        satb_voice, satb_confidence = classify_satb(
+                            pitch_scores, staff_scores, sig_scores
+                        )
 
                     raw_events.append({
                         "measure_number": measure_num,
@@ -655,8 +604,8 @@ def analyze(xml_path: str) -> dict:
                         "duration_quarters": float(element.quarterLength),
                         "voice_source": voice_source,
                         "staff_id": staff_id,
-                        "part_id": part_idx + 1,
-                        "is_rest": is_chord,  # will be corrected below
+                        "part_id": part_num,
+                        "is_rest": is_chord,
                         "is_chord_member": is_chord,
                         "tie_type": tie_type,
                         "voice_signature": sig,
@@ -668,7 +617,7 @@ def analyze(xml_path: str) -> dict:
 
         staff_count += len(staves_in_part)
 
-    # Fix is_rest field (was incorrectly set to is_chord for notes)
+    # Fix is_rest field
     for e in raw_events:
         if e.get("pitch_midi", 0) > 0:
             e["is_rest"] = False
@@ -677,51 +626,38 @@ def analyze(xml_path: str) -> dict:
 
     # ─── Global Melodic & Vertical Voice Assignment Optimization ─────
     try:
-        # Group raw notes (non-rests) by tick
-        non_rests = [e for e in raw_events if not e["is_rest"]]
-        
-        # Group by tick_position
+        # Only optimize choral SATB events (skip Solo and Others to preserve them 1:1)
+        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "Others"]]
+
         by_tick = {}
         for e in non_rests:
             by_tick.setdefault(e["tick_position"], []).append(e)
-            
-        # We will track the last pitch assigned to each voice to maintain melodic continuity
+
         last_voice_pitch = {v: None for v in "SATB"}
         last_voice_tick = {v: -9999 for v in "SATB"}
-        
-        # Iterate chronologically to classify voices with vertical + continuity context
+
         for tick in sorted(by_tick.keys()):
             tick_notes = by_tick[tick]
-            
-            # Sort notes by pitch descending (highest first)
             tick_notes.sort(key=lambda x: x["pitch_midi"], reverse=True)
-            
-            # Group notes by staff_id to apply vertical constraints within each staff
+
             by_staff = {}
             for tn in tick_notes:
                 by_staff.setdefault(tn["staff_id"], []).append(tn)
-                
+
             for staff_id, staff_notes in by_staff.items():
-                # staff_notes are already sorted descending because tick_notes was sorted
-                # Apply vertical rank scoring
                 for rank, tn in enumerate(staff_notes):
                     pitch = tn["pitch_midi"]
-                    
-                    # 1. Pitch Range Score
                     p_scores = score_pitch(pitch)
-                    
-                    # 2. Staff Score
-                    s_scores = score_staff(staff_id, part_count)
-                    
-                    # 3. Vertical Order Score
+                    s_scores = score_staff(staff_id, len(choral_part_indices))
+
                     v_scores = {v: 0.0 for v in "SATB"}
-                    if part_count >= 4:
-                        # In a 4-part score, staff matches voice 1:1, so vertical rank within staff doesn't split S vs A.
+                    if len(choral_part_indices) >= 4:
+                        # Find the 1-based rank among choral parts
+                        choral_rank = choral_part_indices.index(tn["part_id"]) + 1 if tn["part_id"] in choral_part_indices else staff_id
                         mapping = {1: "S", 2: "A", 3: "T", 4: "B"}
-                        default_v = mapping.get(staff_id, "S")
+                        default_v = mapping.get(choral_rank, "S")
                         v_scores[default_v] = 1.0
                     else:
-                        # Treble staff (S/A)
                         if staff_id == 1:
                             if len(staff_notes) >= 2:
                                 if rank == 0:
@@ -731,13 +667,12 @@ def analyze(xml_path: str) -> dict:
                                     v_scores["S"] = 0.1
                                     v_scores["A"] = 0.9
                             else:
-                                if pitch >= 69:  # A4 and above
+                                if pitch >= 69:
                                     v_scores["S"] = 0.8
                                     v_scores["A"] = 0.2
                                 else:
                                     v_scores["S"] = 0.2
                                     v_scores["A"] = 0.8
-                        # Bass staff (T/B)
                         else:
                             if len(staff_notes) >= 2:
                                 if rank == 0:
@@ -747,14 +682,13 @@ def analyze(xml_path: str) -> dict:
                                     v_scores["T"] = 0.1
                                     v_scores["B"] = 0.9
                             else:
-                                if pitch >= 53:  # F3 and above
+                                if pitch >= 53:
                                     v_scores["T"] = 0.8
                                     v_scores["B"] = 0.2
                                 else:
                                     v_scores["T"] = 0.2
                                     v_scores["B"] = 0.8
-                                    
-                    # 4. Melodic Continuity Score (HMM-lite)
+
                     c_scores = {v: 0.5 for v in "SATB"}
                     for v in "SATB":
                         last_pitch = last_voice_pitch[v]
@@ -775,12 +709,11 @@ def analyze(xml_path: str) -> dict:
                                     c_scores[v] = 0.35
                                 else:
                                     c_scores[v] = 0.05
-                                    
-                    # Combine scores using highly optimized weights
+
                     combined = {}
                     sig = tn.get("voice_signature", "")
                     sig_scores = score_voice_signature(sig)
-                    
+
                     for v in "SATB":
                         combined[v] = (
                             0.40 * p_scores.get(v, 0.0) +
@@ -788,16 +721,14 @@ def analyze(xml_path: str) -> dict:
                             0.20 * v_scores.get(v, 0.0) +
                             0.15 * c_scores.get(v, 0.0)
                         )
-                        
+
                     best_voice = max(combined, key=combined.get)
                     confidence = combined[best_voice]
                     confidence = max(0.0, min(1.0, confidence))
-                    
-                    # Update event
+
                     tn["satb_voice"] = best_voice
                     tn["satb_confidence"] = confidence
-                    
-                    # Update tracking for continuity
+
                     last_voice_pitch[best_voice] = pitch
                     last_voice_tick[best_voice] = tick
     except Exception as exc:
@@ -892,23 +823,29 @@ def analyze(xml_path: str) -> dict:
     for e in final_events:
         track_ids.add(e["playback_track"])
 
-    # Fail-safe: pure SATB cannot have more than 4 playback tracks or parts
-    if len(track_ids) > 4 or part_count > 4:
-        msg = (
-            f"Unsupported Score: Detected {len(track_ids)} playback tracks and {part_count} parts. "
-            "Pure SATB choral sheet music supports at most 4 voices. "
-            "Scores containing Solo voices or Piano accompaniment staves are not supported. "
-            "Please upload an SATB vocal score."
-        )
-        log.warn(f"[SATB Fail-safe] Rejecting unsupported score: {msg}")
-        return _error_response(msg)
-
-    # Default SATB label mapping
-    sorted_tracks = sorted(track_ids)
-    default_labels = ["Soprano", "Alto", "Tenor", "Bass"]
+    # Build playback tracks with proper labels (Soprano, Alto, Tenor, Bass, Solo, Others)
     playback_tracks = []
-    for i, tid in enumerate(sorted_tracks):
-        satb_label = default_labels[i] if i < len(default_labels) else f"Voice {i+1}"
+    for tid in sorted(track_ids):
+        part_num = 1
+        if tid.startswith("p"):
+            try:
+                part_num = int(tid.split("-")[0][1:])
+            except ValueError:
+                pass
+        p_cat = part_categories.get(part_num, "SATB")
+        if p_cat == "Solo":
+            satb_label = "Solo"
+        elif p_cat == "Others":
+            satb_label = "Others"
+        else:
+            track_events = [e for e in final_events if e["playback_track"] == tid]
+            satb_label = "Soprano"
+            if track_events:
+                voices = [e["satb_voice"] for e in track_events if e["satb_voice"] in ["S", "A", "T", "B", "Solo", "Others"]]
+                if voices:
+                    maj = max(set(voices), key=voices.count)
+                    satb_label = {"S": "Soprano", "A": "Alto", "T": "Tenor", "B": "Bass"}.get(maj, maj)
+
         playback_tracks.append({
             "track_id": tid,
             "structural_label": tid.replace("p", "Part ").replace("-s", ", Staff ").replace("-v", ", Voice "),
