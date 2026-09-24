@@ -71,7 +71,6 @@ object LocalScoreManager {
             timestamp = System.currentTimeMillis()
         )
         val metadataFile = File(scoresDir, "$id.json")
-        val gson = Gson()
         FileOutputStream(metadataFile).use { output ->
             output.write(gson.toJson(metadata).toByteArray(Charsets.UTF_8))
         }
