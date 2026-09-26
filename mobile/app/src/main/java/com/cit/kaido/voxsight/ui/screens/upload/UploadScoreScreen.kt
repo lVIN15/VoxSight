@@ -57,6 +57,14 @@ import com.cit.kaido.voxsight.ui.tour.spotlightTarget
 import com.cit.kaido.voxsight.ui.tour.SpotlightTourOverlay
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
+import org.xml.sax.InputSource
+import java.io.StringReader
+import java.io.StringWriter
+import com.cit.kaido.voxsight.model.MusicalEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -1119,8 +1127,9 @@ private fun onImageCaptured(
             
             if (response.success && response.musicXml != null) {
                 val scoreTitle = deriveTitleFromFileName(originalFileName)
+                val finalXml = stampEventsIntoMusicXml(response.musicXml, response.events)
                 onProgress(1f)
-                onSuccess(response.musicXml, scoreTitle)
+                onSuccess(finalXml, scoreTitle)
             } else {
                 onError(response.error ?: "Conversion/Analysis failed.")
             }
@@ -1217,6 +1226,67 @@ private fun deriveTitleFromFileName(fileName: String): String {
  */
 private fun checkUnsupportedMusicXml(xml: String): String? {
     return ScoreValidator.checkUnsupportedMusicXml(xml)
+}
+
+/**
+ * Stamps server-classified SATB voices into the MusicXML as data-vx-voice attributes.
+ * This guarantees that even if a score's staves were condensed or unlabelled by OMR,
+ * the precise ground-truth SATB classification (S, A, T, B) is directly embedded on every note.
+ */
+private fun stampEventsIntoMusicXml(musicXml: String, events: List<MusicalEvent>?): String {
+    if (events.isNullOrEmpty()) return musicXml
+    return try {
+        val factory = DocumentBuilderFactory.newInstance()
+        val builder = factory.newDocumentBuilder()
+        val doc = builder.parse(InputSource(StringReader(musicXml)))
+
+        val voiceCodeMap = mapOf(
+            "S" to "1",
+            "A" to "2",
+            "T" to "3",
+            "B" to "4",
+            "SOLO" to "5",
+            "OTHERS" to "6"
+        )
+
+        val eventsByPartMeasure = mutableMapOf<Pair<Int, Int>, MutableList<MusicalEvent>>()
+        for (e in events) {
+            val key = Pair(e.partId, e.measureNumber)
+            eventsByPartMeasure.getOrPut(key) { mutableListOf() }.add(e)
+        }
+
+        val partNodes = doc.getElementsByTagName("part")
+        for (pIdx in 0 until partNodes.length) {
+            val partElem = partNodes.item(pIdx) as? org.w3c.dom.Element ?: continue
+            val partId = pIdx + 1
+            val measureNodes = partElem.getElementsByTagName("measure")
+            for (mIdx in 0 until measureNodes.length) {
+                val measureElem = measureNodes.item(mIdx) as? org.w3c.dom.Element ?: continue
+                val mNum = measureElem.getAttribute("number").toIntOrNull() ?: continue
+                val mEvents = eventsByPartMeasure[Pair(partId, mNum)] ?: continue
+
+                val noteNodes = measureElem.getElementsByTagName("note")
+                var nonRestIdx = 0
+                for (nIdx in 0 until noteNodes.length) {
+                    val noteElem = noteNodes.item(nIdx) as? org.w3c.dom.Element ?: continue
+                    if (noteElem.getElementsByTagName("rest").length > 0) continue
+                    if (nonRestIdx < mEvents.size) {
+                        val ev = mEvents[nonRestIdx]
+                        val vStr = voiceCodeMap[ev.satbVoice.uppercase()] ?: "1"
+                        noteElem.setAttribute("data-vx-voice", vStr)
+                        nonRestIdx++
+                    }
+                }
+            }
+        }
+
+        val transformer = TransformerFactory.newInstance().newTransformer()
+        val writer = StringWriter()
+        transformer.transform(DOMSource(doc), StreamResult(writer))
+        writer.toString()
+    } catch (e: Exception) {
+        musicXml
+    }
 }
 
 private fun formatTimeLabel(context: Context, timestamp: Long): String {

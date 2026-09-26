@@ -280,7 +280,7 @@ internal fun computeUniversalVocalPartMap(
     // Pass 1: Explicit Solo and Accompaniment
     meta.forEach { m ->
         when {
-            m.isExplicitSolo -> result[m.index] = VocalPartRole(5, "SOLO", "Solo")
+            m.isExplicitSolo && totalParts > 1 -> result[m.index] = VocalPartRole(5, "SOLO", "Solo")
             m.isAccomp -> result[m.index] = VocalPartRole(6, "OTHERS", "Accompaniment")
         }
     }

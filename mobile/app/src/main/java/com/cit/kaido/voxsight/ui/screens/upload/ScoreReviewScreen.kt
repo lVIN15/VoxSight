@@ -440,6 +440,21 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     6 -> "OTHERS"
                     else -> "SOPRANO"
                 }
+                // Guard: If this is the only part in the score and its name contains "solo",
+                // only intro measures before m6 are true solo; subsequent measures are choral SATB.
+                score.parts.size == 1 && (nameLower.contains("solo") || nameLower.contains("voice")) -> {
+                    if (note.measureNumber < 6) {
+                        "SOLO"
+                    } else {
+                        val midi = calculateMidiNote(note.step, note.alter, note.octave)
+                        when {
+                            note.staff == 2 || midi < 58 -> "BASS"
+                            midi in 58..64 -> "TENOR"
+                            midi in 65..71 -> "ALTO"
+                            else -> "SOPRANO"
+                        }
+                    }
+                }
                 nameLower.contains("solo") || nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") -> "SOLO"
                 nameLower.contains("piano") || nameLower.contains("organ") || nameLower.contains("keyboard") || nameLower.contains("guitar") || nameLower.contains("accomp") || nameLower.contains("orch") || nameLower.contains("strings") || nameLower.contains("other") -> "OTHERS"
                 isCondensedSA -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"

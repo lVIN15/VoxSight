@@ -481,7 +481,9 @@
                         var combinedStr = pName + " " + pAbbr;
 
                         if (['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
-                            return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                            if (totalParts > 1) {
+                                return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                            }
                         }
                         if (['piano', 'organ', 'keyboard', 'guitar', 'acc', 'accomp', 'orch', 'strings', 'other'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
                             return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };

@@ -1015,7 +1015,9 @@
                         var combinedStr = pName + " " + pAbbr;
 
                         if (['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
-                            return '#FF9800'; // Solo - Amber
+                            if (totalParts > 1) {
+                                return '#FF9800'; // Solo - Amber
+                            }
                         }
                         if (['piano', 'organ', 'keyboard', 'guitar', 'acc', 'accomp', 'orch', 'strings', 'other'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
                             return '#607D8B'; // Others - Steel Blue
