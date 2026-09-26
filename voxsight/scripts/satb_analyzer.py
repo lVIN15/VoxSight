@@ -662,8 +662,9 @@ def analyze(xml_path: str) -> dict:
                         satb_voice = "Others"
                         satb_confidence = 1.0
                     else:
+                        choral_rank = choral_part_indices.index(part_num) + 1 if part_num in choral_part_indices else staff_id
                         pitch_scores = score_pitch(pitch_midi)
-                        staff_scores = score_staff(staff_id, len(choral_part_indices))
+                        staff_scores = score_staff(choral_rank, len(choral_part_indices))
                         sig_scores = score_voice_signature(sig)
                         satb_voice, satb_confidence = classify_satb(
                             pitch_scores, staff_scores, sig_scores
@@ -722,12 +723,11 @@ def analyze(xml_path: str) -> dict:
                 for rank, tn in enumerate(staff_notes):
                     pitch = tn["pitch_midi"]
                     p_scores = score_pitch(pitch)
-                    s_scores = score_staff(staff_id, len(choral_part_indices))
+                    choral_rank = choral_part_indices.index(tn["part_id"]) + 1 if tn["part_id"] in choral_part_indices else staff_id
+                    s_scores = score_staff(choral_rank, len(choral_part_indices))
 
                     v_scores = {v: 0.0 for v in "SATB"}
                     if len(choral_part_indices) >= 4:
-                        # Find the 1-based rank among choral parts
-                        choral_rank = choral_part_indices.index(tn["part_id"]) + 1 if tn["part_id"] in choral_part_indices else staff_id
                         mapping = {1: "S", 2: "A", 3: "T", 4: "B"}
                         default_v = mapping.get(choral_rank, "B" if pitch < 60 else "S")
                         v_scores[default_v] = 1.0
