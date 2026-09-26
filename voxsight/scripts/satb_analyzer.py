@@ -359,6 +359,80 @@ def check_unsupported_score(xml_path: str) -> tuple[bool, str]:
     return False, ""
 
 
+VOICE_CODE_MAP = {
+    'S': '1',
+    'A': '2',
+    'T': '3',
+    'B': '4',
+    'Solo': '5',
+    'Others': '6'
+}
+
+
+def stamp_voices_into_xml(filepath: str, events: list) -> bool:
+    """Stamps calculated SATB custom voices (data-vx-voice) into MusicXML note elements."""
+    try:
+        p = Path(filepath)
+        if not p.exists() or not events:
+            return False
+
+        events_by_pm = {}
+        for e in events:
+            key = (e['part_id'], e['measure_number'])
+            events_by_pm.setdefault(key, []).append(e)
+
+        def stamp_tree(root: ET.Element):
+            parts = root.findall('part')
+            for p_idx, part in enumerate(parts):
+                part_id = p_idx + 1
+                for m in part.findall('measure'):
+                    mnum_raw = m.get('number')
+                    try:
+                        mnum = int(mnum_raw)
+                    except (ValueError, TypeError):
+                        continue
+                    m_events = events_by_pm.get((part_id, mnum), [])
+                    m_notes = [n for n in m.findall('note') if n.find('rest') is None]
+                    for idx, n in enumerate(m_notes):
+                        if idx < len(m_events):
+                            ev = m_events[idx]
+                            v_str = VOICE_CODE_MAP.get(ev.get('satb_voice'), '1')
+                            n.set('data-vx-voice', v_str)
+
+        is_mxl = False
+        with open(p, 'rb') as f:
+            header = f.read(4)
+            if header.startswith(b'PK'):
+                is_mxl = True
+
+        if is_mxl:
+            with zipfile.ZipFile(filepath, 'r') as z:
+                xml_names = [n for n in z.namelist() if (n.endswith('.xml') or n.endswith('.musicxml')) and not n.startswith('META-INF')]
+                if not xml_names:
+                    return False
+                xml_name = xml_names[0]
+                xml_data = z.read(xml_name)
+                other_files = {n: z.read(n) for n in z.namelist() if n != xml_name}
+
+            root = ET.fromstring(xml_data)
+            stamp_tree(root)
+            new_xml_data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            with zipfile.ZipFile(filepath, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+                z.writestr(xml_name, new_xml_data)
+                for name, data in other_files.items():
+                    z.writestr(name, data)
+            return True
+        else:
+            tree = ET.parse(filepath)
+            root = tree.getroot()
+            stamp_tree(root)
+            tree.write(filepath, encoding='utf-8', xml_declaration=True)
+            return True
+    except Exception as e:
+        log.warn(f"stamp_voices_into_xml error: {e}")
+        return False
+
+
 # ─── Main Analysis Pipeline ──────────────────────────────────────────────
 def analyze(xml_path: str) -> dict:
     """
@@ -655,7 +729,7 @@ def analyze(xml_path: str) -> dict:
                         # Find the 1-based rank among choral parts
                         choral_rank = choral_part_indices.index(tn["part_id"]) + 1 if tn["part_id"] in choral_part_indices else staff_id
                         mapping = {1: "S", 2: "A", 3: "T", 4: "B"}
-                        default_v = mapping.get(choral_rank, "S")
+                        default_v = mapping.get(choral_rank, "B" if pitch < 60 else "S")
                         v_scores[default_v] = 1.0
                     else:
                         if staff_id == 1:
@@ -857,8 +931,11 @@ def analyze(xml_path: str) -> dict:
     if final_events:
         total_measures = max(e["measure_number"] for e in final_events)
 
-    log.info(f"[{PIPELINE_OUTPUT}] {len(final_events)} events, "
-             f"confidence={avg_confidence:.3f}, type={structure_type}")
+    # Stamp classified custom SATB voices (data-vx-voice) into MusicXML
+    try:
+        stamp_voices_into_xml(xml_path, final_events)
+    except Exception as stamp_err:
+        log.warn(f"Failed to stamp voices into MusicXML: {stamp_err}")
 
     # ─── ORDER-FROZEN: events list is now immutable (Fix #40) ─────────
     # No further sorting, insertion, removal, or reordering allowed.

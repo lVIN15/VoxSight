@@ -315,6 +315,145 @@
             return 1;
         }
 
+        // ─── Universal Musical Part Classifier (Clef + Tessitura) ───────
+        function buildXmlDocVocalPartMap(doc) {
+            if (!doc) return [];
+            var partsList = doc.getElementsByTagName('part');
+            var total = partsList.length;
+            var meta = [];
+            var stepOffsets = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11};
+
+            for (var i = 0; i < total; i++) {
+                var p = partsList[i];
+                var pid = p.getAttribute('id');
+                var sp = pid ? doc.querySelector("score-part[id='" + pid + "']") : null;
+                var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                var combined = pName + " " + pAbbr;
+
+                var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combined.indexOf(w) !== -1; });
+                var isAccomp = ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'].some(function(w) { return combined.indexOf(w) !== -1; });
+                
+                var isSoprano = combined.indexOf('soprano') !== -1 || combined.trim() === 's' || combined.trim() === 's.' || /\bs\b/i.test(combined);
+                var isAlto = combined.indexOf('alto') !== -1 || combined.trim() === 'a' || combined.trim() === 'a.' || /\ba\b/i.test(combined);
+                var isTenor = combined.indexOf('tenor') !== -1 || combined.trim() === 't' || combined.trim() === 't.' || /\bt\b/i.test(combined);
+                var isBass = combined.indexOf('bass') !== -1 || combined.trim() === 'b' || combined.trim() === 'b.' || /\bb\b/i.test(combined);
+
+                var hasFClef = false;
+                var clefSigns = p.querySelectorAll('clef > sign');
+                for (var ci = 0; ci < clefSigns.length; ci++) {
+                    if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') {
+                        hasFClef = true;
+                        break;
+                    }
+                }
+
+                var noteEls = p.querySelectorAll('note');
+                var totalMidi = 0;
+                var noteCount = 0;
+                for (var ni = 0; ni < noteEls.length; ni++) {
+                    var n = noteEls[ni];
+                    if (n.querySelector('rest')) continue;
+                    var pEl = n.querySelector('pitch');
+                    if (!pEl) continue;
+                    var step = (pEl.querySelector('step') ? pEl.querySelector('step').textContent.trim() : 'C').toUpperCase();
+                    var oct = parseInt(pEl.querySelector('octave') ? pEl.querySelector('octave').textContent.trim() : '4', 10);
+                    var alt = parseInt(pEl.querySelector('alter') ? pEl.querySelector('alter').textContent.trim() : '0', 10);
+                    var midi = (oct + 1) * 12 + (stepOffsets[step] || 0) + alt;
+                    totalMidi += midi;
+                    noteCount++;
+                }
+                var avgMidi = noteCount > 0 ? (totalMidi / noteCount) : 0;
+
+                meta.push({
+                    index: i,
+                    pid: pid,
+                    name: pName,
+                    isExplicitSolo: isExplicitSolo,
+                    isAccomp: isAccomp,
+                    isSoprano: isSoprano,
+                    isAlto: isAlto,
+                    isTenor: isTenor,
+                    isBass: isBass,
+                    hasFClef: hasFClef,
+                    noteCount: noteCount,
+                    avgMidi: avgMidi
+                });
+            }
+
+            var vocalPartMap = new Array(total);
+            var claimedRoles = {};
+
+            // Pass 1: Explicit Solo and Accompaniment
+            meta.forEach(function(m) {
+                if (m.isExplicitSolo) {
+                    vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                } else if (m.isAccomp) {
+                    vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                }
+            });
+
+            // Pass 2: Explicit SATB names
+            meta.forEach(function(m) {
+                if (vocalPartMap[m.index]) return;
+                if (m.isSoprano) {
+                    vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    claimedRoles["SOPRANO"] = true;
+                } else if (m.isAlto) {
+                    vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    claimedRoles["ALTO"] = true;
+                } else if (m.isTenor) {
+                    vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    claimedRoles["TENOR"] = true;
+                } else if (m.isBass) {
+                    vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    claimedRoles["BASS"] = true;
+                }
+            });
+
+            // Pass 3: Fill unassigned vocal parts using Clef + Tessitura against unclaimed roles
+            var unassigned = meta.filter(function(m) { return !vocalPartMap[m.index]; });
+            if (unassigned.length > 0) {
+                var unassignedBass = unassigned.filter(function(m) { return m.hasFClef || (m.avgMidi > 0 && m.avgMidi < 60.0); });
+                var unassignedTreble = unassigned.filter(function(m) { return !m.hasFClef && (m.avgMidi === 0 || m.avgMidi >= 60.0); });
+
+                unassignedBass.sort(function(a, b) { return b.avgMidi - a.avgMidi; });
+                unassignedTreble.sort(function(a, b) { return b.avgMidi - a.avgMidi; });
+
+                unassignedBass.forEach(function(m) {
+                    if (!claimedRoles["BASS"]) {
+                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                        claimedRoles["BASS"] = true;
+                    } else if (!claimedRoles["TENOR"]) {
+                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                        claimedRoles["TENOR"] = true;
+                    } else {
+                        var role = (m.avgMidi >= 55.0) ? "TENOR" : "BASS";
+                        var clr = (role === "TENOR") ? "#2196F3" : "#4CAF50";
+                        var pId = (role === "TENOR") ? 3 : 4;
+                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
+                    }
+                });
+
+                unassignedTreble.forEach(function(m) {
+                    if (!claimedRoles["SOPRANO"]) {
+                        vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                        claimedRoles["SOPRANO"] = true;
+                    } else if (!claimedRoles["ALTO"]) {
+                        vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                        claimedRoles["ALTO"] = true;
+                    } else {
+                        var role = (m.avgMidi >= 66.5) ? "SOPRANO" : "ALTO";
+                        var clr = (role === "SOPRANO") ? "#E91E63" : "#9C27B0";
+                        var pId = (role === "SOPRANO") ? 1 : 2;
+                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
+                    }
+                });
+            }
+
+            return vocalPartMap;
+        }
+
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
         function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
             // Priority 1: Explicit user override via data-vx-voice attribute
@@ -347,44 +486,49 @@
                         if (['piano', 'organ', 'keyboard', 'guitar', 'acc', 'accomp', 'orch', 'strings', 'other'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
                             return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
                         }
-                        if (combinedStr.indexOf('soprano') !== -1) {
+
+                        // Composite / Condensed Part Check (e.g. "Soprano / Alto", "S/A", "Tenor / Bass", "T/B")
+                        var isCondensedSA = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+                        var isCondensedTB = ['t/b', 't / b', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+
+                        if (isCondensedSA) {
+                            if (chordPos === 'bottom' || voiceNum === 2) {
+                                return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                            }
                             return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
                         }
-                        if (combinedStr.indexOf('alto') !== -1) {
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                        }
-                        if (combinedStr.indexOf('tenor') !== -1) {
+                        if (isCondensedTB) {
+                            if (chordPos === 'bottom' || voiceNum === 2 || voiceNum === 4) {
+                                return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                            }
                             return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
                         }
-                        if (combinedStr.indexOf('bass') !== -1) {
+
+                        // Pure Single-Voice Part Names (mutually guarded, including single-letter abbreviations)
+                        if ((combinedStr.indexOf('soprano') !== -1 || /\bs\b/i.test(combinedStr) || combinedStr.trim() === 's' || combinedStr.trim() === 's.') && combinedStr.indexOf('alto') === -1) {
+                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                        }
+                        if ((combinedStr.indexOf('alto') !== -1 || /\ba\b/i.test(combinedStr) || combinedStr.trim() === 'a' || combinedStr.trim() === 'a.') && combinedStr.indexOf('soprano') === -1) {
+                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                        }
+                        if ((combinedStr.indexOf('tenor') !== -1 || /\bt\b/i.test(combinedStr) || combinedStr.trim() === 't' || combinedStr.trim() === 't.') && combinedStr.indexOf('bass') === -1) {
+                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                        }
+                        if ((combinedStr.indexOf('bass') !== -1 || /\bb\b/i.test(combinedStr) || combinedStr.trim() === 'b' || combinedStr.trim() === 'b.') && combinedStr.indexOf('tenor') === -1) {
                             return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
                         }
                     }
                 } catch (e) { }
             }
 
-            // Priority 3: Multi-part score layout heuristics when names are omitted or generic (P1, P2...)
-            if (totalParts === 5) {
-                var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
-                switch (p) {
-                    case 0: return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
-                    case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    default: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+            // Priority 3: Universal Musical Classifier (Clefs + Tessitura) when names are omitted or generic (Voice, Part...)
+            if (xmlDoc && typeof partIdx === 'number') {
+                if (!xmlDoc._vxVocalPartMap || xmlDoc._vxVocalPartMap.length !== totalParts) {
+                    xmlDoc._vxVocalPartMap = buildXmlDocVocalPartMap(xmlDoc);
                 }
-            }
-
-            if (totalParts >= 6) {
-                var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
-                switch (p) {
-                    case 0: return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
-                    case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    default: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                var partMap = xmlDoc._vxVocalPartMap;
+                if (partMap && partMap[partIdx]) {
+                    return partMap[partIdx];
                 }
             }
 
@@ -424,7 +568,11 @@
                 case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
                 case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
                 case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                case 5: return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                case 5:
+                    if (xmlDoc && typeof partIdx === 'number' && xmlDoc._vxVocalPartMap && xmlDoc._vxVocalPartMap[partIdx]) {
+                        return xmlDoc._vxVocalPartMap[partIdx];
+                    }
+                    return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
                 case 6: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
                 default: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
             }
@@ -1826,7 +1974,12 @@
             if (hasExplicitSolo) {
                 var choirMeasures = new Set();
                 partInfo.forEach(function(info) {
-                    if (info.tier === 2 || info.normName.toLowerCase().indexOf('alto') !== -1) {
+                    var isChoirVoice = (info.tier >= 2 && info.tier <= 4) ||
+                        ['alto', 'tenor', 'bass', 'choir', 'satb'].some(function(kw) { return info.normName.toLowerCase().indexOf(kw) !== -1; });
+                    var firstM = info.element.getElementsByTagName('measure')[0];
+                    var clefSign = firstM ? firstM.querySelector('clef > sign') : null;
+                    var hasFClef = clefSign && (clefSign.textContent || '').trim() === 'F';
+                    if (isChoirVoice || hasFClef) {
                         for (var m in info.measures) {
                             if (info.measures[m] > 0 && /^\d+$/.test(m)) {
                                 choirMeasures.add(parseInt(m, 10));
@@ -1834,23 +1987,30 @@
                         }
                     }
                 });
-                var firstChoirM = choirMeasures.size > 0 ? Math.min.apply(null, Array.from(choirMeasures)) : 9999;
+                var firstChoirM = choirMeasures.size > 0 ? Math.min.apply(null, Array.from(choirMeasures)) : -1;
 
-                partInfo.forEach(function(info) {
-                    if (!info.isSolo && !info.isAccomp) {
-                        var activeM = [];
-                        for (var m in info.measures) {
-                            if (info.measures[m] > 0 && /^\d+$/.test(m)) {
-                                activeM.push(parseInt(m, 10));
+                if (firstChoirM > 0) {
+                    partInfo.forEach(function(info) {
+                        if (!info.isSolo && !info.isAccomp) {
+                            var normLow = info.normName.toLowerCase();
+                            var rawLow = info.rawName.toLowerCase();
+                            var isShorthand = ['s', 's.', 'sop', 'solo'].indexOf(normLow) !== -1 || ['s', 's.', 'sop', 'solo'].indexOf(rawLow) !== -1;
+                            if (isShorthand) {
+                                var activeM = [];
+                                for (var m in info.measures) {
+                                    if (info.measures[m] > 0 && /^\d+$/.test(m)) {
+                                        activeM.push(parseInt(m, 10));
+                                    }
+                                }
+                                if (activeM.length > 0 && activeM.every(function(m) { return m < firstChoirM; })) {
+                                    info.isSolo = true;
+                                    info.normName = 'Solo';
+                                    info.tier = 0;
+                                }
                             }
                         }
-                        if (activeM.length > 0 && activeM.every(function(m) { return m < firstChoirM; })) {
-                            info.isSolo = true;
-                            info.normName = 'Solo';
-                            info.tier = 0;
-                        }
-                    }
-                });
+                    });
+                }
             }
 
             // Strategy B: Position-based Universal Solo Detection (when Audiveris labels everything "Voice")
@@ -1902,7 +2062,7 @@
                 });
 
                 var choirEntranceM = Math.min(firstPolyM, firstBassM);
-                if (allActiveMs.length > 0) {
+                if (allActiveMs.length > 0 && choirEntranceM < 9999) {
                     var earliestM = allActiveMs[0];
                     if (choirEntranceM > earliestM) {
                         var introMeasures = allActiveMs.filter(function(m) { return m < choirEntranceM; });
@@ -1913,6 +2073,7 @@
                         if (isSoloIntro) {
                             nonAccompParts.forEach(function(info) {
                                 if (bassClefPids.has(info.pid)) return;
+                                if (info.tier >= 1 && info.tier <= 4) return;
                                 var activeM = [];
                                 for (var m in info.measures) {
                                     if (info.measures[m] > 0 && /^\d+$/.test(m)) {
@@ -1991,6 +2152,16 @@
                 partInfo = partInfo.filter(function(info) {
                     return !soloParts.slice(1).some(function(frag) { return frag.pid === info.pid; });
                 });
+            } else if (soloParts.length === 1) {
+                var singleSp = soloParts[0].scorePart;
+                if (singleSp) {
+                    var pn = singleSp.getElementsByTagName('part-name')[0];
+                    if (!pn) { pn = doc.createElement('part-name'); singleSp.appendChild(pn); }
+                    pn.textContent = 'Solo';
+                    var pa = singleSp.getElementsByTagName('part-abbreviation')[0];
+                    if (!pa) { pa = doc.createElement('part-abbreviation'); singleSp.appendChild(pa); }
+                    pa.textContent = 'Solo';
+                }
             }
 
             var mergedPids = new Set();
@@ -2008,6 +2179,18 @@
                     var tierMatch = (p1.tier !== 0 && p1.tier === p2.tier);
                     var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || tierMatch || (partInfo.length === 8 && j === i + 4);
                     if (nameMatch) {
+                        var n1 = p1.normName.toLowerCase();
+                        var n2 = p2.normName.toLowerCase();
+                        if ((n1 === 'voice' || n1 === 'part') && (n2 === 'voice' || n2 === 'part')) {
+                            var isF1 = false;
+                            var isF2 = false;
+                            var cs1 = p1.element.querySelectorAll('clef > sign');
+                            for (var k = 0; k < cs1.length; k++) { if ((cs1[k].textContent || '').trim().toUpperCase() === 'F') isF1 = true; }
+                            var cs2 = p2.element.querySelectorAll('clef > sign');
+                            for (var k = 0; k < cs2.length; k++) { if ((cs2[k].textContent || '').trim().toUpperCase() === 'F') isF2 = true; }
+                            if (isF1 !== isF2) continue; // Never merge across Treble and Bass clefs!
+                        }
+
                         var overlap = false;
                         for (var mnum in p1.measures) {
                             if (p2.measures[mnum] && p1.measures[mnum] > 0 && p2.measures[mnum] > 0) {

@@ -690,19 +690,30 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         if has_explicit_solo:
             choir_measures = set()
             for pid, info in part_info.items():
-                if info['tier'] == 2 or 'alto' in info['norm_name'].lower():
+                # Detect choir staves by Alto, Tenor, Bass names OR Bass Clef
+                is_choir_voice = (info['tier'] in [2, 3, 4] or 
+                                  any(kw in info['norm_name'].lower() for kw in ['alto', 'tenor', 'bass', 'choir', 'satb']))
+                first_m = info['element'].find('measure')
+                has_f_clef = first_m is not None and first_m.find('.//clef/sign') is not None and first_m.find('.//clef/sign').text == 'F'
+                if is_choir_voice or has_f_clef:
                     for m, cnt in info['measures'].items():
                         if cnt > 0 and m.isdigit():
                             choir_measures.add(int(m))
-            first_choir_m = min(choir_measures) if choir_measures else 9999
 
-            for pid, info in part_info.items():
-                if not info['is_solo'] and not info['is_accomp']:
-                    active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
-                    if active_m and all(m < first_choir_m for m in active_m):
-                        info['is_solo'] = True
-                        info['norm_name'] = 'Solo'
-                        info['tier'] = 0
+            first_choir_m = min(choir_measures) if choir_measures else -1
+
+            if first_choir_m > 0:
+                for pid, info in part_info.items():
+                    if not info['is_solo'] and not info['is_accomp']:
+                        norm_low = info['norm_name'].lower()
+                        raw_low = info['raw_name'].lower()
+                        is_shorthand = norm_low in ['s', 's.', 'sop', 'solo'] or raw_low in ['s', 's.', 'sop', 'solo']
+                        if is_shorthand:
+                            active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
+                            if active_m and all(m < first_choir_m for m in active_m):
+                                info['is_solo'] = True
+                                info['norm_name'] = 'Solo'
+                                info['tier'] = 0
 
         # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
         # Detects staggered choral entrances by musical structure, not part names.
@@ -744,7 +755,7 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
 
             choir_entrance_m = min(first_poly_m, first_bass_m)
 
-            if measure_active_parts:
+            if measure_active_parts and choir_entrance_m < 9999:
                 earliest_m = min(measure_active_parts.keys())
 
                 # Solo condition: choir enters later than score starting point,
@@ -757,6 +768,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                         # All non-accomp treble parts active in the intro are Solo fragments!
                         for pid in non_accomp_pids:
                             if pid in bass_clef_pids:
+                                continue
+                            if part_info[pid]['tier'] in (1, 2, 3, 4):
                                 continue
                             active_m = [int(m) for m, cnt in part_info[pid]['measures'].items() if cnt > 0 and m.isdigit()]
                             if active_m and any(m < choir_entrance_m for m in active_m):
@@ -835,6 +848,18 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
 
             if merged_solo_count > 0:
                 modified = True
+        elif len(solo_pids) == 1:
+            anchor_sp = part_info[solo_pids[0]]['score_part']
+            if anchor_sp is not None:
+                pn = anchor_sp.find('part-name')
+                if pn is None:
+                    pn = ET.SubElement(anchor_sp, 'part-name')
+                pn.text = 'Solo'
+                pa = anchor_sp.find('part-abbreviation')
+                if pa is None:
+                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                pa.text = 'Solo'
+                modified = True
 
 
         # Find complementary pairs
@@ -871,6 +896,13 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 name_match = (norm1 == norm2) or tier_match or (len(parts) == 8 and j == i + 4)
 
                 if name_match:
+                    # Guard: If both parts have generic names ('voice'/'part'), never merge across different clefs!
+                    if norm1 in ['voice', 'part'] and norm2 in ['voice', 'part']:
+                        f1 = any(m.find('.//clef/sign') is not None and m.find('.//clef/sign').text == 'F' for m in part_info[pid1]['element'].findall('measure'))
+                        f2 = any(m.find('.//clef/sign') is not None and m.find('.//clef/sign').text == 'F' for m in part_info[pid2]['element'].findall('measure'))
+                        if f1 != f2:
+                            continue
+
                     m1 = info1['measures']
                     m2 = info2['measures']
                     overlap = any(mnum in m2 and m1[mnum] > 0 and m2[mnum] > 0 for mnum in m1)
@@ -1119,12 +1151,15 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     modified = True
 
             all_m_elems = list(p.findall('measure'))
-            m_by_num = {m.get('number'): m for m in all_m_elems}
+            m_by_num = {}
+            for m in all_m_elems:
+                m_by_num.setdefault(m.get('number'), []).append(m)
             for m in all_m_elems:
                 p.remove(m)
             for mnum in canonical_measure_numbers:
                 if mnum in m_by_num:
-                    p.append(m_by_num[mnum])
+                    for m in m_by_num[mnum]:
+                        p.append(m)
 
     return modified
 

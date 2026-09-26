@@ -1538,12 +1538,16 @@ private fun distributeNotesToParts(
 
     // Direct mapping when the file has multiple voices
     if (distinctVoices.size >= 2) {
-        val voiceToPart = mutableMapOf<Int, VoicePart>()
+        val voiceMap = mapOf(
+            1 to VoicePart.Soprano,
+            2 to VoicePart.Alto,
+            3 to VoicePart.Tenor,
+            4 to VoicePart.Bass,
+            5 to VoicePart.Solo,
+            6 to VoicePart.Others
+        )
         val parts = VoicePart.values()
-        distinctVoices.forEachIndexed { idx, v ->
-            voiceToPart[v] = parts[idx.coerceAtMost(parts.lastIndex)]
-        }
-        val grouped = staffNotes.groupBy { voiceToPart[it.voice] ?: VoicePart.Soprano }
+        val grouped = staffNotes.groupBy { voiceMap[it.voice] ?: VoicePart.Soprano }
         // Re-index notes within each part so they space correctly
         return parts.associateWith { part ->
             (grouped[part] ?: emptyList()).mapIndexed { i, n ->
