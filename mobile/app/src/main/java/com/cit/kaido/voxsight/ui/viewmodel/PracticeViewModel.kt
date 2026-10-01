@@ -139,16 +139,29 @@ class PracticeViewModel : ViewModel() {
         }
     }
 
-    fun startPitchSession() {
+    private var lastRecordingFile: java.io.File? = null
+    val lastRecording: java.io.File?
+        get() = lastRecordingFile
+
+    fun startPitchSession(outputDir: java.io.File? = null) {
         _pitchAttempts.value = emptyList()
+        lastRecordingFile = null
         if (_isMicrophoneEnabled.value) {
-            pitchEngine.start()
+            pitchEngine.start(outputDir)
             _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
         }
     }
 
     fun endPitchSession() {
-        pitchEngine.stop()
+        val file = pitchEngine.stop()
+        if (file != null && file.exists()) {
+            val summary = getSessionSummary()
+            val acc = summary.accuracyPercentage.toInt()
+            val finalFile = com.cit.kaido.voxsight.storage.ScoreRecordingManager.tagRecordingFileWithAccuracy(file, acc)
+            lastRecordingFile = finalFile
+        } else {
+            lastRecordingFile = file
+        }
         _activeTargets.value = emptyList()
         _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
     }
@@ -293,7 +306,8 @@ class PracticeViewModel : ViewModel() {
             averageDeviationCents = avgDev,
             problematicNotes = problematicNotes,
             vocalHighlight = vocalHighlight,
-            topProblematicMeasure = topProblematicMeasure
+            topProblematicMeasure = topProblematicMeasure,
+            recordingFile = lastRecordingFile
         )
     }
 

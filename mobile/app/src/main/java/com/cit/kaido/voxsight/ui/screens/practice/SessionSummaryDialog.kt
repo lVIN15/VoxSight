@@ -39,7 +39,8 @@ data class SessionSummary(
     val averageDeviationCents: Float,
     val problematicNotes: List<ProblematicNote> = emptyList(),
     val vocalHighlight: VocalHighlight? = null,
-    val topProblematicMeasure: ProblematicMeasure? = null
+    val topProblematicMeasure: ProblematicMeasure? = null,
+    val recordingFile: java.io.File? = null
 ) {
     val accuracyPercentage: Float
         get() = if (totalNotesAttempted > 0) {

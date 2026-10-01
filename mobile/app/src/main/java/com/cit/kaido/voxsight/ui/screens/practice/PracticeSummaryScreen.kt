@@ -45,11 +45,31 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextAlign
 import com.cit.kaido.voxsight.model.SATBVoice
 import com.cit.kaido.voxsight.ui.components.RealMeasureNotationView
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.pitch.PitchAttempt
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.FastForward
+import androidx.compose.material.icons.outlined.FastRewind
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.cit.kaido.voxsight.audio.PerformanceAudioPlayer
+import com.cit.kaido.voxsight.storage.ScoreRecordingManager
 
 @Composable
 fun PracticeSummaryScreen(
@@ -62,6 +82,7 @@ fun PracticeSummaryScreen(
 ) {
     val accuracy = summary.accuracyPercentage.toInt()
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showPastTakesDialog by remember { mutableStateOf(false) }
     
     androidx.compose.runtime.LaunchedEffect(Unit) {
         com.cit.kaido.voxsight.util.StreakManager.addStreakToday(context)
@@ -163,7 +184,16 @@ fun PracticeSummaryScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Sleek Recent Attempt & All Takes Row
+            RecentAttemptPlaybackRow(
+                recordingFile = summary.recordingFile,
+                scoreTitle = score?.title,
+                onViewAllTakes = { showPastTakesDialog = true }
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Analytics Section
             Column(
@@ -303,6 +333,13 @@ fun PracticeSummaryScreen(
                     )
                 }
             }
+        }
+
+        if (showPastTakesDialog) {
+            PastVocalTakesDialog(
+                scoreTitle = score?.title,
+                onDismiss = { showPastTakesDialog = false }
+            )
         }
     }
 }
@@ -453,3 +490,128 @@ private fun MeasureReviewCard(
         }
     }
 }
+
+@Composable
+fun RecentAttemptPlaybackRow(
+    recordingFile: java.io.File?,
+    scoreTitle: String?,
+    onViewAllTakes: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val hasRecording = recordingFile != null && recordingFile.exists()
+
+    val player = remember { PerformanceAudioPlayer() }
+
+    LaunchedEffect(recordingFile) {
+        if (hasRecording) {
+            player.load(recordingFile!!)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    val isPlaying by player.isPlaying.collectAsState()
+    val currentPosMs by player.currentPositionMs.collectAsState()
+    val durationMs by player.durationMs.collectAsState()
+
+    val takesCount = remember(scoreTitle) {
+        ScoreRecordingManager.getRecordings(context, scoreTitle).size
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (hasRecording) {
+            // Play Recent Attempt Button (compact pill)
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .clickable { player.togglePlayPause() },
+                color = if (isPlaying) VoxPurplePrimary else Color(0xFFF2F3F9),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = if (isPlaying) Color.White else VoxPurplePrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val timeText = if (isPlaying && durationMs > 0) {
+                        "${formatAudioTime(currentPosMs)} / ${formatAudioTime(durationMs)}"
+                    } else if (durationMs > 0) {
+                        "Play Take (${formatAudioTime(durationMs)})"
+                    } else {
+                        "Play Recent Take"
+                    }
+                    Text(
+                        text = timeText,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = if (isPlaying) Color.White else Color(0xFF191C20),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        // View All Takes Button
+        Surface(
+            modifier = Modifier
+                .then(if (!hasRecording) Modifier.fillMaxWidth() else Modifier)
+                .height(48.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .border(1.dp, VoxPurplePrimary.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                .clickable { onViewAllTakes() },
+            color = Color.White,
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .then(if (!hasRecording) Modifier.fillMaxWidth() else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = "All Takes",
+                    tint = VoxPurplePrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (takesCount > 0) "All Takes ($takesCount)" else "All Takes",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = VoxPurplePrimary
+                )
+            }
+        }
+    }
+}
+
+private fun formatAudioTime(ms: Int): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
+}
+

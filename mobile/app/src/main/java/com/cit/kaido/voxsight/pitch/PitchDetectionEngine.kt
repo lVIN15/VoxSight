@@ -30,13 +30,21 @@ class PitchDetectionEngine {
     private var recordingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    // Performance vocal recording
+    val audioRecorder = com.cit.kaido.voxsight.audio.PerformanceAudioRecorder()
+    private var recordingOutputDir: java.io.File? = null
+
     // Noise threshold (probability/confidence threshold for YIN)
     // Lowered to 0.55f for natural choir singing/vibrato (Fix #5)
     var confidenceThreshold: Float = 0.55f 
 
     @SuppressLint("MissingPermission")
-    fun start() {
+    fun start(outputDir: java.io.File? = null) {
         if (_isListening.value) return
+        this.recordingOutputDir = outputDir
+        if (outputDir != null) {
+            audioRecorder.start(outputDir, 22050)
+        }
 
         try {
             val sampleRate = 22050
@@ -73,6 +81,9 @@ class PitchDetectionEngine {
                 while (isActive && _isListening.value) {
                     val readResult = audioRecord?.read(shortBuffer, 0, frameSize) ?: -1
                     if (readResult > 0) {
+                        // Stream raw audio chunk to performance recorder
+                        audioRecorder.writeChunk(shortBuffer, readResult)
+
                         // Convert PCM short to float (-1.0 to 1.0)
                         for (i in 0 until readResult) {
                             floatBuffer[i] = shortBuffer[i].toFloat() / 32768.0f
@@ -99,7 +110,7 @@ class PitchDetectionEngine {
         }
     }
 
-    fun stop() {
+    fun stop(): java.io.File? {
         _isListening.value = false
         recordingJob?.cancel()
         recordingJob = null
@@ -115,5 +126,14 @@ class PitchDetectionEngine {
 
         _detectedPitchHz.value = 0f
         _pitchConfidence.value = 0f
+
+        val dir = recordingOutputDir
+        val wavFile = if (dir != null) {
+            audioRecorder.stop(dir)
+        } else {
+            null
+        }
+        recordingOutputDir = null
+        return wavFile
     }
 }

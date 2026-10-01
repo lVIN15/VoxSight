@@ -9,16 +9,22 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
+import androidx.compose.material.icons.outlined.ZoomIn
+import androidx.compose.material.icons.outlined.ZoomOut
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +78,12 @@ fun ScoreReviewScreen(
     var selectedMultiRest by remember { mutableStateOf<SelectedMultiRestInfo?>(null) }
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
+    var isFullscreen by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
+        webViewInstance?.evaluateJavascript("zoomFit();", null)
+    }
 
     // JS Bridge class to capture note/rest clicks
     class EditorJsBridge {
@@ -117,91 +129,105 @@ fun ScoreReviewScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Review & Edit Score",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = VoxTextPrimary
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onCancel) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Cancel",
-                            tint = VoxPurplePrimary
+            if (!isFullscreen) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Review & Edit Score",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = VoxTextPrimary
                         )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showMetadataDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = "Edit Score Info & Words",
-                            tint = VoxPurplePrimary
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onCancel) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Cancel",
+                                tint = VoxPurplePrimary
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            isFullscreen = true
+                            webViewInstance?.evaluateJavascript("applyZoom(0.70);", null)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Fullscreen,
+                                contentDescription = "Fullscreen Score",
+                                tint = VoxPurplePrimary
+                            )
+                        }
+                        IconButton(onClick = { showMetadataDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = "Edit Score Info & Words",
+                                tint = VoxPurplePrimary
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                )
+            }
         },
         bottomBar = {
-            Surface(
-                color = Color.White,
-                tonalElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+            if (!isFullscreen) {
+                Surface(
+                    color = Color.White,
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedButton(
-                        onClick = onCancel,
-                        shape = RoundedCornerShape(12.dp),
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Cancel", tint = VoxTextSubtitle)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("CANCEL", fontWeight = FontWeight.Bold, color = VoxTextSubtitle)
-                    }
+                        OutlinedButton(
+                            onClick = onCancel,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Cancel", tint = VoxTextSubtitle)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("CANCEL", fontWeight = FontWeight.Bold, color = VoxTextSubtitle)
+                        }
 
-                    Button(
-                        onClick = {
-                            // Extract modified XML from WebView and confirm
-                            webViewInstance?.let { webView ->
-                                webView.evaluateJavascript("getModifiedXml();") { result ->
-                                    if (result != null && result != "null" && result.isNotEmpty()) {
-                                        val rawXml = try {
-                                            Gson().fromJson(result, String::class.java)
-                                        } catch (e: Exception) {
-                                            result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
+                        Button(
+                            onClick = {
+                                // Extract modified XML from WebView and confirm
+                                webViewInstance?.let { webView ->
+                                    webView.evaluateJavascript("getModifiedXml();") { result ->
+                                        if (result != null && result != "null" && result.isNotEmpty()) {
+                                            val rawXml = try {
+                                                Gson().fromJson(result, String::class.java)
+                                            } catch (e: Exception) {
+                                                result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
+                                            }
+                                            onConfirm(rawXml)
+                                        } else {
+                                            onConfirm(musicXml)
                                         }
-                                        onConfirm(rawXml)
-                                    } else {
-                                        onConfirm(musicXml)
                                     }
-                                }
-                            } ?: onConfirm(musicXml)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = VoxPurplePrimary,
-                            contentColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                    ) {
-                        Icon(Icons.Outlined.Check, contentDescription = "Confirm", tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White)
+                                } ?: onConfirm(musicXml)
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VoxPurplePrimary,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Icon(Icons.Outlined.Check, contentDescription = "Confirm", tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
@@ -210,72 +236,80 @@ fun ScoreReviewScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(VoxBackground)
-                .padding(innerPadding)
+                .background(if (isFullscreen) Color.White else VoxBackground)
+                .padding(if (isFullscreen) PaddingValues(0.dp) else innerPadding)
         ) {
-            // Help Hint Label
-            Surface(
-                color = VoxPurplePrimary.copy(alpha = 0.08f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Verify OMR accuracy. Tap any notehead or rest symbol on the sheet music to edit pitches, durations, dotted values, rests, or add new elements.",
-                        fontSize = 12.sp,
-                        color = VoxPurplePrimary,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-
-            // SATB Vocal Part Legend
-            Surface(
-                color = Color.White,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, VoxCardStroke)
-            ) {
-                Row(
+            if (!isFullscreen) {
+                // Help Hint Label
+                Surface(
+                    color = VoxPurplePrimary.copy(alpha = 0.08f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(
-                        text = "Vocal Parts:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VoxTextSubtitle
-                    )
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        VoiceLegendItem("Soprano", Color(0xFFE91E63))
-                        VoiceLegendItem("Alto", Color(0xFF9C27B0))
-                        VoiceLegendItem("Tenor", Color(0xFF2196F3))
-                        VoiceLegendItem("Bass", Color(0xFF4CAF50))
+                        Text(
+                            text = "Verify OMR accuracy. Tap any notehead or rest symbol on the sheet music to edit pitches, durations, dotted values, rests, or add new elements.",
+                            fontSize = 12.sp,
+                            color = VoxPurplePrimary,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                // SATB Vocal Part Legend
+                Surface(
+                    color = Color.White,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, VoxCardStroke)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Vocal Parts:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = VoxTextSubtitle
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            VoiceLegendItem("Soprano", Color(0xFFE91E63))
+                            VoiceLegendItem("Alto", Color(0xFF9C27B0))
+                            VoiceLegendItem("Tenor", Color(0xFF2196F3))
+                            VoiceLegendItem("Bass", Color(0xFF4CAF50))
+                        }
                     }
                 }
             }
 
             // WebView Sheet Music Render Area
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                modifier = if (isFullscreen) {
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                }
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -302,6 +336,89 @@ fun ScoreReviewScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Floating Fullscreen / Exit Fullscreen Button
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(if (isFullscreen) 16.dp else 10.dp)
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            isFullscreen = !isFullscreen
+                            webViewInstance?.evaluateJavascript(
+                                if (isFullscreen) "applyZoom(0.70);" else "zoomFit();",
+                                null
+                            )
+                        },
+                    color = Color.White.copy(alpha = 0.94f),
+                    shadowElevation = 6.dp,
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
+                            tint = VoxPurplePrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Floating Zoom In / Out / Fit Pill in Fullscreen Mode
+                if (isFullscreen) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                        color = Color.White.copy(alpha = 0.95f),
+                        shadowElevation = 6.dp,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ZoomOut,
+                                    contentDescription = "Zoom Out",
+                                    tint = VoxPurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            TextButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = "FIT",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = VoxPurplePrimary
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ZoomIn,
+                                    contentDescription = "Zoom In",
+                                    tint = VoxPurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

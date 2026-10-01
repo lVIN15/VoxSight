@@ -322,6 +322,24 @@ open class MidiPlayerController(
     fun getBaseBPM(): Float = currentBpm
     fun getSpeedMultiplier(): Float = playbackEngine.getSpeedMultiplier()
 
+    fun zoomIn() {
+        webView.post { webView.evaluateJavascript("if (window.zoomIn) window.zoomIn();", null) }
+    }
+
+    fun zoomOut() {
+        webView.post { webView.evaluateJavascript("if (window.zoomOut) window.zoomOut();", null) }
+    }
+
+    fun zoomFit() {
+        webView.post { webView.evaluateJavascript("if (window.zoomFit) window.zoomFit();", null) }
+    }
+
+    fun setZoom(zoom: Float) {
+        webView.post {
+            webView.evaluateJavascript("if (window.setZoom) window.setZoom($zoom); else if (window.osmd) { osmd.zoom = $zoom; osmd.render(); }", null)
+        }
+    }
+
     private fun recalculateTotalSeconds() {
         val maxTick = eventStream.maxOfOrNull { it.tickPosition + it.durationTicks } ?: 0
         val effectiveBpm = playbackEngine.getCurrentBPM()

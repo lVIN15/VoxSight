@@ -837,12 +837,13 @@
                 await osmd.load(cleanXml);
 
                 // Set to fully zoomed-out view by default
+                currentScoreZoom = 0.4;
                 if ('zoom' in osmd) {
-                    osmd.zoom = 0.4;
+                    osmd.zoom = currentScoreZoom;
                 } else if ('Zoom' in osmd) {
-                    osmd.Zoom = 0.4;
+                    osmd.Zoom = currentScoreZoom;
                 } else {
-                    osmd.zoom = 0.4;
+                    osmd.zoom = currentScoreZoom;
                 }
 
                 osmd.render();
@@ -915,6 +916,78 @@
             }
         };
 
+        // ─── Dynamic Score Zoom Support ──────────────────────────────
+        let currentScoreZoom = 0.40;
+
+        function applyZoom(newZoom) {
+            if (!osmd) return;
+            currentScoreZoom = Math.max(0.20, Math.min(1.50, parseFloat(newZoom) || 0.40));
+            osmd.zoom = currentScoreZoom;
+            if ('Zoom' in osmd) osmd.Zoom = currentScoreZoom;
+            osmd.render();
+            resizeCanvas();
+            buildNoteMap();
+            layoutHash = computeLayoutHash();
+            if (window.VoxSightBridge) {
+                window.VoxSightBridge.onLayoutChanged(
+                    layoutHash,
+                    JSON.stringify(noteCoordinates)
+                );
+            }
+            if (currentVisualFocus !== null) {
+                updateColorsAndRender();
+            }
+        }
+
+        window.zoomIn = function () {
+            applyZoom(currentScoreZoom + 0.10);
+        };
+
+        window.zoomOut = function () {
+            applyZoom(currentScoreZoom - 0.10);
+        };
+
+        window.zoomFit = function () {
+            applyZoom(0.40);
+        };
+
+        window.setZoom = function (val) {
+            applyZoom(val);
+        };
+
+        // Multi-touch pinch-to-zoom on score container
+        let pinchInitialDist = null;
+        let pinchBaseZoom = 0.40;
+        const scoreContainer = document.getElementById('score-container');
+        if (scoreContainer) {
+            scoreContainer.addEventListener('touchstart', function (e) {
+                if (e.touches.length === 2) {
+                    pinchInitialDist = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    pinchBaseZoom = currentScoreZoom;
+                }
+            }, { passive: true });
+
+            scoreContainer.addEventListener('touchmove', function (e) {
+                if (e.touches.length === 2 && pinchInitialDist) {
+                    const dist = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    const factor = dist / pinchInitialDist;
+                    applyZoom(pinchBaseZoom * factor);
+                }
+            }, { passive: true });
+
+            scoreContainer.addEventListener('touchend', function (e) {
+                if (e.touches.length < 2) {
+                    pinchInitialDist = null;
+                }
+            }, { passive: true });
+        }
+
         function getOriginalVoiceColor(gNote) {
             if (gNote && gNote.__vx_baseColor && gNote.__vx_baseColor.length === 7) return gNote.__vx_baseColor;
             var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
@@ -986,8 +1059,9 @@
         function computeLayoutHash() {
             const w = renderDiv.offsetWidth;
             const h = renderDiv.offsetHeight;
-            const zoom = window.devicePixelRatio || 1;
-            const raw = `osmd_render_w${w}_h${h}_z${zoom}`;
+            const z = Math.round((currentScoreZoom || 0.40) * 100);
+            const dpr = window.devicePixelRatio || 1;
+            const raw = `osmd_render_w${w}_h${h}_z${z}_d${dpr}`;
             let hash = 0;
             for (let i = 0; i < raw.length; i++) {
                 hash = ((hash << 5) - hash) + raw.charCodeAt(i);

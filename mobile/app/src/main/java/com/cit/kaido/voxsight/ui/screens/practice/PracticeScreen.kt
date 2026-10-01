@@ -17,12 +17,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
+import androidx.compose.material.icons.outlined.ZoomIn
+import androidx.compose.material.icons.outlined.ZoomOut
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreVert
@@ -147,6 +154,13 @@ fun Module2PracticeScreen(
     var speedMultiplier by remember { mutableFloatStateOf(1.0f) }
     var totalSeconds by remember { mutableStateOf(resolvedScore.totalSeconds) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var isFullscreenScore by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isFullscreenScore) {
+        isFullscreenScore = false
+        midiController?.setZoom(0.40f)
+    }
+
     val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
 
     // ── Interactive Guided Tour Setup (New Install Only) ───────
@@ -231,40 +245,45 @@ fun Module2PracticeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundBrush)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(
+                if (isFullscreenScore) PaddingValues(0.dp)
+                else PaddingValues(horizontal = 20.dp, vertical = 16.dp)
+            )
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(if (isFullscreenScore) 6.dp else 16.dp)
         ) {
-            PracticeTopBar(
-                title = resolvedScore.title, 
-                isMicEnabled = isMicEnabled,
-                onBackClicked = onBackClicked,
-                onDiagnosticsClicked = { showDiagnostics = !showDiagnostics },
-                onReplayTourClicked = { tourState.reset() }
-            )
+            if (!isFullscreenScore) {
+                PracticeTopBar(
+                    title = resolvedScore.title, 
+                    isMicEnabled = isMicEnabled,
+                    onBackClicked = onBackClicked,
+                    onDiagnosticsClicked = { showDiagnostics = !showDiagnostics },
+                    onReplayTourClicked = { tourState.reset() }
+                )
 
-            val isSelectorEnabled = audioMuteEnabled || visualFocusEnabled
+                val isSelectorEnabled = audioMuteEnabled || visualFocusEnabled
 
-            VoicePartCard(
-                selectedPart = selectedPart,
-                audioMutePart = audioMutePart,
-                onPartSelected = { 
-                    selectedPart = it
-                    if (headerUIPreference != "dropdown") {
-                        audioMutePart = it
-                    }
-                },
-                onAudioMutePartSelected = { audioMutePart = it },
-                audioMuteEnabled = audioMuteEnabled,
-                onAudioMuteChange = { audioMuteEnabled = it },
-                visualFocusEnabled = visualFocusEnabled,
-                onVisualFocusChange = { visualFocusEnabled = it },
-                isSelectorEnabled = isSelectorEnabled,
-                headerUIPreference = headerUIPreference,
-                modifier = Modifier.spotlightTarget(tourState, "voice_chips")
-            )
+                VoicePartCard(
+                    selectedPart = selectedPart,
+                    audioMutePart = audioMutePart,
+                    onPartSelected = { 
+                        selectedPart = it
+                        if (headerUIPreference != "dropdown") {
+                            audioMutePart = it
+                        }
+                    },
+                    onAudioMutePartSelected = { audioMutePart = it },
+                    audioMuteEnabled = audioMuteEnabled,
+                    onAudioMuteChange = { audioMuteEnabled = it },
+                    visualFocusEnabled = visualFocusEnabled,
+                    onVisualFocusChange = { visualFocusEnabled = it },
+                    isSelectorEnabled = isSelectorEnabled,
+                    headerUIPreference = headerUIPreference,
+                    modifier = Modifier.spotlightTarget(tourState, "voice_chips")
+                )
+            }
 
             LaunchedEffect(audioMutePart, audioMuteEnabled, midiController) {
                 if (audioMuteEnabled) {
@@ -294,95 +313,177 @@ fun Module2PracticeScreen(
             // ── OSMD Score Rendering Area ─────────────────────────
             Surface(
                 color = Color.White,
-                shape = RoundedCornerShape(16.dp),
+                shape = if (isFullscreenScore) RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp) else RoundedCornerShape(16.dp),
                 shadowElevation = 8.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(vertical = 8.dp)
+                    .then(if (isFullscreenScore) Modifier else Modifier.padding(vertical = 8.dp))
                     .spotlightTarget(tourState, "osmd_canvas")
             ) {
-                MidiPlaybackEngine(
-                    score = resolvedScore,
-                    tempo = 120,
-                    isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others,
-                    selectedVoicePart = when (selectedPart) {
-                        VoicePart.Solo -> "SOLO"
-                        VoicePart.Others -> "OTHER"
-                        else -> selectedPart.shortLabel.first().toString().uppercase()
-                    },
-                    pitchAttempts = pitchAttempts,
-                    onReady = { controller ->
-                        midiController = controller
-                        currentBpm = controller.getBaseBPM()
-                        val partKey = when (selectedPart) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    MidiPlaybackEngine(
+                        score = resolvedScore,
+                        tempo = 120,
+                        isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others,
+                        selectedVoicePart = when (selectedPart) {
                             VoicePart.Solo -> "SOLO"
                             VoicePart.Others -> "OTHER"
-                            else -> selectedPart.shortLabel.first().toString()
-                        }
-                        if (audioMuteEnabled) {
-                            val muteKey = when (audioMutePart) {
+                            else -> selectedPart.shortLabel.first().toString().uppercase()
+                        },
+                        pitchAttempts = pitchAttempts,
+                        onReady = { controller ->
+                            midiController = controller
+                            currentBpm = controller.getBaseBPM()
+                            val partKey = when (selectedPart) {
                                 VoicePart.Solo -> "SOLO"
                                 VoicePart.Others -> "OTHER"
-                                else -> audioMutePart.shortLabel.first().toString()
+                                else -> selectedPart.shortLabel.first().toString()
                             }
-                            controller.mutePart(muteKey)
-                        }
-                        if (visualFocusEnabled) {
-                            controller.setVisualFocus(partKey)
-                        } else {
-                            controller.clearVisualFocus()
-                        }
-                    },
-                    onScoreLoaded = {
-                        totalSeconds = it
-                    },
-                    onProgress = { p -> progress = p },
-                    onPlaybackComplete = {
-                        isPlaying = false
-                        progress = 1f
-                        onPlaybackComplete()
-                    },
-                    onNoteOn = { event ->
-                        if (isMicEnabled && selectedPart != VoicePart.Others) {
-                            val partLetter = when (selectedPart) {
-                                VoicePart.Solo -> "SOLO"
-                                VoicePart.Others -> "OTHER"
-                                else -> selectedPart.shortLabel.first().toString().uppercase()
+                            if (audioMuteEnabled) {
+                                val muteKey = when (audioMutePart) {
+                                    VoicePart.Solo -> "SOLO"
+                                    VoicePart.Others -> "OTHER"
+                                    else -> audioMutePart.shortLabel.first().toString()
+                                }
+                                controller.mutePart(muteKey)
                             }
-                            val eventVoice = event.satbVoice.uppercase()
-                            val matches = when (partLetter) {
-                                "SOLO" -> eventVoice.startsWith("SOLO")
-                                "OTHER" -> eventVoice.startsWith("OTHER")
-                                else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
+                            if (visualFocusEnabled) {
+                                controller.setVisualFocus(partKey)
+                            } else {
+                                controller.clearVisualFocus()
                             }
-                            if (matches) {
-                                onNoteOn(event)
-                            }
-                        }
-                    },
-                    onWaitPitch = { events ->
-                        if (isMicEnabled && selectedPart != VoicePart.Others) {
-                            val partLetter = when (selectedPart) {
-                                VoicePart.Solo -> "SOLO"
-                                VoicePart.Others -> "OTHER"
-                                else -> selectedPart.shortLabel.first().toString().uppercase()
-                            }
-                            val targetEvents = events.filter {
-                                val eventVoice = it.satbVoice.uppercase()
-                                when (partLetter) {
+                        },
+                        onScoreLoaded = {
+                            totalSeconds = it
+                        },
+                        onProgress = { p -> progress = p },
+                        onPlaybackComplete = {
+                            isPlaying = false
+                            progress = 1f
+                            onPlaybackComplete()
+                        },
+                        onNoteOn = { event ->
+                            if (isMicEnabled && selectedPart != VoicePart.Others) {
+                                val partLetter = when (selectedPart) {
+                                    VoicePart.Solo -> "SOLO"
+                                    VoicePart.Others -> "OTHER"
+                                    else -> selectedPart.shortLabel.first().toString().uppercase()
+                                }
+                                val eventVoice = event.satbVoice.uppercase()
+                                val matches = when (partLetter) {
                                     "SOLO" -> eventVoice.startsWith("SOLO")
                                     "OTHER" -> eventVoice.startsWith("OTHER")
                                     else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
                                 }
+                                if (matches) {
+                                    onNoteOn(event)
+                                }
                             }
-                            if (targetEvents.isNotEmpty()) {
-                                onWaitPitch(targetEvents)
+                        },
+                        onWaitPitch = { events ->
+                            if (isMicEnabled && selectedPart != VoicePart.Others) {
+                                val partLetter = when (selectedPart) {
+                                    VoicePart.Solo -> "SOLO"
+                                    VoicePart.Others -> "OTHER"
+                                    else -> selectedPart.shortLabel.first().toString().uppercase()
+                                }
+                                val targetEvents = events.filter {
+                                    val eventVoice = it.satbVoice.uppercase()
+                                    when (partLetter) {
+                                        "SOLO" -> eventVoice.startsWith("SOLO")
+                                        "OTHER" -> eventVoice.startsWith("OTHER")
+                                        else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
+                                    }
+                                }
+                                if (targetEvents.isNotEmpty()) {
+                                    onWaitPitch(targetEvents)
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Floating Fullscreen / Exit Fullscreen Button
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(if (isFullscreenScore) 16.dp else 10.dp)
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                isFullscreenScore = !isFullscreenScore
+                                midiController?.setZoom(if (isFullscreenScore) 0.65f else 0.40f)
+                            },
+                        color = Color.White.copy(alpha = 0.94f),
+                        shadowElevation = 6.dp,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isFullscreenScore) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                                contentDescription = if (isFullscreenScore) "Exit Fullscreen" else "Fullscreen View",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    // Floating Zoom In / Out / Fit Pill in Fullscreen Mode
+                    if (isFullscreenScore) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp),
+                            color = Color.White.copy(alpha = 0.95f),
+                            shadowElevation = 6.dp,
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { midiController?.zoomOut() },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ZoomOut,
+                                        contentDescription = "Zoom Out",
+                                        tint = VoxPurplePrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = { midiController?.zoomFit() },
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Text(
+                                        text = "FIT",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = VoxPurplePrimary
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { midiController?.zoomIn() },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ZoomIn,
+                                        contentDescription = "Zoom In",
+                                        tint = VoxPurplePrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+                }
             }
 
             if (isMicEnabled) {
@@ -390,7 +491,12 @@ fun Module2PracticeScreen(
                     Surface(
                         color = Color(0xFF607D8B).copy(alpha = 0.12f),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = if (isFullscreenScore) 16.dp else 0.dp,
+                                vertical = 2.dp
+                            )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -411,7 +517,11 @@ fun Module2PracticeScreen(
                         }
                     }
                 } else {
-                    Box(modifier = Modifier.spotlightTarget(tourState, "pitch_feedback")) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = if (isFullscreenScore) 16.dp else 0.dp)
+                            .spotlightTarget(tourState, "pitch_feedback")
+                    ) {
                         PitchFeedbackIndicator(state = pitchUiState)
                     }
                 }
@@ -458,7 +568,13 @@ fun Module2PracticeScreen(
                     progress = 1f
                     midiController?.seek(1f)
                 },
-                modifier = Modifier.spotlightTarget(tourState, "playback_controls")
+                modifier = Modifier
+                    .padding(
+                        start = if (isFullscreenScore) 16.dp else 0.dp,
+                        end = if (isFullscreenScore) 16.dp else 0.dp,
+                        bottom = if (isFullscreenScore) 12.dp else 0.dp
+                    )
+                    .spotlightTarget(tourState, "playback_controls")
             )
         }
 
