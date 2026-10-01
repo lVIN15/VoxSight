@@ -20,7 +20,7 @@ enum class PlaybackState {
     STOPPED, PLAYING, PAUSED
 }
 
-class PracticeViewModel : ViewModel() {
+class PracticeViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     val pitchEngine = PitchDetectionEngine()
 
     var pendingMusicXml: String = ""
@@ -147,7 +147,11 @@ class PracticeViewModel : ViewModel() {
         _pitchAttempts.value = emptyList()
         lastRecordingFile = null
         if (_isMicrophoneEnabled.value) {
-            pitchEngine.start(outputDir)
+            val resolvedDir = outputDir ?: com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
+                getApplication(),
+                _currentScore.value?.title
+            )
+            pitchEngine.start(resolvedDir)
             _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
         }
     }
@@ -300,6 +304,10 @@ class PracticeViewModel : ViewModel() {
             } else null
         } else null
 
+        val resolvedRecordingFile = lastRecordingFile ?: com.cit.kaido.voxsight.storage.ScoreRecordingManager
+            .getRecordings(getApplication(), _currentScore.value?.title)
+            .firstOrNull()?.file
+
         return com.cit.kaido.voxsight.ui.screens.practice.SessionSummary(
             totalNotesAttempted = count,
             correctNotes = correctNotes,
@@ -307,7 +315,7 @@ class PracticeViewModel : ViewModel() {
             problematicNotes = problematicNotes,
             vocalHighlight = vocalHighlight,
             topProblematicMeasure = topProblematicMeasure,
-            recordingFile = lastRecordingFile
+            recordingFile = resolvedRecordingFile
         )
     }
 

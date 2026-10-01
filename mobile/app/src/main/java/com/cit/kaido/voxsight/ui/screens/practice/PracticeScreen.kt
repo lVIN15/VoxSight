@@ -158,7 +158,7 @@ fun Module2PracticeScreen(
 
     BackHandler(enabled = isFullscreenScore) {
         isFullscreenScore = false
-        midiController?.setZoom(0.40f)
+        midiController?.zoomFit()
     }
 
     val currentSeconds = (totalSeconds * animatedProgress).roundToInt()
@@ -413,7 +413,7 @@ fun Module2PracticeScreen(
                             .clip(CircleShape)
                             .clickable {
                                 isFullscreenScore = !isFullscreenScore
-                                midiController?.setZoom(if (isFullscreenScore) 0.65f else 0.40f)
+                                midiController?.zoomFit()
                             },
                         color = Color.White.copy(alpha = 0.94f),
                         shadowElevation = 6.dp,

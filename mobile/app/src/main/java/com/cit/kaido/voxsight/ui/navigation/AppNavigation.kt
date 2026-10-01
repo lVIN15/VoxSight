@@ -335,6 +335,7 @@ fun AppNavigation() {
 
         dialog("select_mode") {
             val context = androidx.compose.ui.platform.LocalContext.current
+            val currentScore by practiceViewModel.currentScore.collectAsState()
             var permissionGranted by androidx.compose.runtime.remember { 
                 androidx.compose.runtime.mutableStateOf(
                     androidx.core.content.ContextCompat.checkSelfPermission(
@@ -358,6 +359,7 @@ fun AppNavigation() {
             }
 
             SelectPracticeModeModal(
+                scoreTitle = currentScore?.title,
                 onDismiss = {
                     navController.popBackStack()
                 },
@@ -380,6 +382,7 @@ fun AppNavigation() {
         }
 
         composable("practice") {
+            val context = androidx.compose.ui.platform.LocalContext.current
             val showPauseModal by practiceViewModel.showPauseModal.collectAsState()
             val isMicEnabled by practiceViewModel.isMicrophoneEnabled.collectAsState()
             val currentScore by practiceViewModel.currentScore.collectAsState()
@@ -388,7 +391,8 @@ fun AppNavigation() {
 
             androidx.compose.runtime.LaunchedEffect(isMicEnabled) {
                 if (isMicEnabled) {
-                    practiceViewModel.startPitchSession()
+                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(context, currentScore?.title)
+                    practiceViewModel.startPitchSession(recordingsDir)
                 } else {
                     practiceViewModel.endPitchSession()
                 }
@@ -463,6 +467,7 @@ fun AppNavigation() {
                     },
                     onEndSession = {
                         practiceViewModel.setShowPauseModal(false)
+                        practiceViewModel.endPitchSession()
                         navController.navigate("summary") {
                             popUpTo("upload") { inclusive = false } // clear backstack up to upload
                         }
@@ -472,6 +477,7 @@ fun AppNavigation() {
         }
 
         composable("summary") {
+            val context = androidx.compose.ui.platform.LocalContext.current
             // Provide the full summary from the view model
             val summary = practiceViewModel.getSessionSummary()
             val currentScore by practiceViewModel.currentScore.collectAsState()
@@ -489,7 +495,8 @@ fun AppNavigation() {
                     navController.popBackStack("upload", inclusive = false)
                 },
                 onRepeatPractice = {
-                    practiceViewModel.startPitchSession()
+                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(context, currentScore?.title)
+                    practiceViewModel.startPitchSession(recordingsDir)
                     navController.navigate("practice") {
                         popUpTo("practice") { inclusive = true }
                     }

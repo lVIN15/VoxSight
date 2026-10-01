@@ -149,16 +149,6 @@ fun ScoreReviewScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = {
-                            isFullscreen = true
-                            webViewInstance?.evaluateJavascript("applyZoom(0.70);", null)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Fullscreen,
-                                contentDescription = "Fullscreen Score",
-                                tint = VoxPurplePrimary
-                            )
-                        }
                         IconButton(onClick = { showMetadataDialog = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
@@ -346,10 +336,7 @@ fun ScoreReviewScreen(
                         .clip(CircleShape)
                         .clickable {
                             isFullscreen = !isFullscreen
-                            webViewInstance?.evaluateJavascript(
-                                if (isFullscreen) "applyZoom(0.70);" else "zoomFit();",
-                                null
-                            )
+                            webViewInstance?.evaluateJavascript("zoomFit();", null)
                         },
                     color = Color.White.copy(alpha = 0.94f),
                     shadowElevation = 6.dp,
@@ -366,56 +353,54 @@ fun ScoreReviewScreen(
                     }
                 }
 
-                // Floating Zoom In / Out / Fit Pill in Fullscreen Mode
-                if (isFullscreen) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp),
-                        color = Color.White.copy(alpha = 0.95f),
-                        shadowElevation = 6.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                // Floating Zoom In / Out / Fit Pill (Positioned cleanly at bottom-right)
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(if (isFullscreen) 16.dp else 10.dp),
+                    color = Color.White.copy(alpha = 0.95f),
+                    shadowElevation = 6.dp,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ZoomOut,
-                                    contentDescription = "Zoom Out",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomOut,
+                                contentDescription = "Zoom Out",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
 
-                            TextButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Text(
-                                    text = "FIT",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = VoxPurplePrimary
-                                )
-                            }
+                        TextButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text(
+                                text = "FIT",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = VoxPurplePrimary
+                            )
+                        }
 
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ZoomIn,
-                                    contentDescription = "Zoom In",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomIn,
+                                contentDescription = "Zoom In",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }

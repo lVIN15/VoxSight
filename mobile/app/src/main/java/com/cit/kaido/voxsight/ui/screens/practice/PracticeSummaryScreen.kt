@@ -499,13 +499,20 @@ fun RecentAttemptPlaybackRow(
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val hasRecording = recordingFile != null && recordingFile.exists()
+    val effectiveFile = remember(recordingFile, scoreTitle) {
+        if (recordingFile != null && recordingFile.exists()) {
+            recordingFile
+        } else {
+            ScoreRecordingManager.getRecordings(context, scoreTitle).firstOrNull()?.file
+        }
+    }
+    val hasRecording = effectiveFile != null && effectiveFile.exists()
 
     val player = remember { PerformanceAudioPlayer() }
 
-    LaunchedEffect(recordingFile) {
-        if (hasRecording) {
-            player.load(recordingFile!!)
+    LaunchedEffect(effectiveFile) {
+        if (hasRecording && effectiveFile != null) {
+            player.load(effectiveFile)
         }
     }
 

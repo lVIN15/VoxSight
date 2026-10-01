@@ -73,13 +73,38 @@ object ScoreRecordingManager {
 
     /**
      * Lists all recorded vocal takes for the given score title, ordered from newest to oldest.
+     * If scoreTitle is null or empty, lists all recorded vocal takes across all scores.
      */
     fun getRecordings(context: Context, scoreTitle: String?): List<ScoreRecordingItem> {
+        val rootDir = File(context.filesDir, DIRECTORY_NAME)
+        if (!rootDir.exists()) return emptyList()
+
+        if (scoreTitle.isNullOrBlank()) {
+            val allFiles = mutableListOf<File>()
+            rootDir.listFiles()?.forEach { sub ->
+                if (sub.isDirectory) {
+                    sub.listFiles { _, name -> name.endsWith(".wav") }?.let { allFiles.addAll(it) }
+                } else if (sub.name.endsWith(".wav")) {
+                    allFiles.add(sub)
+                }
+            }
+            return allFiles.mapNotNull { file ->
+                val parentName = file.parentFile?.name?.replace("_", " ") ?: "Music Score"
+                parseRecordingItem(file, parentName)
+            }.sortedByDescending { it.timestamp }
+        }
+
         val dir = getRecordingsDir(context, scoreTitle)
-        val files = dir.listFiles { _, name -> name.endsWith(".wav") } ?: return emptyList()
+        val files = dir.listFiles { _, name -> name.endsWith(".wav") }?.toMutableList() ?: mutableListOf()
+
+        // Also check if recordings were saved under general/fallback
+        if (files.isEmpty()) {
+            val generalDir = File(rootDir, "general")
+            generalDir.listFiles { _, name -> name.endsWith(".wav") }?.let { files.addAll(it) }
+        }
 
         val list = files.mapNotNull { file ->
-            parseRecordingItem(file, scoreTitle ?: "Music Score")
+            parseRecordingItem(file, scoreTitle)
         }
         return list.sortedByDescending { it.timestamp }
     }
