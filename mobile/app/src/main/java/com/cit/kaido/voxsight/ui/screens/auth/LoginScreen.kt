@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -154,7 +155,8 @@ fun LoginScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 32.dp, bottom = 64.dp)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp, bottom = 64.dp)
                     .padding(horizontal = 16.dp)
             ) {
                 // Top bar row
@@ -480,3 +482,4 @@ fun SocialLoginButton(
         }
     }
 }
+

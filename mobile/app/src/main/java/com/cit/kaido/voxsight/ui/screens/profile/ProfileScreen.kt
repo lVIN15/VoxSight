@@ -70,6 +70,7 @@ fun ProfileScreen(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
                 .background(topPurple)
+                .statusBarsPadding()
                 .padding(top = 24.dp, bottom = 32.dp, start = 24.dp, end = 24.dp)
         ) {
             Column {

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.PaddingValues
@@ -245,6 +246,7 @@ fun Module2PracticeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundBrush)
+            .statusBarsPadding()
             .padding(
                 if (isFullscreenScore) PaddingValues(0.dp)
                 else PaddingValues(horizontal = 20.dp, vertical = 16.dp)
@@ -1832,3 +1834,4 @@ private fun DiagnosticRow(label: String, value: String, valueColor: Color = VoxT
         )
     }
 }
+

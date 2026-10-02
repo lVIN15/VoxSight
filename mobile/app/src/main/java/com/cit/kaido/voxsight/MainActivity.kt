@@ -29,16 +29,12 @@ class MainActivity : ComponentActivity() {
                 val isUpdateRequired by AppUpdateManager.isUpdateRequired.collectAsState()
                 val updateInfo by AppUpdateManager.updateInfo.collectAsState()
 
-                Box(
-                    modifier = Modifier.safeDrawingPadding()
-                ) {
                     AppNavigation()
 
                     // Highest priority modal: blocks all interactions if version is deprecated
                     if (isUpdateRequired) {
                         ForceUpdateDialog(updateInfo = updateInfo)
                     }
-                }
             }
         }
     }

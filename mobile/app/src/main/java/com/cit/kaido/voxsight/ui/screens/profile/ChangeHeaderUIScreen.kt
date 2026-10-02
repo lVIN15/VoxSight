@@ -46,6 +46,7 @@ fun ChangeHeaderUIScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFFAFAFA)) // Light off-white background
+            .statusBarsPadding()
     ) {
         // --- Top App Bar ---
         Row(
