@@ -17,8 +17,9 @@
 
     <!-- Module 2: Practice Screen -->
     <string name="practice_title">Kyrie Eleison</string>
-    <string name="voice_part_label">VOICE PART</string>
-    <string name="audio_mute_label">Audio Mute</string>
+    <string name="voice_part_label">SCORE PARTS</string>
+    <string name="audio_mute_label">Audio Focus</string>
+    <string name="audio_focus_label">Audio Focus</string>
     <string name="visual_focus_label">Visual Focus</string>
 
     <!-- Content Descriptions (Module 2) -->

@@ -566,7 +566,10 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                 nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower) -> "TENOR"
                 nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower) -> "BASS"
                 score.parts.size >= 4 -> {
-                    val nonSoloParts = score.parts.filter { !it.name.lowercase().contains("solo") && !it.name.lowercase().contains("piano") }
+                    val nonSoloParts = score.parts.filter { p ->
+                        val pLower = p.name.lowercase()
+                        !listOf("solo", "cantor", "leader", "descant", "piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings", "other", "instrument").any { pLower.contains(it) }
+                    }
                     val sortedByPitch = nonSoloParts.sortedByDescending { p ->
                         val pNotes = p.notes.filter { !it.isRest }
                         if (pNotes.isNotEmpty()) pNotes.map { calculateMidiNote(it.step, it.alter, it.octave) }.average() else 0.0
@@ -580,13 +583,8 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                         else -> "OTHERS"
                     }
                 }
-                score.parts.size == 2 -> when (part.id) {
-                    1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
-                    2 -> if (note.voice == 4 || note.voice == 2 || note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
-                    else -> "SOPRANO"
-                }
-                note.staff == 2 -> if (note.voice == 4 || note.voice == 2 || note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
-                note.staff == 1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                note.voice == 5 -> "SOLO"
+                note.voice == 6 -> "OTHERS"
                 note.voice in 1..4 -> when (note.voice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"
@@ -594,8 +592,13 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     4 -> "BASS"
                     else -> "SOPRANO"
                 }
-                note.voice == 5 -> "SOLO"
-                note.voice == 6 -> "OTHERS"
+                score.parts.size == 2 -> when (part.id) {
+                    1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
+                    2 -> if (note.voice == 4 || note.voice == 2 || note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
+                    else -> "SOPRANO"
+                }
+                note.staff == 2 -> if (note.voice == 4 || note.voice == 2 || note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
+                note.staff == 1 -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
                 else -> "SOPRANO"
             }
             

@@ -247,10 +247,21 @@ class SyncManager {
                 // PASS 1: Exact SATB Voice + Exact Pitch in chronological visual order on this staff
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
-                    val eventPart = event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    val eventUpper = event.satbVoice.uppercase()
+                    val eventPart = when {
+                        eventUpper.startsWith("SOLO") -> "SOLO"
+                        eventUpper.startsWith("OTHER") -> "OTHERS"
+                        else -> event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    }
                     val candidate = sOsmd.firstOrNull { elem ->
+                        val elemUpper = elem.part.uppercase()
+                        val elemPart = when {
+                            elemUpper.startsWith("SOLO") -> "SOLO"
+                            elemUpper.startsWith("OTHER") -> "OTHERS"
+                            else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
+                        }
                         !usedOsmdIds.contains(elem.id) &&
-                        elem.part.uppercase() == eventPart &&
+                        elemPart == eventPart &&
                         elem.midiNote == event.pitchMidi
                     }
                     if (candidate != null) {
@@ -275,10 +286,21 @@ class SyncManager {
                 // PASS 3: Exact SATB Voice positional 1-to-1 match on this staff
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
-                    val eventPart = event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    val eventUpper = event.satbVoice.uppercase()
+                    val eventPart = when {
+                        eventUpper.startsWith("SOLO") -> "SOLO"
+                        eventUpper.startsWith("OTHER") -> "OTHERS"
+                        else -> event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
+                    }
                     val candidate = sOsmd.firstOrNull { elem ->
+                        val elemUpper = elem.part.uppercase()
+                        val elemPart = when {
+                            elemUpper.startsWith("SOLO") -> "SOLO"
+                            elemUpper.startsWith("OTHER") -> "OTHERS"
+                            else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
+                        }
                         !usedOsmdIds.contains(elem.id) &&
-                        elem.part.uppercase() == eventPart
+                        elemPart == eventPart
                     }
                     if (candidate != null) {
                         usedOsmdIds.add(candidate.id)

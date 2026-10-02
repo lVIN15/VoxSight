@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.MusicOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -134,10 +135,24 @@ fun Module2PracticeScreen(
             .getString("header_ui_preference", "default") ?: "default"
     }
 
-    var selectedPart by remember { mutableStateOf(VoicePart.Soprano) }
-    var audioMutePart by remember { mutableStateOf(VoicePart.Soprano) }
-    var audioMuteEnabled by remember { mutableStateOf(false) }
+    val availableParts = remember(resolvedScore) {
+        detectAvailableParts(resolvedScore)
+    }
+
+    var selectedPart by remember(availableParts) { mutableStateOf(availableParts.firstOrNull() ?: VoicePart.Soprano) }
+    var audioFocusPart by remember(availableParts) { mutableStateOf(availableParts.firstOrNull() ?: VoicePart.Soprano) }
+    var audioFocusEnabled by remember { mutableStateOf(false) }
     var visualFocusEnabled by remember { mutableStateOf(false) }
+
+    LaunchedEffect(availableParts) {
+        if (selectedPart !in availableParts) {
+            selectedPart = availableParts.firstOrNull() ?: VoicePart.Soprano
+        }
+        if (audioFocusPart !in availableParts) {
+            audioFocusPart = availableParts.firstOrNull() ?: VoicePart.Soprano
+        }
+    }
+
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     
@@ -174,7 +189,7 @@ fun Module2PracticeScreen(
             TourStep(
                 id = "voice_chips",
                 title = "Isolate Your Vocal Part",
-                description = "Tap Soprano, Alto, Tenor, or Bass to highlight your notes. Use Audio Mute to practice singing a cappella or Visual Focus to zoom in on your stave.",
+                description = "Tap any part to highlight your notes. Use Audio Focus to isolate a part or Visual Focus to zoom in on your stave.",
                 stepIndex = 1,
                 totalSteps = if (isMicEnabled) 4 else 3
             ),
@@ -265,20 +280,21 @@ fun Module2PracticeScreen(
                     onReplayTourClicked = { tourState.reset() }
                 )
 
-                val isSelectorEnabled = audioMuteEnabled || visualFocusEnabled
+                val isSelectorEnabled = audioFocusEnabled || visualFocusEnabled
 
                 VoicePartCard(
                     selectedPart = selectedPart,
-                    audioMutePart = audioMutePart,
+                    audioFocusPart = audioFocusPart,
+                    availableParts = availableParts,
                     onPartSelected = { 
                         selectedPart = it
                         if (headerUIPreference != "dropdown") {
-                            audioMutePart = it
+                            audioFocusPart = it
                         }
                     },
-                    onAudioMutePartSelected = { audioMutePart = it },
-                    audioMuteEnabled = audioMuteEnabled,
-                    onAudioMuteChange = { audioMuteEnabled = it },
+                    onAudioFocusPartSelected = { audioFocusPart = it },
+                    audioFocusEnabled = audioFocusEnabled,
+                    onAudioFocusChange = { audioFocusEnabled = it },
                     visualFocusEnabled = visualFocusEnabled,
                     onVisualFocusChange = { visualFocusEnabled = it },
                     isSelectorEnabled = isSelectorEnabled,
@@ -287,14 +303,14 @@ fun Module2PracticeScreen(
                 )
             }
 
-            LaunchedEffect(audioMutePart, audioMuteEnabled, midiController) {
-                if (audioMuteEnabled) {
-                    val muteKey = when (audioMutePart) {
+            LaunchedEffect(audioFocusPart, audioFocusEnabled, midiController) {
+                if (audioFocusEnabled) {
+                    val focusKey = when (audioFocusPart) {
                         VoicePart.Solo -> "SOLO"
                         VoicePart.Others -> "OTHER"
-                        else -> audioMutePart.shortLabel.first().toString()
+                        else -> audioFocusPart.shortLabel.first().toString()
                     }
-                    midiController?.mutePart(muteKey)
+                    midiController?.focusPart(focusKey)
                 } else {
                     midiController?.unmuteAllParts()
                 }
@@ -342,13 +358,13 @@ fun Module2PracticeScreen(
                                 VoicePart.Others -> "OTHER"
                                 else -> selectedPart.shortLabel.first().toString()
                             }
-                            if (audioMuteEnabled) {
-                                val muteKey = when (audioMutePart) {
+                            if (audioFocusEnabled) {
+                                val focusKey = when (audioFocusPart) {
                                     VoicePart.Solo -> "SOLO"
                                     VoicePart.Others -> "OTHER"
-                                    else -> audioMutePart.shortLabel.first().toString()
+                                    else -> audioFocusPart.shortLabel.first().toString()
                                 }
-                                controller.mutePart(muteKey)
+                                controller.focusPart(focusKey)
                             }
                             if (visualFocusEnabled) {
                                 controller.setVisualFocus(partKey)
@@ -619,6 +635,79 @@ private enum class VoicePart(val label: String, val shortLabel: String, val colo
     Others("Others", "Other", Color(0xFF607D8B))
 }
 
+private fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
+    var hasSoprano = false
+    var hasAlto = false
+    var hasTenor = false
+    var hasBass = false
+    var hasSolo = false
+    var hasOthers = false
+
+    // 1. Check parsed events if present
+    if (!score.eventsJson.isNullOrBlank() && score.eventsJson != "[]") {
+        try {
+            val eventType = object : com.google.gson.reflect.TypeToken<List<com.cit.kaido.voxsight.model.MusicalEvent>>() {}.type
+            val events: List<com.cit.kaido.voxsight.model.MusicalEvent>? = com.google.gson.Gson().fromJson(score.eventsJson, eventType)
+            events?.forEach { ev ->
+                val v = ev.satbVoice.uppercase()
+                when {
+                    v.startsWith("SOLO") -> hasSolo = true
+                    v.startsWith("OTHER") || v.startsWith("PIANO") || v.startsWith("ACCOMP") -> hasOthers = true
+                    v.startsWith("S") -> hasSoprano = true
+                    v.startsWith("A") -> hasAlto = true
+                    v.startsWith("T") -> hasTenor = true
+                    v.startsWith("B") -> hasBass = true
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    // 2. Check direct notes voices (1=Soprano, 2=Alto, 3=Tenor, 4=Bass, 5=Solo, 6=Others)
+    score.notes.forEach { note ->
+        when (note.voice) {
+            1 -> hasSoprano = true
+            2 -> hasAlto = true
+            3 -> hasTenor = true
+            4 -> hasBass = true
+            5 -> hasSolo = true
+            6 -> hasOthers = true
+        }
+    }
+
+    // 3. Check parts metadata and notes in parts
+    score.parts.forEach { part ->
+        val nameLower = part.name.lowercase()
+        if (nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(nameLower)) hasSoprano = true
+        if (nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(nameLower)) hasAlto = true
+        if (nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower)) hasTenor = true
+        if (nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower)) hasBass = true
+        if (listOf("solo", "cantor", "leader", "descant").any { nameLower.contains(it) }) hasSolo = true
+        if (listOf("piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings", "other", "instrument").any { nameLower.contains(it) }) hasOthers = true
+
+        part.notes.forEach { note ->
+            when (note.voice) {
+                1 -> hasSoprano = true
+                2 -> hasAlto = true
+                3 -> hasTenor = true
+                4 -> hasBass = true
+                5 -> hasSolo = true
+                6 -> hasOthers = true
+            }
+        }
+    }
+
+    val result = mutableListOf<VoicePart>()
+    if (hasSoprano) result.add(VoicePart.Soprano)
+    if (hasAlto) result.add(VoicePart.Alto)
+    if (hasTenor) result.add(VoicePart.Tenor)
+    if (hasBass) result.add(VoicePart.Bass)
+    if (hasSolo) result.add(VoicePart.Solo)
+    if (hasOthers) result.add(VoicePart.Others)
+
+    // Fallback: If no specific parts detected, default to standard SATB
+    return if (result.isNotEmpty()) result else listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass)
+}
+
 private data class StaffNote(
     val index: Int,
     val lineIndex: Int,
@@ -785,11 +874,12 @@ private fun LegendItem(part: String, color: Color) {
 @Composable
 private fun VoicePartCard(
     selectedPart: VoicePart,
-    audioMutePart: VoicePart,
+    audioFocusPart: VoicePart,
+    availableParts: List<VoicePart>,
     onPartSelected: (VoicePart) -> Unit,
-    onAudioMutePartSelected: (VoicePart) -> Unit,
-    audioMuteEnabled: Boolean,
-    onAudioMuteChange: (Boolean) -> Unit,
+    onAudioFocusPartSelected: (VoicePart) -> Unit,
+    audioFocusEnabled: Boolean,
+    onAudioFocusChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
     onVisualFocusChange: (Boolean) -> Unit,
     isSelectorEnabled: Boolean,
@@ -799,11 +889,12 @@ private fun VoicePartCard(
     if (headerUIPreference == "dropdown") {
         DropdownVoicePartCard(
             selectedPart = selectedPart,
-            audioMutePart = audioMutePart,
+            audioFocusPart = audioFocusPart,
+            availableParts = availableParts,
             onPartSelected = onPartSelected,
-            onAudioMutePartSelected = onAudioMutePartSelected,
-            audioMuteEnabled = audioMuteEnabled,
-            onAudioMuteChange = onAudioMuteChange,
+            onAudioFocusPartSelected = onAudioFocusPartSelected,
+            audioFocusEnabled = audioFocusEnabled,
+            onAudioFocusChange = onAudioFocusChange,
             visualFocusEnabled = visualFocusEnabled,
             onVisualFocusChange = onVisualFocusChange,
             modifier = modifier
@@ -811,9 +902,10 @@ private fun VoicePartCard(
     } else {
         DefaultVoicePartCard(
             selectedPart = selectedPart,
+            availableParts = availableParts,
             onPartSelected = onPartSelected,
-            audioMuteEnabled = audioMuteEnabled,
-            onAudioMuteChange = onAudioMuteChange,
+            audioFocusEnabled = audioFocusEnabled,
+            onAudioFocusChange = onAudioFocusChange,
             visualFocusEnabled = visualFocusEnabled,
             onVisualFocusChange = onVisualFocusChange,
             isSelectorEnabled = isSelectorEnabled,
@@ -825,9 +917,10 @@ private fun VoicePartCard(
 @Composable
 private fun DefaultVoicePartCard(
     selectedPart: VoicePart,
+    availableParts: List<VoicePart>,
     onPartSelected: (VoicePart) -> Unit,
-    audioMuteEnabled: Boolean,
-    onAudioMuteChange: (Boolean) -> Unit,
+    audioFocusEnabled: Boolean,
+    onAudioFocusChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
     onVisualFocusChange: (Boolean) -> Unit,
     isSelectorEnabled: Boolean,
@@ -855,6 +948,7 @@ private fun DefaultVoicePartCard(
 
             PartSelectorUI(
                 selectedPart = selectedPart,
+                availableParts = availableParts,
                 onPartSelected = onPartSelected,
                 enabled = isSelectorEnabled
             )
@@ -865,10 +959,10 @@ private fun DefaultVoicePartCard(
             ) {
                 ToggleChip(
                     modifier = Modifier.weight(1f),
-                    icon = Icons.AutoMirrored.Outlined.VolumeOff,
-                    label = stringResource(R.string.audio_mute_label),
-                    checked = audioMuteEnabled,
-                    onCheckedChange = onAudioMuteChange
+                    icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                    label = stringResource(R.string.audio_focus_label),
+                    checked = audioFocusEnabled,
+                    onCheckedChange = onAudioFocusChange
                 )
                 ToggleChip(
                     modifier = Modifier.weight(1f),
@@ -885,11 +979,12 @@ private fun DefaultVoicePartCard(
 @Composable
 private fun DropdownVoicePartCard(
     selectedPart: VoicePart,
-    audioMutePart: VoicePart,
+    audioFocusPart: VoicePart,
+    availableParts: List<VoicePart>,
     onPartSelected: (VoicePart) -> Unit,
-    onAudioMutePartSelected: (VoicePart) -> Unit,
-    audioMuteEnabled: Boolean,
-    onAudioMuteChange: (Boolean) -> Unit,
+    onAudioFocusPartSelected: (VoicePart) -> Unit,
+    audioFocusEnabled: Boolean,
+    onAudioFocusChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
     onVisualFocusChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -905,16 +1000,17 @@ private fun DropdownVoicePartCard(
         ) {
             DropdownSection(
                 modifier = Modifier.padding(16.dp),
-                icon = Icons.AutoMirrored.Outlined.VolumeOff,
-                label = stringResource(R.string.audio_mute_label),
-                isEnabled = audioMuteEnabled,
-                currentPart = audioMutePart,
+                icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                label = stringResource(R.string.audio_focus_label),
+                isEnabled = audioFocusEnabled,
+                currentPart = audioFocusPart,
+                availableParts = availableParts,
                 onPartChanged = { part ->
                     if (part == null) {
-                        onAudioMuteChange(false)
+                        onAudioFocusChange(false)
                     } else {
-                        onAudioMutePartSelected(part)
-                        onAudioMuteChange(true)
+                        onAudioFocusPartSelected(part)
+                        onAudioFocusChange(true)
                     }
                 }
             )
@@ -931,6 +1027,7 @@ private fun DropdownVoicePartCard(
                 label = stringResource(R.string.visual_focus_label),
                 isEnabled = visualFocusEnabled,
                 currentPart = selectedPart,
+                availableParts = availableParts,
                 onPartChanged = { part ->
                     if (part == null) {
                         onVisualFocusChange(false)
@@ -951,6 +1048,7 @@ private fun DropdownSection(
     label: String,
     isEnabled: Boolean,
     currentPart: VoicePart,
+    availableParts: List<VoicePart>,
     onPartChanged: (VoicePart?) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -976,7 +1074,7 @@ private fun DropdownSection(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 
-                // Handle multi-line labels like "Audio\nMute" properly by limiting width or replacing space
+                // Handle multi-line labels like "Audio\nFocus" properly by limiting width or replacing space
                 Text(
                     text = label.replace(" ", "\n"),
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -1004,7 +1102,7 @@ private fun DropdownSection(
                         onPartChanged(null)
                     }
                 )
-                VoicePart.values().forEach { part ->
+                availableParts.forEach { part ->
                     androidx.compose.material3.DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1057,66 +1155,74 @@ private fun DropdownSection(
 @Composable
 private fun PartSelectorUI(
     selectedPart: VoicePart,
+    availableParts: List<VoicePart>,
     onPartSelected: (VoicePart) -> Unit,
     enabled: Boolean
 ) {
+    val choirParts = availableParts.filter { it in listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass) }
+    val additionalParts = availableParts.filter { it in listOf(VoicePart.Solo, VoicePart.Others) }
+
     Column(
         modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Row 1: Core SATB parts
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass).forEach { part ->
-                val isSelected = part == selectedPart
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(34.dp)
-                        .clickable(enabled = enabled) { onPartSelected(part) },
-                    color = if (isSelected) part.color else Color.White,
-                    shape = RoundedCornerShape(999.dp),
-                    border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = part.label,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = if (isSelected) Color.White else VoxTextSecondary
-                        )
+        // Row 1: Core SATB parts (only those present in sheet)
+        if (choirParts.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                choirParts.forEach { part ->
+                    val isSelected = part == selectedPart
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(34.dp)
+                            .clickable(enabled = enabled) { onPartSelected(part) },
+                        color = if (isSelected) part.color else Color.White,
+                        shape = RoundedCornerShape(999.dp),
+                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = part.label,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = if (isSelected) Color.White else VoxTextSecondary
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Row 2: Solo & Others parts
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(VoicePart.Solo, VoicePart.Others).forEach { part ->
-                val isSelected = part == selectedPart
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(34.dp)
-                        .clickable(enabled = enabled) { onPartSelected(part) },
-                    color = if (isSelected) part.color else Color.White,
-                    shape = RoundedCornerShape(999.dp),
-                    border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = part.label,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = if (isSelected) Color.White else VoxTextSecondary
-                        )
+        // Row 2: Solo & Others parts (rendered ONLY if detected in imported sheet)
+        if (additionalParts.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                additionalParts.forEach { part ->
+                    val isSelected = part == selectedPart
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(34.dp)
+                            .clickable(enabled = enabled) { onPartSelected(part) },
+                        color = if (isSelected) part.color else Color.White,
+                        shape = RoundedCornerShape(999.dp),
+                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = part.label,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = if (isSelected) Color.White else VoxTextSecondary
+                            )
+                        }
                     }
                 }
             }

@@ -60,6 +60,19 @@ class NativePlaybackEngine(private val context: Context) {
 
         // Drift detection threshold
         private const val DRIFT_WARN_MS = 50L
+
+        fun normalizeVoiceKey(voice: String): String {
+            val upper = voice.uppercase().trim()
+            return when {
+                upper.startsWith("SOLO") -> "SOLO"
+                upper.startsWith("OTHER") || upper.startsWith("PIANO") || upper.startsWith("ACCOMP") -> "OTHER"
+                upper.startsWith("S") -> "S"
+                upper.startsWith("A") -> "A"
+                upper.startsWith("T") -> "T"
+                upper.startsWith("B") -> "B"
+                else -> "OTHER"
+            }
+        }
     }
 
     // ─── State ─────────────────────────────────────────────────────────
@@ -323,7 +336,11 @@ class NativePlaybackEngine(private val context: Context) {
     }
 
     fun muteVoice(voice: String, muted: Boolean) {
-        mutedVoices[voice.uppercase()] = muted
+        val key = normalizeVoiceKey(voice)
+        mutedVoices[key] = muted
+        if (key == "OTHER") {
+            mutedVoices["OTHERS"] = muted
+        }
     }
 
     fun isTrackMuted(trackId: String): Boolean {
@@ -460,8 +477,8 @@ class NativePlaybackEngine(private val context: Context) {
 
         // Check mute/solo at track level and voice level
         if (isTrackMuted(event.playbackTrack)) return
-        val voiceUpper = event.satbVoice.uppercase()
-        val isVoiceMuted = mutedVoices.keys.any { voiceUpper.startsWith(it) } && mutedVoices.entries.find { voiceUpper.startsWith(it.key) }?.value == true
+        val voiceKey = normalizeVoiceKey(event.satbVoice)
+        val isVoiceMuted = mutedVoices[voiceKey] == true
         if (isVoiceMuted) return
 
         when (event.tieType) {

@@ -350,10 +350,9 @@ open class MidiPlayerController(
     }
 
     /**
-     * Mute the selected SATB part.
-     * This mutes ONLY that single voice so the user can sing along without hearing it.
+     * Focus audio on the selected part (solos this part, muting all others).
      */
-    fun mutePart(part: String) {
+    fun focusPart(part: String) {
         val targetLabel = when {
             part.uppercase().startsWith("SOLO") -> "SOLO"
             part.uppercase().startsWith("OTHER") -> "OTHER"
@@ -362,14 +361,16 @@ open class MidiPlayerController(
         mutedVoicesList = listOf(targetLabel)
         
         // Mute all parts EXCEPT the selected target part (so the user can hear their part clearly)
-        listOf("S", "A", "T", "B", "SOLO", "OTHER").forEach { v ->
-            playbackEngine.muteVoice(v, v != targetLabel)
+        listOf("S", "A", "T", "B", "SOLO", "OTHER", "OTHERS").forEach { v ->
+            playbackEngine.muteVoice(v, v != targetLabel && !(targetLabel == "OTHER" && v == "OTHERS"))
         }
     }
 
+    fun mutePart(part: String) = focusPart(part)
+
     fun unmuteAllParts() {
         mutedVoicesList = emptyList()
-        listOf("S", "A", "T", "B", "SOLO", "OTHER").forEach { v ->
+        listOf("S", "A", "T", "B", "SOLO", "OTHER", "OTHERS").forEach { v ->
             playbackEngine.muteVoice(v, false)
         }
     }
