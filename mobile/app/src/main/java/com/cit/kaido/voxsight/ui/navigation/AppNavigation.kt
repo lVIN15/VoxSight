@@ -36,6 +36,16 @@ fun AppNavigation() {
     val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
     val isLoggedIn = prefs.getString("logged_in_username", null) != null
     val startDest = if (isLoggedIn) "upload" else "landing"
+    
+    val navigateToReview by com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(navigateToReview) {
+        if (navigateToReview) {
+            practiceViewModel.pendingMusicXml = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingMusicXml ?: ""
+            practiceViewModel.pendingScoreTitle = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingScoreTitle ?: ""
+            navController.navigate("review")
+            com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.value = false
+        }
+    }
 
     NavHost(navController = navController, startDestination = startDest) {
         
@@ -247,7 +257,23 @@ fun AppNavigation() {
             com.cit.kaido.voxsight.ui.screens.profile.SettingsScreen(
                 onBackClicked = { navController.popBackStack() },
                 onAboutClicked = { navController.navigate("about") },
-                onChangeHeaderUIClicked = { navController.navigate("change_header_ui") }
+                onChangeHeaderUIClicked = { navController.navigate("change_header_ui") },
+                onTosClicked = { navController.navigate("tos") },
+                onPrivacyClicked = { navController.navigate("privacy") }
+            )
+        }
+
+        composable("tos") {
+            com.cit.kaido.voxsight.ui.screens.profile.LegalScreen(
+                title = "Terms of Service",
+                onBackClicked = { navController.popBackStack() }
+            )
+        }
+
+        composable("privacy") {
+            com.cit.kaido.voxsight.ui.screens.profile.LegalScreen(
+                title = "Privacy Policy",
+                onBackClicked = { navController.popBackStack() }
             )
         }
 
@@ -319,6 +345,7 @@ fun AppNavigation() {
                             // Redirect to Mode Gatekeeper with the saved score's assigned ID
                             val scoreWithId = finalScore.copy(id = savedMeta.id)
                             practiceViewModel.setCurrentScore(scoreWithId)
+                            com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
                             navController.navigate("select_mode") {
                                 popUpTo("upload") { inclusive = false }
                             }

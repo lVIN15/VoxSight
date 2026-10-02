@@ -89,7 +89,7 @@ fun EditProfileScreen(
                 modifier = Modifier
                     .size(140.dp)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(Color(0xFFF5F5F5)) // No black border, just soft gray
                     .clickable { /* TODO: Implement Image Picker */ },
                 contentAlignment = Alignment.Center
             ) {
@@ -132,7 +132,7 @@ fun EditProfileScreen(
         ) {
             com.cit.kaido.voxsight.ui.screens.auth.VoxOutlinedField(
                 value = name,
-                onValueChange = { name = it },
+                onValueChange = { if (it.length <= 30) name = it },
                 label = "YOUR NAME",
                 placeholder = "e.g. John Doe"
             )

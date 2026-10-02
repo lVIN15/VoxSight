@@ -67,6 +67,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -151,9 +152,12 @@ fun UploadScoreScreen(
     val scrollState = rememberScrollState()
 
     // ── Processing state ────────────────────────────────────────
-    var isProcessing by remember { mutableStateOf(false) }
-    var processingFileName by remember { mutableStateOf("") }
-    var processingProgress by remember { mutableFloatStateOf(0f) }
+    val uploadStatus by UploadManager.uploadStatus.collectAsState()
+    val uploadProgress by UploadManager.uploadProgress.collectAsState()
+    val processingFileName = UploadManager.pendingFileName ?: ""
+    val isProcessing = uploadStatus == UploadStatus.PROCESSING
+    val isReady = uploadStatus == UploadStatus.READY
+    
     var allowMusicXmlBypass by remember { mutableStateOf(false) }
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
@@ -213,27 +217,23 @@ fun UploadScoreScreen(
             selectedScore = null
             lastParsedScore = null
             
-            processingFileName = "Scanned Score"
-            processingProgress = 0f
-            isProcessing = true
-            
             onImageCaptured(
                 context = context,
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
                 bypassCache = true,
-                onProgress = { progress -> processingProgress = progress },
+                onProgress = { /* handled by UploadManager state */ },
                 onSuccess = { musicXml, title ->
-                    isProcessing = false
                     val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                     if (unsupportedReason != null) {
                         activeErrorDialog = resolveErrorDialogData(unsupportedReason)
                     } else {
-                        onNavigateToReview(musicXml, title)
+                        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            onNavigateToReview(musicXml, title)
+                        }
                     }
                 },
                 onError = { error ->
-                    isProcessing = false
                     activeErrorDialog = resolveErrorDialogData(error)
                 }
             )
@@ -246,9 +246,6 @@ fun UploadScoreScreen(
     ) { uri: Uri? ->
         uri?.let {
             val fileName = getFileName(context, it)
-            processingFileName = fileName
-            processingProgress = 0f
-            isProcessing = true
             allowMusicXmlBypass = false
             selectedScore = null
 
@@ -257,7 +254,6 @@ fun UploadScoreScreen(
                     val xmlText = withContext(Dispatchers.IO) {
                         readMusicXmlText(context, it)
                     }
-                    isProcessing = false
                     if (!xmlText.isNullOrBlank()) {
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(xmlText)
                         if (unsupportedReason != null) {
@@ -277,18 +273,18 @@ fun UploadScoreScreen(
                     imageUri = it,
                     coroutineScope = coroutineScope,
                     bypassCache = true,
-                    onProgress = { progress -> processingProgress = progress },
+                    onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
-                        isProcessing = false
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                         if (unsupportedReason != null) {
                             activeErrorDialog = resolveErrorDialogData(unsupportedReason)
                         } else {
-                            onNavigateToReview(musicXml, title)
+                            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                                onNavigateToReview(musicXml, title)
+                            }
                         }
                     },
                     onError = { error ->
-                        isProcessing = false
                         activeErrorDialog = resolveErrorDialogData(error)
                     }
                 )
@@ -370,27 +366,23 @@ fun UploadScoreScreen(
                 selectedScore = null
                 lastParsedScore = null
 
-                processingFileName = "Camera Scanned Score"
-                processingProgress = 0f
-                isProcessing = true
-
                 onImageCaptured(
                     context = context,
                     imageUri = optimizedUri,
                     coroutineScope = coroutineScope,
                     bypassCache = true,
-                    onProgress = { progress -> processingProgress = progress },
+                    onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
-                        isProcessing = false
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                         if (unsupportedReason != null) {
                             activeErrorDialog = resolveErrorDialogData(unsupportedReason)
                         } else {
-                            onNavigateToReview(musicXml, title)
+                            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                                onNavigateToReview(musicXml, title)
+                            }
                         }
                     },
                     onError = { error ->
-                        isProcessing = false
                         activeErrorDialog = resolveErrorDialogData(error)
                     }
                 )
@@ -552,18 +544,25 @@ fun UploadScoreScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ===== Processing Status Card (animated entry) =====
+            // ===== Processing/Ready Status Card (animated entry) =====
             AnimatedVisibility(
-                visible = isProcessing,
+                visible = isProcessing || isReady,
                 enter = fadeIn() + slideInVertically { it / 2 }
             ) {
                 ProcessingCard(
                     fileName = processingFileName,
-                    progress = processingProgress,
+                    progress = uploadProgress,
+                    isReady = isReady,
                     bypassEnabled = allowMusicXmlBypass,
                     onBypass = {
                         selectedScore = lastParsedScore
                         selectedScore?.let { onNavigateToPractice(it) }
+                    },
+                    onReadyClick = {
+                        UploadManager.pendingMusicXml?.let { xml ->
+                            val title = UploadManager.pendingScoreTitle ?: deriveTitleFromFileName(processingFileName)
+                            onNavigateToReview(xml, title)
+                        }
                     }
                 )
             }
@@ -818,11 +817,24 @@ private fun ActionCard(
 private fun ProcessingCard(
     fileName: String,
     progress: Float,
+    isReady: Boolean,
     bypassEnabled: Boolean,
-    onBypass: () -> Unit
+    onBypass: () -> Unit,
+    onReadyClick: () -> Unit
 ) {
     val percent = (progress * 100).toInt()
-    val cardModifier = if (bypassEnabled) {
+    val cardModifier = if (isReady) {
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(VoxProcessingBg)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = VoxPurplePrimary),
+                onClick = onReadyClick
+            )
+            .padding(16.dp)
+    } else if (bypassEnabled) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
@@ -879,26 +891,28 @@ private fun ProcessingCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                color = VoxProgressIndicator,
-                trackColor = VoxProgressTrack,
-                strokeCap = StrokeCap.Round,
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
+            if (!isReady) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = VoxProgressIndicator,
+                    trackColor = VoxProgressTrack,
+                    strokeCap = StrokeCap.Round,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
             Text(
-                text = stringResource(R.string.processing_status),
+                text = if (isReady) "Ready for edit" else stringResource(R.string.processing_status),
                 style = MaterialTheme.typography.labelSmall,
-                color = VoxTextSubtitle
+                color = if (isReady) VoxPurplePrimary else VoxTextSubtitle,
+                fontWeight = if (isReady) FontWeight.Bold else FontWeight.Normal
             )
 
-            if (bypassEnabled) {
+            if (!isReady && bypassEnabled) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.processing_bypass_hint),
@@ -911,11 +925,13 @@ private fun ProcessingCard(
         Spacer(modifier = Modifier.width(8.dp))
 
         // Percentage
-        Text(
-            text = stringResource(R.string.processing_percent, percent),
-            style = MaterialTheme.typography.labelLarge,
-            color = VoxProgressText
-        )
+        if (!isReady) {
+            Text(
+                text = stringResource(R.string.processing_percent, percent),
+                style = MaterialTheme.typography.labelLarge,
+                color = VoxProgressText
+            )
+        }
     }
 }
 
@@ -1119,74 +1135,14 @@ private fun onImageCaptured(
         return
     }
 
-    coroutineScope.launch {
-        try {
-            // Fake progress to show activity while Audiveris runs
-            launch {
-                var fakeProgress = 0f
-                while (fakeProgress < 0.9f) {
-                    delay(500)
-                    fakeProgress += 0.05f
-                    onProgress(fakeProgress.coerceAtMost(0.9f))
-                }
-            }
-
-            // Extract actual file name and MIME type to support PDFs correctly
-            val originalFileName = getFileName(context, imageUri)
-            // Infer MIME type from filename extension when ContentResolver returns null (file:// URIs)
-            val mimeType = context.contentResolver.getType(imageUri) ?: run {
-                val lower = originalFileName.lowercase()
-                when {
-                    lower.endsWith(".pdf") -> "application/pdf"
-                    lower.endsWith(".png") -> "image/png"
-                    lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
-                    lower.endsWith(".musicxml") || lower.endsWith(".xml") -> "application/xml"
-                    lower.endsWith(".mxl") -> "application/vnd.recordare.musicxml"
-                    else -> "image/jpeg"
-                }
-            }
-            
-            // Copy URI content to a temp file so Retrofit can send it
-            val tempFile = File(context.cacheDir, "upload_$originalFileName")
-            withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(imageUri)?.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-
-            // Upload via Retrofit to /api/analyze (Milestone 1 Pipeline)
-            val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
-            val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
-            
-            val response = ApiClient.omrService.analyzeScore(body, bypassCache)
-            
-            if (response.success && response.musicXml != null) {
-                val scoreTitle = deriveTitleFromFileName(originalFileName)
-                onProgress(1f)
-                onSuccess(response.musicXml, scoreTitle)
-            } else {
-                onError(response.error ?: "Conversion/Analysis failed.")
-            }
-        } catch (e: HttpException) {
-            e.printStackTrace()
-            var errorMessage = "Network error: ${e.code()}"
-            val errorBody = e.response()?.errorBody()?.string()
-            if (errorBody != null) {
-                try {
-                    val errorResponse = Gson().fromJson(errorBody, OmrAnalysisResponse::class.java)
-                    if (errorResponse.error != null) {
-                        errorMessage = errorResponse.error
-                    }
-                } catch (ignored: Exception) {}
-            }
-            onError(errorMessage)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            onError("Network error: ${e.localizedMessage}")
-        }
-    }
+    UploadManager.uploadScore(
+        context = context,
+        imageUri = imageUri,
+        bypassCache = bypassCache,
+        onProgress = onProgress,
+        onSuccess = onSuccess,
+        onError = onError
+    )
 }
 
 /**
@@ -1203,7 +1159,7 @@ private fun validateImageQuality(imageUri: Uri): Boolean {
 /**
  * Extracts a human-readable file name from a content URI.
  */
-private fun getFileName(context: Context, uri: Uri): String {
+fun getFileName(context: Context, uri: Uri): String {
     var name = "score_image.jpg"
 
     // For file:// URIs (camera captures), extract the actual filename from the path
@@ -1251,7 +1207,7 @@ private fun isMusicXmlFile(fileName: String): Boolean {
     return lower.endsWith(".musicxml") || lower.endsWith(".xml") || lower.endsWith(".mxl")
 }
 
-private fun deriveTitleFromFileName(fileName: String): String {
+fun deriveTitleFromFileName(fileName: String): String {
     val trimmed = fileName.substringBeforeLast('.')
     return trimmed.replace('_', ' ').replace('-', ' ').trim()
 }

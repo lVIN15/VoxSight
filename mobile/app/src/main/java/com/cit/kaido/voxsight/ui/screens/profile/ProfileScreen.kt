@@ -71,7 +71,7 @@ fun ProfileScreen(
                 .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
                 .background(topPurple)
                 .statusBarsPadding()
-                .padding(top = 24.dp, bottom = 32.dp, start = 24.dp, end = 24.dp)
+                .padding(top = 8.dp, bottom = 32.dp, start = 24.dp, end = 24.dp)
         ) {
             Column {
                 // Close Button Row (X on top right)
@@ -120,7 +120,7 @@ fun ProfileScreen(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
                             fontSize = 28.sp,
-                            lineHeight = 32.sp
+                            lineHeight = 38.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(

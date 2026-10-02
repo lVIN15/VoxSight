@@ -26,7 +26,9 @@ import com.composables.icons.lucide.Component
 fun SettingsScreen(
     onBackClicked: () -> Unit,
     onAboutClicked: () -> Unit,
-    onChangeHeaderUIClicked: () -> Unit = {}
+    onChangeHeaderUIClicked: () -> Unit = {},
+    onTosClicked: () -> Unit = {},
+    onPrivacyClicked: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -91,12 +93,12 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Outlined.MenuBook,
                     title = "Terms of Service",
-                    onClick = { /* TODO */ }
+                    onClick = onTosClicked
                 )
                 SettingsItem(
                     icon = Icons.Outlined.Lock,
                     title = "Privacy Policy",
-                    onClick = { /* TODO */ }
+                    onClick = onPrivacyClicked
                 )
             }
         }
