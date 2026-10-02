@@ -67,14 +67,15 @@ import java.util.Locale
 
 @Composable
 fun SelectPracticeModeModal(
+    scoreId: String? = null,
     scoreTitle: String? = null,
     onDismiss: () -> Unit,
     onModeSelected: (Boolean) -> Unit // true if mic enabled (Test Pitch), false if Listen Only
 ) {
     val context = LocalContext.current
     var isViewingRecordings by remember { mutableStateOf(false) }
-    var recordings by remember(scoreTitle) {
-        mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreTitle))
+    var recordings by remember(scoreId, scoreTitle) {
+        mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle))
     }
     var activePlayingFile by remember { mutableStateOf<File?>(null) }
 
@@ -270,9 +271,11 @@ fun SelectPracticeModeModal(
                                     Text(
                                         text = "Past Vocal Takes",
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = Color(0xFF191C20)
+                                        color = Color(0xFF191C20),
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     if (recordings.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
@@ -282,7 +285,9 @@ fun SelectPracticeModeModal(
                                             Text(
                                                 text = "${recordings.size} Take${if (recordings.size == 1) "" else "s"}",
                                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = VoxPurplePrimary
+                                                color = VoxPurplePrimary,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
@@ -440,7 +445,7 @@ fun SelectPracticeModeModal(
                                             activePlayingFile = null
                                         }
                                         ScoreRecordingManager.deleteRecording(item.file)
-                                        recordings = ScoreRecordingManager.getRecordings(context, scoreTitle)
+                                        recordings = ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle)
                                     }
                                 )
                             }

@@ -13,6 +13,7 @@ import java.util.Locale
  */
 data class ScoreRecordingItem(
     val file: File,
+    val scoreId: String? = null,
     val scoreTitle: String,
     val timestamp: Long,
     val formattedDate: String,
@@ -23,25 +24,48 @@ data class ScoreRecordingItem(
 /**
  * ScoreRecordingManager — Manages persistent storage, retrieval, and tagging
  * of recorded vocal takes associated with specific converted music sheets.
+ *
+ * Each music sheet has a completely isolated storage directory keyed primarily by its
+ * unique score ID (or score title as fallback), ensuring that duplicate music sheets or
+ * sheets with identical titles maintain separate, isolated playback takes.
  */
 object ScoreRecordingManager {
     private const val DIRECTORY_NAME = "score_recordings"
 
-    fun getRecordingsDir(context: Context, scoreTitle: String?): File {
-        val safeTitle = sanitizeTitle(scoreTitle)
-        val dir = File(context.filesDir, "$DIRECTORY_NAME/$safeTitle")
+    /**
+     * Resolves the isolated recording directory for a specific score.
+     * Prefers scoreId for unique per-score isolation so duplicates never share storage.
+     */
+    fun getRecordingsDir(context: Context, scoreId: String?, scoreTitle: String? = null): File {
+        val folderName = when {
+            !scoreId.isNullOrBlank() -> "score_${sanitizeIdentifier(scoreId)}"
+            !scoreTitle.isNullOrBlank() -> "score_${sanitizeIdentifier(scoreTitle)}"
+            else -> "general"
+        }
+        val dir = File(context.filesDir, "$DIRECTORY_NAME/$folderName")
         if (!dir.exists()) {
             dir.mkdirs()
         }
         return dir
     }
 
-    fun sanitizeTitle(title: String?): String {
-        return (title ?: "general")
+    /**
+     * Overload for callers supplying only scoreTitle.
+     */
+    fun getRecordingsDir(context: Context, scoreTitle: String?): File {
+        return getRecordingsDir(context, scoreId = null, scoreTitle = scoreTitle)
+    }
+
+    fun sanitizeIdentifier(identifier: String?): String {
+        return (identifier ?: "general")
             .trim()
             .replace(Regex("[^a-zA-Z0-9_-]"), "_")
             .take(64)
             .ifEmpty { "score" }
+    }
+
+    fun sanitizeTitle(title: String?): String {
+        return sanitizeIdentifier(title)
     }
 
     /**
@@ -72,14 +96,20 @@ object ScoreRecordingManager {
     }
 
     /**
-     * Lists all recorded vocal takes for the given score title, ordered from newest to oldest.
-     * If scoreTitle is null or empty, lists all recorded vocal takes across all scores.
+     * Lists all recorded vocal takes for the given score.
+     * If scoreId or scoreTitle is provided, returns ONLY the takes recorded for that specific score.
+     * Never falls back to general/ or other score folders, guaranteeing separate storage.
      */
-    fun getRecordings(context: Context, scoreTitle: String?): List<ScoreRecordingItem> {
+    fun getRecordings(
+        context: Context,
+        scoreId: String? = null,
+        scoreTitle: String? = null
+    ): List<ScoreRecordingItem> {
         val rootDir = File(context.filesDir, DIRECTORY_NAME)
         if (!rootDir.exists()) return emptyList()
 
-        if (scoreTitle.isNullOrBlank()) {
+        // When neither scoreId nor scoreTitle is provided, return all recordings across the library
+        if (scoreId.isNullOrBlank() && scoreTitle.isNullOrBlank()) {
             val allFiles = mutableListOf<File>()
             rootDir.listFiles()?.forEach { sub ->
                 if (sub.isDirectory) {
@@ -89,24 +119,28 @@ object ScoreRecordingManager {
                 }
             }
             return allFiles.mapNotNull { file ->
-                val parentName = file.parentFile?.name?.replace("_", " ") ?: "Music Score"
-                parseRecordingItem(file, parentName)
+                val parentName = file.parentFile?.name
+                    ?.removePrefix("score_")
+                    ?.replace("_", " ") ?: "Music Score"
+                parseRecordingItem(file, scoreTitle = parentName, scoreId = null)
             }.sortedByDescending { it.timestamp }
         }
 
-        val dir = getRecordingsDir(context, scoreTitle)
+        // Query the dedicated folder for this specific score
+        val dir = getRecordingsDir(context, scoreId = scoreId, scoreTitle = scoreTitle)
         val files = dir.listFiles { _, name -> name.endsWith(".wav") }?.toMutableList() ?: mutableListOf()
 
-        // Also check if recordings were saved under general/fallback
-        if (files.isEmpty()) {
-            val generalDir = File(rootDir, "general")
-            generalDir.listFiles { _, name -> name.endsWith(".wav") }?.let { files.addAll(it) }
-        }
-
         val list = files.mapNotNull { file ->
-            parseRecordingItem(file, scoreTitle)
+            parseRecordingItem(file, scoreTitle = scoreTitle ?: "Music Score", scoreId = scoreId)
         }
         return list.sortedByDescending { it.timestamp }
+    }
+
+    /**
+     * Overload for callers supplying only scoreTitle.
+     */
+    fun getRecordings(context: Context, scoreTitle: String?): List<ScoreRecordingItem> {
+        return getRecordings(context, scoreId = null, scoreTitle = scoreTitle)
     }
 
     /**
@@ -121,7 +155,42 @@ object ScoreRecordingManager {
         }
     }
 
-    private fun parseRecordingItem(file: File, scoreTitle: String): ScoreRecordingItem? {
+    /**
+     * Deletes the entire isolated recording directory for a specific score ID.
+     */
+    fun deleteScoreRecordingsDir(context: Context, scoreId: String?): Boolean {
+        if (scoreId.isNullOrBlank()) return false
+        val dir = File(context.filesDir, "$DIRECTORY_NAME/score_${sanitizeIdentifier(scoreId)}")
+        return try {
+            if (dir.exists()) {
+                dir.deleteRecursively()
+            } else false
+        } catch (e: Exception) {
+            Log.e("ScoreRecordingManager", "Failed to delete score recordings dir: ${dir.name}", e)
+            false
+        }
+    }
+
+    /**
+     * Clears all score recordings on the device.
+     */
+    fun clearAllScoreRecordings(context: Context): Boolean {
+        val rootDir = File(context.filesDir, DIRECTORY_NAME)
+        return try {
+            if (rootDir.exists()) {
+                rootDir.deleteRecursively()
+            } else false
+        } catch (e: Exception) {
+            Log.e("ScoreRecordingManager", "Failed to clear all score recordings", e)
+            false
+        }
+    }
+
+    private fun parseRecordingItem(
+        file: File,
+        scoreTitle: String,
+        scoreId: String? = null
+    ): ScoreRecordingItem? {
         if (!file.exists()) return null
         val name = file.nameWithoutExtension
         var timestamp = file.lastModified()
@@ -158,6 +227,7 @@ object ScoreRecordingManager {
 
         return ScoreRecordingItem(
             file = file,
+            scoreId = scoreId,
             scoreTitle = scoreTitle,
             timestamp = timestamp,
             formattedDate = formattedDate,

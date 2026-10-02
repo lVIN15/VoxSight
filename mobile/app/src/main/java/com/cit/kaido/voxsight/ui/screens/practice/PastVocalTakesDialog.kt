@@ -62,12 +62,13 @@ import java.util.Locale
 
 @Composable
 fun PastVocalTakesDialog(
+    scoreId: String? = null,
     scoreTitle: String?,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var recordings by remember(scoreTitle) {
-        mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreTitle))
+    var recordings by remember(scoreId, scoreTitle) {
+        mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle))
     }
     var activePlayingFile by remember { mutableStateOf<File?>(null) }
 
@@ -223,7 +224,7 @@ fun PastVocalTakesDialog(
                                         activePlayingFile = null
                                     }
                                     ScoreRecordingManager.deleteRecording(item.file)
-                                    recordings = ScoreRecordingManager.getRecordings(context, scoreTitle)
+                                    recordings = ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle)
                                 }
                             )
                         }

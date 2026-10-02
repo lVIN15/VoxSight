@@ -312,12 +312,13 @@ fun AppNavigation() {
                             )
                             
                             // Save to cache
-                            withContext(Dispatchers.IO) {
+                            val savedMeta = withContext(Dispatchers.IO) {
                                 com.cit.kaido.voxsight.storage.LocalScoreManager.saveScore(context, finalScore)
                             }
                             
-                            // Redirect to Mode Gatekeeper
-                            practiceViewModel.setCurrentScore(finalScore)
+                            // Redirect to Mode Gatekeeper with the saved score's assigned ID
+                            val scoreWithId = finalScore.copy(id = savedMeta.id)
+                            practiceViewModel.setCurrentScore(scoreWithId)
                             navController.navigate("select_mode") {
                                 popUpTo("upload") { inclusive = false }
                             }
@@ -359,6 +360,7 @@ fun AppNavigation() {
             }
 
             SelectPracticeModeModal(
+                scoreId = currentScore?.id,
                 scoreTitle = currentScore?.title,
                 onDismiss = {
                     navController.popBackStack()
@@ -391,7 +393,11 @@ fun AppNavigation() {
 
             androidx.compose.runtime.LaunchedEffect(isMicEnabled) {
                 if (isMicEnabled) {
-                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(context, currentScore?.title)
+                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
+                        context,
+                        scoreId = currentScore?.id,
+                        scoreTitle = currentScore?.title
+                    )
                     practiceViewModel.startPitchSession(recordingsDir)
                 } else {
                     practiceViewModel.endPitchSession()
@@ -495,7 +501,11 @@ fun AppNavigation() {
                     navController.popBackStack("upload", inclusive = false)
                 },
                 onRepeatPractice = {
-                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(context, currentScore?.title)
+                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
+                        context,
+                        scoreId = currentScore?.id,
+                        scoreTitle = currentScore?.title
+                    )
                     practiceViewModel.startPitchSession(recordingsDir)
                     navController.navigate("practice") {
                         popUpTo("practice") { inclusive = true }

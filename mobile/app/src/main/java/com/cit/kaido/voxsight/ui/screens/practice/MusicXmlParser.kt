@@ -21,6 +21,7 @@ const val STANDARD_TPQ = 480
  * Minimal MusicXML parser for prototype playback and score visualization.
  */
 data class MusicXmlScore(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val title: String,
     val composer: String,
     val notes: List<MusicXmlNote>,

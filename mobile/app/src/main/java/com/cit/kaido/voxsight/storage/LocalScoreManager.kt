@@ -35,23 +35,10 @@ object LocalScoreManager {
 
     suspend fun saveScore(context: Context, score: MusicXmlScore): LocalScoreMetadata = withContext(Dispatchers.IO) {
         val scoresDir = getScoresDir(context)
-
-        // Purge any previously saved copy with matching title to ensure fresh overwrite
-        val existingFiles = scoresDir.listFiles() ?: emptyArray()
         val gson = Gson()
-        for (f in existingFiles) {
-            if (f.name.endsWith(".json")) {
-                try {
-                    val meta = gson.fromJson(f.readText(Charsets.UTF_8), LocalScoreMetadata::class.java)
-                    if (meta.title.trim().equals(score.title.trim(), ignoreCase = true)) {
-                        File(scoresDir, meta.xmlFileName).delete()
-                        f.delete()
-                    }
-                } catch (_: Exception) {}
-            }
-        }
 
-        val id = UUID.randomUUID().toString()
+        // Use the score's assigned unique ID to preserve identity
+        val id = score.id.ifBlank { UUID.randomUUID().toString() }
         val xmlFileName = "$id.musicxml"
         val xmlFile = File(scoresDir, xmlFileName)
 
@@ -76,6 +63,46 @@ object LocalScoreManager {
         }
 
         metadata
+    }
+
+    /**
+     * Creates a duplicate of an existing score in the library.
+     * The duplicated score receives a unique ID, new storage files, and its own isolated
+     * recording folder with 0 initial takes, ensuring separated playback storage.
+     */
+    suspend fun duplicateScore(context: Context, sourceId: String): LocalScoreMetadata? = withContext(Dispatchers.IO) {
+        val scoresDir = getScoresDir(context)
+        val sourceJson = File(scoresDir, "$sourceId.json")
+        val sourceXml = File(scoresDir, "$sourceId.musicxml")
+        if (!sourceJson.exists() || !sourceXml.exists()) return@withContext null
+
+        val gson = Gson()
+        val sourceMeta = try {
+            gson.fromJson(sourceJson.readText(Charsets.UTF_8), LocalScoreMetadata::class.java)
+        } catch (_: Exception) {
+            return@withContext null
+        }
+
+        val newId = UUID.randomUUID().toString()
+        val newXmlName = "$newId.musicxml"
+        val newXmlFile = File(scoresDir, newXmlName)
+        sourceXml.copyTo(newXmlFile, overwrite = true)
+
+        val newMeta = LocalScoreMetadata(
+            id = newId,
+            title = "${sourceMeta.title} (Copy)",
+            composer = sourceMeta.composer,
+            xmlFileName = newXmlName,
+            eventsJson = sourceMeta.eventsJson,
+            metadataJson = sourceMeta.metadataJson,
+            timestamp = System.currentTimeMillis()
+        )
+        val newJsonFile = File(scoresDir, "$newId.json")
+        FileOutputStream(newJsonFile).use { output ->
+            output.write(gson.toJson(newMeta).toByteArray(Charsets.UTF_8))
+        }
+
+        newMeta
     }
 
     suspend fun loadSavedScores(context: Context): List<LocalScoreMetadata> = withContext(Dispatchers.IO) {
@@ -125,6 +152,7 @@ object LocalScoreManager {
         }
 
         score.copy(
+            id = metadata.id,
             eventsJson = metadata.eventsJson,
             metadataJson = metadata.metadataJson
         )
@@ -136,10 +164,13 @@ object LocalScoreManager {
         val jsonFile = File(scoresDir, "$id.json")
         if (xmlFile.exists()) xmlFile.delete()
         if (jsonFile.exists()) jsonFile.delete()
+        // Delete this score's isolated recordings directory
+        ScoreRecordingManager.deleteScoreRecordingsDir(context, id)
     }
 
     suspend fun clearAllScores(context: Context) = withContext(Dispatchers.IO) {
         val scoresDir = getScoresDir(context)
         scoresDir.listFiles()?.forEach { it.delete() }
+        ScoreRecordingManager.clearAllScoreRecordings(context)
     }
 }

@@ -191,6 +191,7 @@ fun PracticeSummaryScreen(
             // Sleek Recent Attempt & All Takes Row
             RecentAttemptPlaybackRow(
                 recordingFile = summary.recordingFile,
+                scoreId = score?.id,
                 scoreTitle = score?.title,
                 onViewAllTakes = { showPastTakesDialog = true }
             )
@@ -339,6 +340,7 @@ fun PracticeSummaryScreen(
 
         if (showPastTakesDialog) {
             PastVocalTakesDialog(
+                scoreId = score?.id,
                 scoreTitle = score?.title,
                 onDismiss = { showPastTakesDialog = false }
             )
@@ -496,16 +498,17 @@ private fun MeasureReviewCard(
 @Composable
 fun RecentAttemptPlaybackRow(
     recordingFile: java.io.File?,
+    scoreId: String? = null,
     scoreTitle: String?,
     onViewAllTakes: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val effectiveFile = remember(recordingFile, scoreTitle) {
+    val effectiveFile = remember(recordingFile, scoreId, scoreTitle) {
         if (recordingFile != null && recordingFile.exists()) {
             recordingFile
         } else {
-            ScoreRecordingManager.getRecordings(context, scoreTitle).firstOrNull()?.file
+            ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle).firstOrNull()?.file
         }
     }
     val hasRecording = effectiveFile != null && effectiveFile.exists()
@@ -528,8 +531,8 @@ fun RecentAttemptPlaybackRow(
     val currentPosMs by player.currentPositionMs.collectAsState()
     val durationMs by player.durationMs.collectAsState()
 
-    val takesCount = remember(scoreTitle) {
-        ScoreRecordingManager.getRecordings(context, scoreTitle).size
+    val takesCount = remember(scoreId, scoreTitle) {
+        ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle).size
     }
 
     Row(

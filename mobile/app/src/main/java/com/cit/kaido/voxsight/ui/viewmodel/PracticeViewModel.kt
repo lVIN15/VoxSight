@@ -147,9 +147,11 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
         _pitchAttempts.value = emptyList()
         lastRecordingFile = null
         if (_isMicrophoneEnabled.value) {
+            val score = _currentScore.value
             val resolvedDir = outputDir ?: com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
                 getApplication(),
-                _currentScore.value?.title
+                scoreId = score?.id,
+                scoreTitle = score?.title
             )
             pitchEngine.start(resolvedDir)
             _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
@@ -305,7 +307,11 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
         } else null
 
         val resolvedRecordingFile = lastRecordingFile ?: com.cit.kaido.voxsight.storage.ScoreRecordingManager
-            .getRecordings(getApplication(), _currentScore.value?.title)
+            .getRecordings(
+                getApplication(),
+                scoreId = score?.id,
+                scoreTitle = score?.title
+            )
             .firstOrNull()?.file
 
         return com.cit.kaido.voxsight.ui.screens.practice.SessionSummary(

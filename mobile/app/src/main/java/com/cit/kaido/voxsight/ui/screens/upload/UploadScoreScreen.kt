@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileUpload
@@ -584,6 +585,30 @@ fun UploadScoreScreen(
                                 }
                             }
                         },
+                        onDuplicateScore = { item ->
+                            coroutineScope.launch {
+                                val duplicated = LocalScoreManager.duplicateScore(context, item.id)
+                                if (duplicated != null) {
+                                    val saved = LocalScoreManager.loadSavedScores(context)
+                                    recentScores.clear()
+                                    recentScores.addAll(
+                                        saved.map { meta ->
+                                            RecentScoreItem(
+                                                id = meta.id,
+                                                title = meta.title,
+                                                composer = meta.composer,
+                                                fileType = context.getString(R.string.recent_score_type_musicxml),
+                                                timeLabel = formatTimeLabel(context, meta.timestamp),
+                                                metadata = meta
+                                            )
+                                        }
+                                    )
+                                    Toast.makeText(context, "Duplicated \"${item.title}\"", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to duplicate score", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
                         onDeleteScore = { item ->
                             scoreToDelete = item
                         },
@@ -898,6 +923,7 @@ private fun ProcessingCard(
 private fun RecentScoresSection(
     scores: List<RecentScoreItem>,
     onScoreSelected: (RecentScoreItem) -> Unit,
+    onDuplicateScore: (RecentScoreItem) -> Unit,
     onDeleteScore: (RecentScoreItem) -> Unit,
     onClearAll: () -> Unit
 ) {
@@ -932,6 +958,7 @@ private fun RecentScoresSection(
             RecentScoreRow(
                 item = item,
                 onClick = { onScoreSelected(item) },
+                onDuplicateClick = { onDuplicateScore(item) },
                 onDeleteClick = { onDeleteScore(item) }
             )
         }
@@ -942,6 +969,7 @@ private fun RecentScoresSection(
 private fun RecentScoreRow(
     item: RecentScoreItem,
     onClick: () -> Unit,
+    onDuplicateClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
     Surface(
@@ -1018,7 +1046,21 @@ private fun RecentScoreRow(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+
+            androidx.compose.material3.IconButton(
+                onClick = {
+                    onDuplicateClick()
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = "Duplicate Score",
+                    tint = VoxPurplePrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
 
             androidx.compose.material3.IconButton(
                 onClick = {
