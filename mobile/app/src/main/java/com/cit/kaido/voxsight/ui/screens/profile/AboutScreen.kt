@@ -31,6 +31,7 @@ fun AboutScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .statusBarsPadding()
     ) {
         // --- Top App Bar ---
         Row(

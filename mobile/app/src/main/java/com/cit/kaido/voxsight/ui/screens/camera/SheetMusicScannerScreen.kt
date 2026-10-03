@@ -1,6 +1,9 @@
 package com.cit.kaido.voxsight.ui.screens.camera
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.graphics.BitmapFactory
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -108,6 +111,28 @@ fun SheetMusicScannerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Lock screen orientation to Portrait for the scanner
+    DisposableEffect(context) {
+        var currentContext = context
+        var activity: Activity? = null
+        while (currentContext is ContextWrapper) {
+            if (currentContext is Activity) {
+                activity = currentContext
+                break
+            }
+            currentContext = currentContext.baseContext
+        }
+        
+        val originalOrientation = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        
+        onDispose {
+            if (originalOrientation != null) {
+                activity.requestedOrientation = originalOrientation
+            }
+        }
+    }
 
     var camera by remember { mutableStateOf<Camera?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }

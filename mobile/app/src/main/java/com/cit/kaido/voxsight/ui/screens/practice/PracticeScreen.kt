@@ -157,6 +157,7 @@ fun Module2PracticeScreen(
     }
 
     var isPlaying by remember { mutableStateOf(false) }
+    var hasStartedPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     
     var simulatedProgress by remember { mutableFloatStateOf(0f) }
@@ -389,6 +390,7 @@ fun Module2PracticeScreen(
                                 controller.clearVisualFocus()
                             }
                             controller.onPlaybackStartedCallback = {
+                                hasStartedPlaying = true
                                 if (!isPlaying) {
                                     isPlaying = true
                                     onMusicPlay()
@@ -409,7 +411,9 @@ fun Module2PracticeScreen(
                             isPlaying = false
                             progress = 1f
                             onMusicPause()
-                            onPlaybackComplete()
+                            if (hasStartedPlaying) {
+                                onPlaybackComplete()
+                            }
                         },
                         onNoteOn = { event ->
                             if (isMicEnabled && selectedPart != VoicePart.Others) {

@@ -62,6 +62,8 @@ object UploadManager {
         
         uploadStatus.value = UploadStatus.PROCESSING
         uploadProgress.value = 0f
+        
+        android.widget.Toast.makeText(context, "Import in progress", android.widget.Toast.LENGTH_SHORT).show()
         activeError = null
         pendingMusicXml = null
         pendingScoreTitle = null
@@ -81,7 +83,7 @@ object UploadManager {
         }
         
         val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_name)
             .setContentTitle("Uploading Score...")
             .setContentText("Processing your sheet music")
             .setPriority(NotificationCompat.PRIORITY_LOW)
