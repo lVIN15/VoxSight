@@ -110,6 +110,16 @@ class PitchDetectionEngine {
         }
     }
 
+    fun pauseRecording() {
+        audioRecorder.pause()
+    }
+
+    fun resumeRecording() {
+        audioRecorder.resume()
+    }
+
+    fun isRecordingPaused(): Boolean = audioRecorder.isPausedState
+
     fun stop(): java.io.File? {
         _isListening.value = false
         recordingJob?.cancel()

@@ -111,6 +111,8 @@ open class MidiPlayerController(
     var onScoreLoadedCallback: (Int) -> Unit = {}
     var onNoteOnCallback: (MusicalEvent) -> Unit = {}
     var onWaitPitchCallback: suspend (List<MusicalEvent>) -> Unit = {}
+    var onPlaybackStartedCallback: () -> Unit = {}
+    var onPlaybackPausedCallback: () -> Unit = {}
     
     // ─── Diagnostics State (Compose Reactive) ─────────────────────────
     var eventsCount by mutableStateOf(0)
@@ -401,9 +403,15 @@ open class MidiPlayerController(
     // ─── PlaybackListener Implementation ───────────────────────────────
     override fun onPlaybackStarted() {
         playbackState = "PLAYING"
+        Handler(Looper.getMainLooper()).post {
+            onPlaybackStartedCallback()
+        }
     }
     override fun onPlaybackPaused() {
         playbackState = "PAUSED"
+        Handler(Looper.getMainLooper()).post {
+            onPlaybackPausedCallback()
+        }
     }
     
     override fun onPlaybackStopped() {

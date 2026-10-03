@@ -414,19 +414,13 @@ fun AppNavigation() {
             val context = androidx.compose.ui.platform.LocalContext.current
             val showPauseModal by practiceViewModel.showPauseModal.collectAsState()
             val isMicEnabled by practiceViewModel.isMicrophoneEnabled.collectAsState()
+            val isMusicPlaying by practiceViewModel.isPlaying.collectAsState()
             val currentScore by practiceViewModel.currentScore.collectAsState()
             val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
             val pitchUiState by practiceViewModel.pitchUiState.collectAsState()
 
             androidx.compose.runtime.LaunchedEffect(isMicEnabled) {
-                if (isMicEnabled) {
-                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
-                        context,
-                        scoreId = currentScore?.id,
-                        scoreTitle = currentScore?.title
-                    )
-                    practiceViewModel.startPitchSession(recordingsDir)
-                } else {
+                if (!isMicEnabled) {
                     practiceViewModel.endPitchSession()
                 }
             }
@@ -437,14 +431,29 @@ fun AppNavigation() {
                 }
             }
 
-            // In a real implementation, we would intercept the native back press or a pause button.
-            // For now, Module2PracticeScreen would ideally have an onPause callback.
-            // But if it doesn't, the user can trigger it through the screen's UI.
             Module2PracticeScreen(
                 score = currentScore,
                 isMicEnabled = isMicEnabled,
                 pitchAttempts = pitchAttempts,
                 pitchUiState = pitchUiState,
+                externalPlayingState = isMusicPlaying,
+                onMusicPlay = {
+                    practiceViewModel.setPlaying(true)
+                    if (isMicEnabled) {
+                        val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
+                            context,
+                            scoreId = currentScore?.id,
+                            scoreTitle = currentScore?.title
+                        )
+                        practiceViewModel.startPitchSession(recordingsDir)
+                    }
+                },
+                onMusicPause = {
+                    practiceViewModel.setPlaying(false)
+                    if (isMicEnabled) {
+                        practiceViewModel.pausePitchSession()
+                    }
+                },
                 onPauseClicked = {
                     if (isMicEnabled) {
                         practiceViewModel.setShowPauseModal(true)
@@ -483,6 +492,7 @@ fun AppNavigation() {
                     }
                 },
                 onPlaybackComplete = {
+                    practiceViewModel.setPlaying(false)
                     if (isMicEnabled) {
                         practiceViewModel.endPitchSession()
                         navController.navigate("summary") {
@@ -500,6 +510,7 @@ fun AppNavigation() {
                     },
                     onEndSession = {
                         practiceViewModel.setShowPauseModal(false)
+                        practiceViewModel.setPlaying(false)
                         practiceViewModel.endPitchSession()
                         navController.navigate("summary") {
                             popUpTo("upload") { inclusive = false } // clear backstack up to upload
@@ -528,12 +539,7 @@ fun AppNavigation() {
                     navController.popBackStack("upload", inclusive = false)
                 },
                 onRepeatPractice = {
-                    val recordingsDir = com.cit.kaido.voxsight.storage.ScoreRecordingManager.getRecordingsDir(
-                        context,
-                        scoreId = currentScore?.id,
-                        scoreTitle = currentScore?.title
-                    )
-                    practiceViewModel.startPitchSession(recordingsDir)
+                    practiceViewModel.setPlaying(false)
                     navController.navigate("practice") {
                         popUpTo("practice") { inclusive = true }
                     }

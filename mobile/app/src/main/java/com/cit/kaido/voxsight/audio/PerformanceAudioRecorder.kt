@@ -16,6 +16,8 @@ class PerformanceAudioRecorder {
     private var rawPcmFile: File? = null
     private var pcmOutputStream: FileOutputStream? = null
     private var isRecording = false
+    @Volatile
+    private var isPaused = false
     private var totalPcmBytes: Long = 0
     private var sampleRate: Int = 22050
     private val channels: Int = 1
@@ -23,6 +25,9 @@ class PerformanceAudioRecorder {
 
     val activeRecordingFile: File?
         get() = rawPcmFile
+
+    val isPausedState: Boolean
+        get() = isPaused
 
     fun start(outputDir: File, sampleRate: Int = 22050): File? {
         return try {
@@ -37,17 +42,29 @@ class PerformanceAudioRecorder {
             pcmOutputStream = FileOutputStream(file)
             totalPcmBytes = 0
             isRecording = true
+            isPaused = false
             Log.d("PerformanceAudioRecorder", "Recording started: ${file.absolutePath}")
             file
         } catch (e: Exception) {
             Log.e("PerformanceAudioRecorder", "Failed to start audio recording", e)
             isRecording = false
+            isPaused = false
             null
         }
     }
 
+    fun pause() {
+        isPaused = true
+        Log.d("PerformanceAudioRecorder", "Recording paused")
+    }
+
+    fun resume() {
+        isPaused = false
+        Log.d("PerformanceAudioRecorder", "Recording resumed")
+    }
+
     fun writeChunk(buffer: ShortArray, readCount: Int) {
-        if (!isRecording || pcmOutputStream == null || readCount <= 0) return
+        if (!isRecording || isPaused || pcmOutputStream == null || readCount <= 0) return
         try {
             val byteBuffer = ByteBuffer.allocate(readCount * 2).order(ByteOrder.LITTLE_ENDIAN)
             for (i in 0 until readCount) {
@@ -64,6 +81,7 @@ class PerformanceAudioRecorder {
     fun stop(outputDir: File): File? {
         if (!isRecording) return null
         isRecording = false
+        isPaused = false
 
         try {
             pcmOutputStream?.flush()

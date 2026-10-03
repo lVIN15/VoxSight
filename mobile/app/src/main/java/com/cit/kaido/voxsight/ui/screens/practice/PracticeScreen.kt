@@ -119,11 +119,14 @@ fun Module2PracticeScreen(
     isMicEnabled: Boolean = false,
     pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList(),
     pitchUiState: com.cit.kaido.voxsight.pitch.PitchUiState = com.cit.kaido.voxsight.pitch.PitchUiState.Idle,
+    externalPlayingState: Boolean? = null,
     onPauseClicked: () -> Unit = {},
     onBackClicked: () -> Unit = {},
     onNoteOn: (com.cit.kaido.voxsight.model.MusicalEvent) -> Unit = {},
     onWaitPitch: suspend (List<com.cit.kaido.voxsight.model.MusicalEvent>) -> Unit = {},
-    onPlaybackComplete: () -> Unit = {}
+    onPlaybackComplete: () -> Unit = {},
+    onMusicPlay: () -> Unit = {},
+    onMusicPause: () -> Unit = {}
 ) {
     val resolvedScore = score ?: sampleMusicXmlScore(fallbackTitle)
     val staffNotes = remember(resolvedScore) {
@@ -250,6 +253,20 @@ fun Module2PracticeScreen(
         }
     }
 
+    LaunchedEffect(externalPlayingState) {
+        externalPlayingState?.let { shouldPlay ->
+            if (shouldPlay && !isPlaying) {
+                midiController?.play()
+                isPlaying = true
+                onMusicPlay()
+            } else if (!shouldPlay && isPlaying) {
+                midiController?.pause()
+                isPlaying = false
+                onMusicPause()
+            }
+        }
+    }
+
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             VoxBackground,
@@ -371,6 +388,18 @@ fun Module2PracticeScreen(
                             } else {
                                 controller.clearVisualFocus()
                             }
+                            controller.onPlaybackStartedCallback = {
+                                if (!isPlaying) {
+                                    isPlaying = true
+                                    onMusicPlay()
+                                }
+                            }
+                            controller.onPlaybackPausedCallback = {
+                                if (isPlaying) {
+                                    isPlaying = false
+                                    onMusicPause()
+                                }
+                            }
                         },
                         onScoreLoaded = {
                             totalSeconds = it
@@ -379,6 +408,7 @@ fun Module2PracticeScreen(
                         onPlaybackComplete = {
                             isPlaying = false
                             progress = 1f
+                            onMusicPause()
                             onPlaybackComplete()
                         },
                         onNoteOn = { event ->
@@ -551,11 +581,14 @@ fun Module2PracticeScreen(
                 onPlayPause = {
                     if (isPlaying) {
                         midiController?.pause()
+                        isPlaying = false
+                        onMusicPause()
                         onPauseClicked()
                     } else {
                         midiController?.play()
+                        isPlaying = true
+                        onMusicPlay()
                     }
-                    isPlaying = !isPlaying
                 },
                 progress = if (isDraggingSlider) progress else animatedProgress,
                 onProgressChange = { 

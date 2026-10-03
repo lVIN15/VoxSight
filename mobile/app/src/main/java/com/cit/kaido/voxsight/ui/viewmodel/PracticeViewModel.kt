@@ -29,7 +29,7 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
     private val _isMicrophoneEnabled = MutableStateFlow(false)
     val isMicrophoneEnabled: StateFlow<Boolean> = _isMicrophoneEnabled.asStateFlow()
 
-    private val _isPlaying = MutableStateFlow(true)
+    private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val _showPauseModal = MutableStateFlow(false)
@@ -143,7 +143,15 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
     val lastRecording: java.io.File?
         get() = lastRecordingFile
 
+    private var isPitchSessionStarted = false
+
+    fun isSessionActive(): Boolean = isPitchSessionStarted
+
     fun startPitchSession(outputDir: java.io.File? = null) {
+        if (isPitchSessionStarted) {
+            resumePitchSession()
+            return
+        }
         _pitchAttempts.value = emptyList()
         lastRecordingFile = null
         if (_isMicrophoneEnabled.value) {
@@ -154,11 +162,29 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
                 scoreTitle = score?.title
             )
             pitchEngine.start(resolvedDir)
+            isPitchSessionStarted = true
             _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
         }
     }
 
+    fun pausePitchSession() {
+        if (isPitchSessionStarted) {
+            pitchEngine.pauseRecording()
+            _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Idle
+        }
+    }
+
+    fun resumePitchSession() {
+        if (isPitchSessionStarted) {
+            pitchEngine.resumeRecording()
+            if (_isMicrophoneEnabled.value) {
+                _pitchUiState.value = com.cit.kaido.voxsight.pitch.PitchUiState.Listening
+            }
+        }
+    }
+
     fun endPitchSession() {
+        isPitchSessionStarted = false
         val file = pitchEngine.stop()
         if (file != null && file.exists()) {
             val summary = getSessionSummary()
@@ -220,6 +246,8 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
 
     fun setCurrentScore(score: MusicXmlScore?) {
         _currentScore.value = score
+        _isPlaying.value = false
+        isPitchSessionStarted = false
     }
 
     fun setPlaybackProgress(progress: Float) {
