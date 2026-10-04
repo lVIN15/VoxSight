@@ -41,9 +41,15 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
     private val _pitchUiState = MutableStateFlow<com.cit.kaido.voxsight.pitch.PitchUiState>(com.cit.kaido.voxsight.pitch.PitchUiState.Idle)
     val pitchUiState: StateFlow<com.cit.kaido.voxsight.pitch.PitchUiState> = _pitchUiState.asStateFlow()
 
-    // ── Score & Playback State ────────────────────────
     private val _currentScore = MutableStateFlow<MusicXmlScore?>(null)
     val currentScore: StateFlow<MusicXmlScore?> = _currentScore.asStateFlow()
+
+    private val _selectedVoicePart = MutableStateFlow<com.cit.kaido.voxsight.ui.screens.practice.VoicePart?>(null)
+    val selectedVoicePart: StateFlow<com.cit.kaido.voxsight.ui.screens.practice.VoicePart?> = _selectedVoicePart.asStateFlow()
+
+    fun setSelectedVoicePart(part: com.cit.kaido.voxsight.ui.screens.practice.VoicePart?) {
+        _selectedVoicePart.value = part
+    }
 
     private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress: StateFlow<Float> = _playbackProgress.asStateFlow()

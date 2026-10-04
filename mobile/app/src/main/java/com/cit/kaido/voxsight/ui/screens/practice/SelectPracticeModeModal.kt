@@ -67,13 +67,19 @@ import java.util.Locale
 
 @Composable
 fun SelectPracticeModeModal(
+    score: MusicXmlScore? = null,
     scoreId: String? = null,
     scoreTitle: String? = null,
     onDismiss: () -> Unit,
-    onModeSelected: (Boolean) -> Unit // true if mic enabled (Test Pitch), false if Listen Only
+    onModeSelected: (Boolean, VoicePart?) -> Unit // true if mic enabled (Test Pitch), false if Listen Only; selected VoicePart for test pitch
 ) {
     val context = LocalContext.current
     var isViewingRecordings by remember { mutableStateOf(false) }
+    var isSelectingVocalPart by remember { mutableStateOf(false) }
+    val vocalParts = remember(score) {
+        val all = if (score != null) detectAvailableParts(score) else listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass)
+        all.filter { it != VoicePart.Others }
+    }
     var recordings by remember(scoreId, scoreTitle) {
         mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle))
     }
@@ -111,7 +117,123 @@ fun SelectPracticeModeModal(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (!isViewingRecordings) {
+                if (isSelectingVocalPart) {
+                    // ── Vocal Part Selection View for Test Pitch ────
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { isSelectingVocalPart = false },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back",
+                                tint = VoxPurplePrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Select Vocal Part",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 22.sp
+                            ),
+                            color = VoxPurplePrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Choose which vocal part you will sing. Your pitch accuracy and summary grading will be evaluated on this part.",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                        color = Color(0xFF4A4452),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        vocalParts.forEach { part ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        onModeSelected(true, part)
+                                    },
+                                color = Color(0xFFF7F7FA),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, part.color.copy(alpha = 0.35f)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(part.color.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = part.shortLabel,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = part.color
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = part.label,
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = Color(0xFF191C20)
+                                        )
+                                        Text(
+                                            text = when (part) {
+                                                VoicePart.Soprano -> "High vocal range • Treble clef"
+                                                VoicePart.Alto -> "Middle-low vocal range • Treble clef"
+                                                VoicePart.Tenor -> "High male vocal range • Octave Treble/Bass"
+                                                VoicePart.Bass -> "Low male vocal range • Bass clef"
+                                                VoicePart.Solo -> "Soloist / Lead vocal melody"
+                                                else -> "Vocal part"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                            color = Color(0xFF6C6575)
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Outlined.PlayArrow,
+                                        contentDescription = "Start ${part.label}",
+                                        tint = part.color,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    TextButton(onClick = { isSelectingVocalPart = false }) {
+                        Text(
+                            text = "BACK",
+                            style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.sp),
+                            color = Color(0xFF4A4452)
+                        )
+                    }
+
+                } else if (!isViewingRecordings) {
                     // ── Mode Selection View ────────────────────────
                     Text(
                         text = "Select Practice Mode",
@@ -140,7 +262,7 @@ fun SelectPracticeModeModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .clickable { onModeSelected(false) },
+                            .clickable { onModeSelected(false, null) },
                         color = Color(0xFFF2F3F9),
                         shape = RoundedCornerShape(16.dp)
                     ) {
@@ -192,7 +314,13 @@ fun SelectPracticeModeModal(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .background(gradientBrush)
-                            .clickable { onModeSelected(true) }
+                            .clickable {
+                                if (vocalParts.isNotEmpty()) {
+                                    isSelectingVocalPart = true
+                                } else {
+                                    onModeSelected(true, VoicePart.Soprano)
+                                }
+                            }
                     ) {
                         Row(
                             modifier = Modifier
@@ -393,7 +521,14 @@ fun SelectPracticeModeModal(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(VoxPurplePrimary)
-                                    .clickable { onModeSelected(true) }
+                                    .clickable {
+                                        if (vocalParts.isNotEmpty()) {
+                                            isViewingRecordings = false
+                                            isSelectingVocalPart = true
+                                        } else {
+                                            onModeSelected(true, VoicePart.Soprano)
+                                        }
+                                    }
                                     .padding(horizontal = 20.dp, vertical = 10.dp)
                             ) {
                                 Text(

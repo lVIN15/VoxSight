@@ -18,6 +18,8 @@ import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.PauseMenuModal
 import com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen
 import com.cit.kaido.voxsight.ui.screens.practice.SelectPracticeModeModal
+import com.cit.kaido.voxsight.ui.screens.practice.VoicePart
+import com.cit.kaido.voxsight.ui.screens.practice.toSATBVoice
 import com.cit.kaido.voxsight.ui.screens.upload.UploadScoreScreen
 import com.cit.kaido.voxsight.ui.screens.upload.ScoreReviewScreen
 import com.cit.kaido.voxsight.ui.screens.upload.regenerateEventsJsonFromScore
@@ -364,6 +366,9 @@ fun AppNavigation() {
         dialog("select_mode") {
             val context = androidx.compose.ui.platform.LocalContext.current
             val currentScore by practiceViewModel.currentScore.collectAsState()
+            var pendingVoicePart by androidx.compose.runtime.remember { 
+                androidx.compose.runtime.mutableStateOf<com.cit.kaido.voxsight.ui.screens.practice.VoicePart?>(null) 
+            }
             var permissionGranted by androidx.compose.runtime.remember { 
                 androidx.compose.runtime.mutableStateOf(
                     androidx.core.content.ContextCompat.checkSelfPermission(
@@ -378,6 +383,7 @@ fun AppNavigation() {
             ) { isGranted ->
                 permissionGranted = isGranted
                 if (isGranted) {
+                    practiceViewModel.setSelectedVoicePart(pendingVoicePart)
                     practiceViewModel.setMicrophoneEnabled(true)
                     navController.popBackStack()
                     navController.navigate("practice")
@@ -387,18 +393,21 @@ fun AppNavigation() {
             }
 
             SelectPracticeModeModal(
+                score = currentScore,
                 scoreId = currentScore?.id,
                 scoreTitle = currentScore?.title,
                 onDismiss = {
                     navController.popBackStack()
                 },
-                onModeSelected = { micEnabled ->
+                onModeSelected = { micEnabled, chosenPart ->
+                    practiceViewModel.setSelectedVoicePart(chosenPart)
                     if (micEnabled) {
                         if (permissionGranted) {
                             practiceViewModel.setMicrophoneEnabled(true)
                             navController.popBackStack()
                             navController.navigate("practice")
                         } else {
+                            pendingVoicePart = chosenPart
                             permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                         }
                     } else {
@@ -416,6 +425,7 @@ fun AppNavigation() {
             val isMicEnabled by practiceViewModel.isMicrophoneEnabled.collectAsState()
             val isMusicPlaying by practiceViewModel.isPlaying.collectAsState()
             val currentScore by practiceViewModel.currentScore.collectAsState()
+            val selectedVoicePart by practiceViewModel.selectedVoicePart.collectAsState()
             val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
             val pitchUiState by practiceViewModel.pitchUiState.collectAsState()
 
@@ -433,6 +443,7 @@ fun AppNavigation() {
 
             Module2PracticeScreen(
                 score = currentScore,
+                initialSelectedPart = selectedVoicePart,
                 isMicEnabled = isMicEnabled,
                 pitchAttempts = pitchAttempts,
                 pitchUiState = pitchUiState,
@@ -525,9 +536,11 @@ fun AppNavigation() {
             // Provide the full summary from the view model
             val summary = practiceViewModel.getSessionSummary()
             val currentScore by practiceViewModel.currentScore.collectAsState()
+            val selectedVoicePart by practiceViewModel.selectedVoicePart.collectAsState()
             val pitchAttempts by practiceViewModel.pitchAttempts.collectAsState()
 
-            val activeVoice = pitchAttempts.firstOrNull { it.satbVoice != com.cit.kaido.voxsight.model.SATBVoice.UNKNOWN }?.satbVoice
+            val activeVoice = selectedVoicePart?.toSATBVoice()
+                ?: pitchAttempts.firstOrNull { it.satbVoice != com.cit.kaido.voxsight.model.SATBVoice.UNKNOWN }?.satbVoice
                 ?: com.cit.kaido.voxsight.model.SATBVoice.SOPRANO
 
             com.cit.kaido.voxsight.ui.screens.practice.PracticeSummaryScreen(

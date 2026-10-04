@@ -133,7 +133,57 @@ fun PracticeSummaryScreen(
                 Spacer(modifier = Modifier.size(48.dp))
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            val voiceColor = when (selectedVoice) {
+                SATBVoice.SOPRANO -> Color(0xFFE91E63)
+                SATBVoice.ALTO -> Color(0xFF9C27B0)
+                SATBVoice.TENOR -> Color(0xFF2196F3)
+                SATBVoice.BASS -> Color(0xFF4CAF50)
+                SATBVoice.SOLO -> Color(0xFFFF9800)
+                else -> Color(0xFF607D8B)
+            }
+            val voiceLabel = when (selectedVoice) {
+                SATBVoice.SOPRANO -> "Soprano"
+                SATBVoice.ALTO -> "Alto"
+                SATBVoice.TENOR -> "Tenor"
+                SATBVoice.BASS -> "Bass"
+                SATBVoice.SOLO -> "Solo"
+                else -> "All Voices"
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = voiceColor.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, voiceColor.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(voiceColor)
+                        )
+                        Text(
+                            text = "VOCAL PART: ${voiceLabel.uppercase()}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp,
+                                fontSize = 11.sp
+                            ),
+                            color = voiceColor
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Accuracy Visualization
             Box(
