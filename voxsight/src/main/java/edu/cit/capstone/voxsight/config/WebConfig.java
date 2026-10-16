@@ -56,7 +56,7 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(appVersionInterceptor)
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/app/**", "/api/diagnostics/**");
+                .excludePathPatterns("/api/app/**", "/api/diagnostics/**", "/api/payments/success", "/api/payments/cancel");
     }
 
     @Override

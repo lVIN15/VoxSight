@@ -17,6 +17,7 @@ object ApiClient {
     private var cachedRetrofit: Retrofit? = null
     private var cachedService: OmrService? = null
     private var cachedVersionApi: AppVersionApi? = null
+    private var cachedPaymongoApi: PaymongoApi? = null
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
@@ -86,6 +87,7 @@ object ApiClient {
                     .build()
                 cachedService = cachedRetrofit!!.create(OmrService::class.java)
                 cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                cachedPaymongoApi = cachedRetrofit!!.create(PaymongoApi::class.java)
             }
         }
     }
@@ -101,6 +103,7 @@ object ApiClient {
                         .build()
                     cachedService = cachedRetrofit!!.create(OmrService::class.java)
                     cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                    cachedPaymongoApi = cachedRetrofit!!.create(PaymongoApi::class.java)
                 }
                 return cachedService!!
             }
@@ -117,8 +120,26 @@ object ApiClient {
                         .build()
                     cachedService = cachedRetrofit!!.create(OmrService::class.java)
                     cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                    cachedPaymongoApi = cachedRetrofit!!.create(PaymongoApi::class.java)
                 }
                 return cachedVersionApi!!
+            }
+        }
+
+    val paymongoApi: PaymongoApi
+        get() {
+            synchronized(this) {
+                if (cachedPaymongoApi == null) {
+                    cachedRetrofit = Retrofit.Builder()
+                        .baseUrl(activeUrl)
+                        .client(okHttpClient)
+                        .addConverterFactory(GsonConverterFactory.create())
+                        .build()
+                    cachedService = cachedRetrofit!!.create(OmrService::class.java)
+                    cachedVersionApi = cachedRetrofit!!.create(AppVersionApi::class.java)
+                    cachedPaymongoApi = cachedRetrofit!!.create(PaymongoApi::class.java)
+                }
+                return cachedPaymongoApi!!
             }
         }
 }

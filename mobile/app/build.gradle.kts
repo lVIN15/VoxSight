@@ -4,6 +4,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+import java.util.Properties
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+val paymongoSecretKey: String = localProperties.getProperty("PAYMONGO_SECRET_KEY", "")
+
 android {
     namespace = "com.cit.kaido.voxsight"
     compileSdk = 36
@@ -13,6 +23,7 @@ android {
         targetSdk = 36
         versionCode = 3
         versionName = "1.2"
+        buildConfigField("String", "PAYMONGO_SECRET_KEY", "\"$paymongoSecretKey\"")
     }
     buildTypes {
         debug {

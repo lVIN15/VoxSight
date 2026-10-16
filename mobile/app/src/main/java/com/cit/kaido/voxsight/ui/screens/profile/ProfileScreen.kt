@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.composables.icons.lucide.Crown
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Music
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -47,14 +48,25 @@ fun ProfileScreen(
     username: String,
     onBackClicked: () -> Unit,
     onLogoutClicked: () -> Unit,
+    onMyMusicSheetsClicked: () -> Unit = {},
     onUpgradeToPremiumClicked: () -> Unit = {},
     onSettingsClicked: () -> Unit = {},
     onEditProfileClicked: () -> Unit = {}
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var isPremium by remember {
+        mutableStateOf(com.cit.kaido.voxsight.util.PremiumManager.isUserPremium(context))
+    }
+
+    androidx.compose.runtime.LaunchedEffect(username) {
+        isPremium = com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, username = username)
+    }
+
     val topPurple = Color(0xFF38036B)
     val lightPurple = Color(0xFFEFE8F5)
     val orangeDark = Color(0xFFFF9800)
+    val yellowGold = Color(0xFFFACC15)
     val redDark = Color(0xFFD32F2F)
 
     Column(
@@ -123,13 +135,24 @@ fun ProfileScreen(
                             lineHeight = 38.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "FREE MEMBER",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp,
-                            letterSpacing = 1.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isPremium) {
+                                Icon(
+                                    imageVector = Lucide.Crown,
+                                    contentDescription = "Premium",
+                                    tint = yellowGold,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            Text(
+                                text = if (isPremium) "PREMIUM MEMBER" else "FREE MEMBER",
+                                color = if (isPremium) yellowGold else Color.White.copy(alpha = 0.7f),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                letterSpacing = 1.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -167,7 +190,14 @@ fun ProfileScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             ProfileCard(
-                title = "Upgrade to Premium",
+                title = "My Music Sheets",
+                icon = Lucide.Music,
+                iconColor = topPurple,
+                onClick = onMyMusicSheetsClicked
+            )
+
+            ProfileCard(
+                title = if (isPremium) "VoxSight Premium (Active)" else "Upgrade to Premium",
                 icon = Lucide.Crown,
                 iconColor = orangeDark,
                 onClick = onUpgradeToPremiumClicked

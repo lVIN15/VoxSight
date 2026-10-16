@@ -105,11 +105,16 @@ fun AppNavigation() {
                             }.decodeList<com.cit.kaido.voxsight.model.User>()
                             
                             if (users.isNotEmpty()) {
+                                val user = users.first()
                                 val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-                                prefs.edit().putString("logged_in_username", users.first().username).apply()
+                                prefs.edit()
+                                    .putString("logged_in_username", user.username)
+                                    .putString("logged_in_email", user.email)
+                                    .apply()
+                                com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, user.username, user.email)
 
                                 withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Welcome back, ${users.first().username}!", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Welcome back, ${user.username}!", android.widget.Toast.LENGTH_SHORT).show()
                                     navController.navigate("upload") {
                                         popUpTo("landing") { inclusive = true }
                                     }
@@ -175,7 +180,10 @@ fun AppNavigation() {
                             client.postgrest["User"].insert(newUser)
                             
                             val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-                            prefs.edit().putString("logged_in_username", name).apply()
+                            prefs.edit()
+                                .putString("logged_in_username", name)
+                                .putString("logged_in_email", email)
+                                .apply()
                             
                             withContext(Dispatchers.Main) {
                                 android.widget.Toast.makeText(context, "Registration Successful!", android.widget.Toast.LENGTH_SHORT).show()
@@ -220,10 +228,14 @@ fun AppNavigation() {
                 onBackClicked = { navController.popBackStack() },
                 onLogoutClicked = {
                     prefs.edit().remove("logged_in_username").apply()
+                    com.cit.kaido.voxsight.util.PremiumManager.clearActiveSessionPremium(context)
                     // Navigate back to landing and clear the backstack
                     navController.navigate("landing") {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onMyMusicSheetsClicked = {
+                    navController.navigate("my_music_sheets")
                 },
                 onUpgradeToPremiumClicked = {
                     navController.navigate("premium_upgrade")
@@ -233,6 +245,17 @@ fun AppNavigation() {
                 },
                 onEditProfileClicked = {
                     navController.navigate("edit_profile")
+                }
+            )
+        }
+
+        composable("my_music_sheets") {
+            com.cit.kaido.voxsight.ui.screens.profile.MyMusicSheetsScreen(
+                onBackClicked = { navController.popBackStack() },
+                onUpgradeClicked = { navController.navigate("premium_upgrade") },
+                onOpenScore = { score ->
+                    practiceViewModel.setCurrentScore(score)
+                    navController.navigate("select_mode")
                 }
             )
         }
@@ -632,7 +655,11 @@ private suspend fun handleSocialLoginSuccess(
     }
     
     val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-    prefs.edit().putString("logged_in_username", name).apply()
+    prefs.edit()
+        .putString("logged_in_username", name)
+        .putString("logged_in_email", email)
+        .apply()
+    com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, name, email)
 
     withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(context, "Welcome, $name!", android.widget.Toast.LENGTH_SHORT).show()
