@@ -32,6 +32,35 @@ NAME_MAP = {
     'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass', 'bass 1': 'Bass 1', 'b1': 'Bass 1', 'bass 2': 'Bass 2', 'b2': 'Bass 2'
 }
 
+ACCOMP_KEYWORDS = [
+    # Keyboards & Basso Continuo
+    "piano", "pno", "keyboard", "kbd", "organ", "org",
+    "harpsichord", "cembalo", "celesta", "clavinet",
+    "synthesizer", "synth", "continuo", "basso continuo", "b.c.",
+    # Woodwinds (including vocal-overlapping names)
+    "flute", "alto flute", "bass flute", "piccolo",
+    "oboe", "english horn", "cor anglais",
+    "clarinet", "bass clarinet", "contrabass clarinet", "contra-bass clarinet", "alto clarinet", "basset horn",
+    "bassoon", "bsn", "contrabassoon", "contra-bassoon", "double bassoon",
+    "saxophone", "sax", "soprano sax", "soprano saxophone",
+    "alto sax", "alto saxophone", "tenor sax", "tenor saxophone",
+    "baritone sax", "baritone saxophone", "bass sax", "bass saxophone",
+    # Brass (including vocal-overlapping names)
+    "trumpet", "cornet", "flugelhorn",
+    "horn", "french horn", "tenor horn", "alto horn", "baritone horn",
+    "trombone", "tbn", "trb", "tenor trombone", "bass trombone", "contrabass trombone", "alto trombone",
+    "tuba", "bass tuba", "contrabass tuba", "euphonium",
+    # Strings (including low strings overlapping with 'bass')
+    "violin", "vln", "viola", "vla", "cello", "violoncello", "vc",
+    "double bass", "contrabass", "contra bass", "contra-bass", "string bass",
+    "upright bass", "acoustic bass", "electric bass", "bass guitar",
+    "strings", "string ensemble", "orchestra", "orch", "harp", "guitar", "gtr",
+    # Percussion
+    "timpani", "percussion", "perc", "drums", "drum set", "bass drum",
+    # General accompaniment indicators
+    "accompaniment", "accomp", "acc.", "acc"
+]
+
 # Universal musical dynamic regex (matches standalone dynamic marks misclassified as lyrics)
 DYNAMIC_REGEX = re.compile(
     r'^([pP]{1,4}|[fF]{1,4}|[mM][pPfF]|[sS][fF][zZ]?|[rR][fF][zZ]?|[fF][pP]|[fF][zZ])\.?$'
@@ -657,11 +686,13 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
             raw_abbr = sp.find('part-abbreviation').text if (sp is not None and sp.find('part-abbreviation') is not None and sp.find('part-abbreviation').text) else raw_name
             norm_name = NAME_MAP.get(raw_name.strip().lower(), raw_name.strip())
             tier = get_tier(raw_name)
-            
-            name_lower = raw_name.lower()
-            abbr_lower = raw_abbr.lower()
-            is_solo = any(kw in name_lower or kw in abbr_lower for kw in ['solo', 'cantor', 'leader', 'descant'])
-            is_accomp = any(kw in name_lower or kw in abbr_lower for kw in ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'])
+
+            instr_el = sp.find('.//instrument-name') if sp is not None else None
+            raw_instr = instr_el.text.strip().lower() if (instr_el is not None and instr_el.text) else ""
+
+            combined_ident = f"{raw_name} {raw_abbr} {raw_instr}".lower()
+            is_accomp = any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in ACCOMP_KEYWORDS)
+            is_solo = any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in ['solo', 'cantor', 'leader', 'descant']) and not is_accomp
 
             measures = {}
             for m in p.findall('measure'):
@@ -854,12 +885,15 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 pn = anchor_sp.find('part-name')
                 if pn is None:
                     pn = ET.SubElement(anchor_sp, 'part-name')
-                pn.text = 'Solo'
-                pa = anchor_sp.find('part-abbreviation')
-                if pa is None:
-                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
-                pa.text = 'Solo'
-                modified = True
+                # Preserve specific vocal solo names (e.g. Soprano Solo, Cantor); only normalize if empty or generic
+                current_pname = (pn.text or "").strip().lower()
+                if not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
+                    pn.text = 'Solo'
+                    pa = anchor_sp.find('part-abbreviation')
+                    if pa is None:
+                        pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                    pa.text = 'Solo'
+                    modified = True
 
 
         # Find complementary pairs

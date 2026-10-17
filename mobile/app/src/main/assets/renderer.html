@@ -457,14 +457,27 @@
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
         function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
             // Priority 1: Explicit user override via data-vx-voice attribute
-            if (typeof customVoice === 'number') {
-                switch (customVoice) {
-                    case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    case 5: return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
-                    case 6: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+            if (customVoice !== null && customVoice !== undefined) {
+                var cv = String(customVoice).trim().toUpperCase();
+                if (cv !== "") {
+                    switch (cv) {
+                        case "1": case "S": case "SOPRANO":
+                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                        case "2": case "A": case "ALTO":
+                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                        case "3": case "T": case "TENOR":
+                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                        case "4": case "B": case "BASS":
+                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                        case "5": case "SOLO":
+                            return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                        case "6": case "OTHERS": case "OTHER":
+                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                        default:
+                            // Explicit unknown/malformed tokens (e.g. "GUITAR", "UNKNOWN", "0", "7")
+                            // Blocked from Priority 2/3/4 heuristics to prevent silent misclassification as Soprano
+                            return { voice: "UNKNOWN", part: "UNKNOWN", color: "#808080", partId: 0 };
+                    }
                 }
             }
 
@@ -1207,7 +1220,7 @@
                             var vxIdStr = node.getAttribute('data-vx-id');
                             var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
                             var customVoiceStr = node.getAttribute('data-vx-voice');
-                            var customVoice = customVoiceStr ? parseInt(customVoiceStr, 10) : null;
+                            var customVoice = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim() : null;
 
                             list.push({
                                 el: node,
