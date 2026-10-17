@@ -351,8 +351,40 @@ open class MidiPlayerController(
         onScoreLoadedCallback(calculatedTotalSeconds)
     }
 
+    // Accompaniment State Machine (Fix #Phase2 / Section 6.3)
+    var isAccompanimentEnabled: Boolean = true
+        set(value) {
+            field = value
+            updateAccompanimentState()
+        }
+
+    fun updateAccompanimentState() {
+        val currentFocus = mutedVoicesList.firstOrNull() ?: "S"
+        if (currentFocus in setOf("OTHER", "OTHERS")) {
+            // State 3: Others is primary focus at 100% volume
+            playbackEngine.muteVoice("OTHER", false)
+            playbackEngine.muteVoice("OTHERS", false)
+            playbackEngine.setVoiceVolume("OTHER", 1.0f)
+            playbackEngine.setVoiceVolume("OTHERS", 1.0f)
+        } else {
+            // States 1, 2, 4: Vocal focus
+            if (isAccompanimentEnabled) {
+                // State 1 & 4 (ON): Soft 35% backing track
+                playbackEngine.muteVoice("OTHER", false)
+                playbackEngine.muteVoice("OTHERS", false)
+                playbackEngine.setVoiceVolume("OTHER", 0.35f)
+                playbackEngine.setVoiceVolume("OTHERS", 0.35f)
+            } else {
+                // State 2 & 4 (OFF): Muted backing track & mid-stream note cancellation
+                playbackEngine.muteVoice("OTHER", true)
+                playbackEngine.muteVoice("OTHERS", true)
+                playbackEngine.cancelAccompanimentNotesNow()
+            }
+        }
+    }
+
     /**
-     * Focus audio on the selected part (solos this part, muting all others).
+     * Focus audio on the selected part (solos this part, muting non-focused vocal parts).
      */
     fun focusPart(part: String) {
         val targetLabel = when {
@@ -361,20 +393,29 @@ open class MidiPlayerController(
             else -> part.firstOrNull()?.toString()?.uppercase() ?: "S"
         }
         mutedVoicesList = listOf(targetLabel)
-        
-        // Mute all parts EXCEPT the selected target part (so the user can hear their part clearly)
-        listOf("S", "A", "T", "B", "SOLO", "OTHER", "OTHERS").forEach { v ->
-            playbackEngine.muteVoice(v, v != targetLabel && !(targetLabel == "OTHER" && v == "OTHERS"))
+
+        // Mute all vocal parts EXCEPT the focused part
+        listOf("S", "A", "T", "B", "SOLO").forEach { v ->
+            val isMuted = (v != targetLabel)
+            playbackEngine.muteVoice(v, isMuted)
+            if (!isMuted) {
+                playbackEngine.setVoiceVolume(v, 1.0f)
+            }
         }
+
+        // Apply accompaniment state according to Section 6.3 State Machine
+        updateAccompanimentState()
     }
 
     fun mutePart(part: String) = focusPart(part)
 
     fun unmuteAllParts() {
         mutedVoicesList = emptyList()
-        listOf("S", "A", "T", "B", "SOLO", "OTHER", "OTHERS").forEach { v ->
+        listOf("S", "A", "T", "B", "SOLO").forEach { v ->
             playbackEngine.muteVoice(v, false)
+            playbackEngine.setVoiceVolume(v, 1.0f)
         }
+        updateAccompanimentState()
     }
 
     fun setVisualFocus(part: String) {

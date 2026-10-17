@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.MusicOff
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
@@ -149,6 +150,11 @@ fun Module2PracticeScreen(
     var audioFocusPart by remember(availableParts, initialSelectedPart) { mutableStateOf(defaultPart) }
     var audioFocusEnabled by remember { mutableStateOf(false) }
     var visualFocusEnabled by remember { mutableStateOf(false) }
+    var isAccompanimentEnabled by remember { mutableStateOf(true) }
+
+    val hasAccompaniment = availableParts.contains(VoicePart.Others)
+    val isOthersFocus = (selectedPart == VoicePart.Others) || (audioFocusEnabled && audioFocusPart == VoicePart.Others)
+    val isAccompanimentToggleEnabled = !isOthersFocus
 
     LaunchedEffect(availableParts, initialSelectedPart) {
         if (initialSelectedPart != null && initialSelectedPart in availableParts) {
@@ -329,6 +335,11 @@ fun Module2PracticeScreen(
                     onAudioFocusChange = { audioFocusEnabled = it },
                     visualFocusEnabled = visualFocusEnabled,
                     onVisualFocusChange = { visualFocusEnabled = it },
+                    hasAccompaniment = hasAccompaniment,
+                    isAccompanimentEnabled = isAccompanimentEnabled,
+                    onAccompanimentChange = { isAccompanimentEnabled = it },
+                    isAccompanimentToggleEnabled = isAccompanimentToggleEnabled,
+                    isOthersFocus = isOthersFocus,
                     isSelectorEnabled = isSelectorEnabled,
                     isLocked = isMicEnabled,
                     headerUIPreference = headerUIPreference,
@@ -336,7 +347,8 @@ fun Module2PracticeScreen(
                 )
             }
 
-            LaunchedEffect(audioFocusPart, audioFocusEnabled, midiController) {
+            LaunchedEffect(audioFocusPart, audioFocusEnabled, isAccompanimentEnabled, midiController) {
+                midiController?.isAccompanimentEnabled = isAccompanimentEnabled
                 if (audioFocusEnabled) {
                     val focusKey = when (audioFocusPart) {
                         VoicePart.Solo -> "SOLO"
@@ -831,46 +843,62 @@ private fun VoicePartCard(
     onAudioFocusChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
     onVisualFocusChange: (Boolean) -> Unit,
-    isSelectorEnabled: Boolean,
+    hasAccompaniment: Boolean = false,
+    isAccompanimentEnabled: Boolean = true,
+    onAccompanimentChange: (Boolean) -> Unit = {},
+    isAccompanimentToggleEnabled: Boolean = true,
+    isOthersFocus: Boolean = false,
+    isSelectorEnabled: Boolean = true,
     isLocked: Boolean = false,
     headerUIPreference: String = "default",
     modifier: Modifier = Modifier
 ) {
-    if (isLocked) {
-        // Streamlined, compact header for Test Pitch mode - eliminates disabled buttons to expand sheet music canvas
-        TestPitchVoicePartCard(
-            selectedPart = selectedPart,
-            audioFocusEnabled = audioFocusEnabled,
-            onAudioFocusChange = onAudioFocusChange,
-            visualFocusEnabled = visualFocusEnabled,
-            onVisualFocusChange = onVisualFocusChange,
-            modifier = modifier
-        )
-    } else if (headerUIPreference == "dropdown") {
-        DropdownVoicePartCard(
-            selectedPart = selectedPart,
-            audioFocusPart = audioFocusPart,
-            availableParts = availableParts,
-            onPartSelected = onPartSelected,
-            onAudioFocusPartSelected = onAudioFocusPartSelected,
-            audioFocusEnabled = audioFocusEnabled,
-            onAudioFocusChange = onAudioFocusChange,
-            visualFocusEnabled = visualFocusEnabled,
-            onVisualFocusChange = onVisualFocusChange,
-            modifier = modifier
-        )
-    } else {
-        DefaultVoicePartCard(
-            selectedPart = selectedPart,
-            availableParts = availableParts,
-            onPartSelected = onPartSelected,
-            audioFocusEnabled = audioFocusEnabled,
-            onAudioFocusChange = onAudioFocusChange,
-            visualFocusEnabled = visualFocusEnabled,
-            onVisualFocusChange = onVisualFocusChange,
-            isSelectorEnabled = isSelectorEnabled,
-            modifier = modifier
-        )
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (isLocked) {
+            TestPitchVoicePartCard(
+                selectedPart = selectedPart,
+                audioFocusEnabled = audioFocusEnabled,
+                onAudioFocusChange = onAudioFocusChange,
+                visualFocusEnabled = visualFocusEnabled,
+                onVisualFocusChange = onVisualFocusChange
+            )
+        } else if (headerUIPreference == "dropdown") {
+            DropdownVoicePartCard(
+                selectedPart = selectedPart,
+                audioFocusPart = audioFocusPart,
+                availableParts = availableParts,
+                onPartSelected = onPartSelected,
+                onAudioFocusPartSelected = onAudioFocusPartSelected,
+                audioFocusEnabled = audioFocusEnabled,
+                onAudioFocusChange = onAudioFocusChange,
+                visualFocusEnabled = visualFocusEnabled,
+                onVisualFocusChange = onVisualFocusChange
+            )
+        } else {
+            DefaultVoicePartCard(
+                selectedPart = selectedPart,
+                availableParts = availableParts,
+                onPartSelected = onPartSelected,
+                audioFocusEnabled = audioFocusEnabled,
+                onAudioFocusChange = onAudioFocusChange,
+                visualFocusEnabled = visualFocusEnabled,
+                onVisualFocusChange = onVisualFocusChange,
+                isSelectorEnabled = isSelectorEnabled
+            )
+        }
+
+        if (hasAccompaniment) {
+            AccompanimentToggleChip(
+                checked = isAccompanimentEnabled,
+                onCheckedChange = onAccompanimentChange,
+                enabled = isAccompanimentToggleEnabled,
+                isOthersFocus = isOthersFocus,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -1278,6 +1306,68 @@ private fun PartSelectorUI(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AccompanimentToggleChip(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    isOthersFocus: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = Color.White,
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.MusicNote,
+                contentDescription = null,
+                tint = if (enabled) VoxPurplePrimary else VoxPurplePrimary.copy(alpha = 0.4f),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Accompaniment",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (enabled) VoxTextPrimary else VoxTextSecondary
+                )
+                Text(
+                    text = if (isOthersFocus) {
+                        "Primary focus (100% volume)"
+                    } else if (checked) {
+                        "Backing track active (35% volume)"
+                    } else {
+                        "Muted"
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                    color = VoxTextSubtitle
+                )
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = if (enabled) onCheckedChange else null,
+                enabled = enabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = VoxPurplePrimary,
+                    uncheckedThumbColor = Color.White,
+                    uncheckedTrackColor = VoxCardStroke,
+                    disabledCheckedTrackColor = VoxPurplePrimary.copy(alpha = 0.4f),
+                    disabledCheckedThumbColor = Color.White.copy(alpha = 0.8f)
+                )
+            )
         }
     }
 }
