@@ -475,8 +475,8 @@ open class MidiPlayerController(
         syncManager.onPlaybackProgress(activeEventIds)
     }
 
-    override fun onNoteOn(event: MusicalEvent) {
-        lastMidiEvent = "ON: pitch=${event.pitchMidi} (${event.pitchName}) voice=${event.satbVoice}"
+    override fun onNoteOn(event: MusicalEvent, velocity: Int) {
+        lastMidiEvent = "ON: pitch=${event.pitchMidi} (${event.pitchName}) voice=${event.satbVoice} vel=$velocity"
         onNoteOnCallback(event)
 
         // Tone.js Display-Only Mode (Fix #Phase2.6):
@@ -485,13 +485,17 @@ open class MidiPlayerController(
             return
         }
 
-        // Compute proper duration using current tempo and ticksPerQuarter
+        // Tone.js Fallback Mode: forward scaled effective velocity (e.g. 28 for 35% backing track, 80 for 100% vocal)
         val bpm = playbackEngine.getCurrentBPM().coerceAtLeast(1f)
         val tpq = currentTpq.coerceAtLeast(1)
         val durationMs = (event.durationTicks.toDouble() * 60000.0 / (bpm.toDouble() * tpq.toDouble())).toLong().coerceAtLeast(100)
         webView.post {
-            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, 80);", null)
+            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, $velocity);", null)
         }
+    }
+
+    override fun onNoteOn(event: MusicalEvent) {
+        onNoteOn(event, 80)
     }
 
     override fun onNoteOff(event: MusicalEvent) {

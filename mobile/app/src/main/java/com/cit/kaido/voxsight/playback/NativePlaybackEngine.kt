@@ -123,7 +123,8 @@ class NativePlaybackEngine(private val context: Context) {
         fun onPlaybackPaused()
         fun onPlaybackStopped()
         fun onPlaybackProgress(currentTick: Int, totalTicks: Int, activeEventIds: List<String>)
-        fun onNoteOn(event: MusicalEvent)
+        fun onNoteOn(event: MusicalEvent) {}
+        fun onNoteOn(event: MusicalEvent, velocity: Int) { onNoteOn(event) }
         fun onNoteOff(event: MusicalEvent)
         fun onPlaybackError(error: String)
     }
@@ -584,14 +585,14 @@ class NativePlaybackEngine(private val context: Context) {
         // 5. Sound Note Attack
         if (event.tieType == "start") {
             sendNoteOn(channel, note, effectiveVelocity)
-            listener?.onNoteOn(event)
+            listener?.onNoteOn(event, effectiveVelocity)
             if (isAccompaniment) {
                 activeAccompanimentNotes[channel * 128 + note] = System.currentTimeMillis()
             }
         } else {
             // Normal note (not tied)
             sendNoteOn(channel, note, effectiveVelocity)
-            listener?.onNoteOn(event)
+            listener?.onNoteOn(event, effectiveVelocity)
             if (isAccompaniment) {
                 activeAccompanimentNotes[channel * 128 + note] = System.currentTimeMillis()
             }

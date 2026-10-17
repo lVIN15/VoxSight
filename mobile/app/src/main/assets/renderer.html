@@ -1598,8 +1598,10 @@
             ensureSynth();
             if (synth) {
                 try {
+                    const rawVel = (velocity !== undefined && velocity !== null) ? Number(velocity) : 80;
+                    if (rawVel <= 0) return;
+                    const vel = rawVel / 127.0;
                     const freq = Tone.Frequency(midiNote, "midi").toFrequency();
-                    const vel = (velocity || 80) / 127.0;
                     const dur = Math.max(0.1, (durationMs || 500) / 1000.0);
                     synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
                 } catch (e) {

@@ -345,13 +345,17 @@ class PracticeActivity : AppCompatActivity(),
         syncManager.onPlaybackProgress(activeEventIds)
     }
 
-    override fun onNoteOn(event: com.cit.kaido.voxsight.model.MusicalEvent) {
+    override fun onNoteOn(event: com.cit.kaido.voxsight.model.MusicalEvent, velocity: Int) {
         val bpm = currentBpm.coerceAtLeast(1f)
         val tpq = currentTpq.coerceAtLeast(1)
         val durationMs = (event.durationTicks.toLong() * 60000L / (bpm.toLong() * tpq)).coerceAtLeast(100)
         webView.post {
-            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, 80);", null)
+            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, $velocity);", null)
         }
+    }
+
+    override fun onNoteOn(event: com.cit.kaido.voxsight.model.MusicalEvent) {
+        onNoteOn(event, 80)
     }
 
     override fun onNoteOff(event: com.cit.kaido.voxsight.model.MusicalEvent) {}
