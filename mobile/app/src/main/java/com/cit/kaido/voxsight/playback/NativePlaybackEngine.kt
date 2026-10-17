@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import com.cit.kaido.voxsight.model.EventStream
 import com.cit.kaido.voxsight.model.MusicalEvent
+import com.cit.kaido.voxsight.model.normalizeLegacyVoiceToParts
 import com.cit.kaido.voxsight.model.SortContracts
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -110,6 +111,11 @@ class NativePlaybackEngine(private val context: Context) {
     // Tracks active notes for stuck-note detection (Fix #35 + #44)
     // Access pattern: write-only to MIDI synth, read-only from scheduler
     private val activeNotes = ConcurrentHashMap<Int, Long>()  // key=channel*128+note, value=timestamp
+    private val activeAccompanimentNotes = ConcurrentHashMap<Int, Long>()  // key=channel*128+note, value=timestamp
+    private val voiceVolumeScales = ConcurrentHashMap<String, Float>().apply {
+        put("OTHER", 0.35f)
+        put("OTHERS", 0.35f)
+    }
 
     // ─── Listener ──────────────────────────────────────────────────────
     interface PlaybackListener {
@@ -221,13 +227,27 @@ class NativePlaybackEngine(private val context: Context) {
             .filter { !it.isRest }
             .sortedWith(SortContracts.PLAYBACK_SORT)
 
-        // Assign MIDI channels to playback tracks
+        // Assign MIDI channels with strict partition (Fix #Phase2.5):
+        // Channels 0-7: Strictly partitioned for Vocal tracks
+        // Channel 9: GM Percussion (reserved)
+        // Channels 8, 10-15: Strictly partitioned for Accompaniment tracks
         trackChannelMap.clear()
         val tracks = eventStream.playbackTrackIds().sorted()
-        for ((idx, trackId) in tracks.withIndex()) {
-            // Use channels 0-8, skip channel 9 (GM percussion)
-            val channel = if (idx < 9) idx else idx + 1
-            trackChannelMap[trackId] = channel.coerceAtMost(15)
+        val vocalTracks = mutableListOf<String>()
+        val accompTracks = mutableListOf<String>()
+        for (trackId in tracks) {
+            if (isAccompanimentTrack(trackId)) {
+                accompTracks.add(trackId)
+            } else {
+                vocalTracks.add(trackId)
+            }
+        }
+        for ((idx, tId) in vocalTracks.withIndex()) {
+            trackChannelMap[tId] = idx.coerceAtMost(7)
+        }
+        val accompChannels = listOf(8, 10, 11, 12, 13, 14, 15)
+        for ((idx, tId) in accompTracks.withIndex()) {
+            trackChannelMap[tId] = accompChannels[idx.coerceAtMost(accompChannels.size - 1)]
         }
 
         currentEventIndex.set(0)
@@ -341,6 +361,47 @@ class NativePlaybackEngine(private val context: Context) {
         if (key == "OTHER") {
             mutedVoices["OTHERS"] = muted
         }
+    }
+
+    fun setVoiceVolume(voiceKey: String, volumeFactor: Float) {
+        val normalized = normalizeVoiceKey(voiceKey)
+        val clamped = volumeFactor.coerceIn(0.0f, 1.0f)
+        voiceVolumeScales[normalized] = clamped
+        if (normalized == "OTHER") {
+            voiceVolumeScales["OTHERS"] = clamped
+        }
+    }
+
+    fun getVoiceVolume(voiceKey: String): Float {
+        val normalized = normalizeVoiceKey(voiceKey)
+        return voiceVolumeScales[normalized] ?: if (normalized in setOf("OTHER", "OTHERS")) 0.35f else 1.0f
+    }
+
+    fun cancelAccompanimentNotesNow() {
+        val keysToCancel = activeAccompanimentNotes.keys().toList()
+        for (key in keysToCancel) {
+            val ch = key / 128
+            val n = key % 128
+            sendNoteOff(ch, n)
+            activeAccompanimentNotes.remove(key)
+        }
+    }
+
+    fun isHardwareMidiActive(): Boolean = midiInputPort != null
+
+    fun isAccompanimentTrack(trackId: String): Boolean {
+        val lower = trackId.lowercase().trim()
+        if (lower.contains("other") || lower.contains("piano") || lower.contains("accomp") ||
+            lower.contains("organ") || lower.contains("guitar") || lower.contains("strings") ||
+            lower.contains("violin") || lower.contains("instrument")
+        ) {
+            return true
+        }
+        val trackEvents = playbackQueue.filter { it.playbackTrack == trackId }
+        if (trackEvents.isNotEmpty() && trackEvents.all { !it.isVocal }) {
+            return true
+        }
+        return false
     }
 
     fun isTrackMuted(trackId: String): Boolean {
@@ -473,46 +534,74 @@ class NativePlaybackEngine(private val context: Context) {
     private fun dispatchEvent(event: MusicalEvent) {
         val channel = trackChannelMap[event.playbackTrack] ?: 0
         val note = event.pitchMidi
-        val velocity = DEFAULT_VELOCITY
 
-        // Check mute/solo at track level and voice level
-        if (isTrackMuted(event.playbackTrack)) return
-        val voiceKey = normalizeVoiceKey(event.satbVoice)
-        val isVoiceMuted = mutedVoices[voiceKey] == true
-        if (isVoiceMuted) return
+        // 1. ALWAYS process Note-Off releases FIRST (Late Event Policy & Stuck-Note Prevention - Fix #Phase2.4)
+        // Mute checks MUST NOT suppress note-offs, which causes stuck notes.
+        if (event.tieType == "stop") {
+            sendNoteOff(channel, note)
+            listener?.onNoteOff(event)
+            activeAccompanimentNotes.remove(channel * 128 + note)
+            return
+        }
 
-        when (event.tieType) {
-            "stop" -> {
-                // End of a tied note — trigger NOTE_OFF
+        // 2. Sustain Tied Notes: update watchdog timestamp to prevent Audio Safety early release
+        if (event.tieType == "continue") {
+            val key = channel * 128 + note
+            if (activeNotes.containsKey(key)) {
+                activeNotes[key] = System.currentTimeMillis()
+            }
+            return
+        }
+
+        // 3. Evaluate Compound-Unison Voice and Track Gating for New Attacks
+        val isAccompaniment = isAccompanimentTrack(event.playbackTrack) || !event.isVocal
+        val eventVoices = event.participatingParts.ifEmpty { normalizeLegacyVoiceToParts(event.satbVoice) }
+        val isAnyVoiceActive = if (isAccompaniment) {
+            mutedVoices["OTHER"] != true && mutedVoices["OTHERS"] != true && !isTrackMuted(event.playbackTrack)
+        } else {
+            // Decouple voice vs. track gating for vocal lines on shared staves (Fix #Phase2.4)
+            eventVoices.any { v -> mutedVoices[normalizeVoiceKey(v)] != true }
+        }
+
+        if (!isAnyVoiceActive) {
+            return // Muted voice or track -> Suppress NOTE_ON attack
+        }
+
+        // 4. Accompaniment & Voice Velocity Scaling (35% default backing volume)
+        val scale = if (isAccompaniment) {
+            voiceVolumeScales["OTHER"] ?: voiceVolumeScales["OTHERS"] ?: 0.35f
+        } else {
+            val primaryVoice = eventVoices.firstOrNull()?.let { normalizeVoiceKey(it) } ?: "S"
+            voiceVolumeScales[primaryVoice] ?: 1.0f
+        }
+
+        if (scale <= 0.0f) {
+            return // Muted by volume scaling -> Suppress NOTE_ON
+        }
+
+        val effectiveVelocity = (DEFAULT_VELOCITY * scale).toInt().coerceIn(1, 127)
+
+        // 5. Sound Note Attack
+        if (event.tieType == "start") {
+            sendNoteOn(channel, note, effectiveVelocity)
+            listener?.onNoteOn(event)
+            if (isAccompaniment) {
+                activeAccompanimentNotes[channel * 128 + note] = System.currentTimeMillis()
+            }
+        } else {
+            // Normal note (not tied)
+            sendNoteOn(channel, note, effectiveVelocity)
+            listener?.onNoteOn(event)
+            if (isAccompaniment) {
+                activeAccompanimentNotes[channel * 128 + note] = System.currentTimeMillis()
+            }
+
+            val durationMs = ticksToMs(event.durationTicks.toLong())
+            dispatcherScope.launch {
+                delay(durationMs.coerceAtLeast(50))  // minimum 50ms note
                 sendNoteOff(channel, note)
                 listener?.onNoteOff(event)
-            }
-            "continue" -> {
-                // Middle of a tied note — keep sustaining, do nothing (no new attack)
-                // Proactively update active note timestamp to prevent Audio Safety early release
-                val key = channel * 128 + note
-                if (activeNotes.containsKey(key)) {
-                    activeNotes[key] = System.currentTimeMillis()
-                }
-            }
-            "start" -> {
-                // Start of a tied note — trigger NOTE_ON, do not schedule NOTE_OFF (stop event will handle it)
-                sendNoteOn(channel, note, velocity)
-                listener?.onNoteOn(event)
-            }
-            else -> {
-                // Normal note (not tied) — trigger NOTE_ON and schedule NOTE_OFF after duration
-                sendNoteOn(channel, note, velocity)
-                listener?.onNoteOn(event)
-
-                val durationMs = ticksToMs(event.durationTicks.toLong())
-                dispatcherScope.launch {
-                    delay(durationMs.coerceAtLeast(50))  // minimum 50ms note
-                    // NEVER skip NOTE_OFF (Late Event Policy)
-                    // No-op if already released by Audio Safety Layer
-                    sendNoteOff(channel, note)
-                    listener?.onNoteOff(event)
-                }
+                activeAccompanimentNotes.remove(channel * 128 + note)
             }
         }
     }
@@ -589,6 +678,7 @@ class NativePlaybackEngine(private val context: Context) {
     private fun emergencyAllNotesOff() {
         Log.i(TAG, "[AudioSafety] Emergency allNotesOff")
         activeNotes.clear()
+        activeAccompanimentNotes.clear()
         for (ch in 0..15) {
             // CC 123 = All Notes Off
             sendMidiMessage(byteArrayOf(

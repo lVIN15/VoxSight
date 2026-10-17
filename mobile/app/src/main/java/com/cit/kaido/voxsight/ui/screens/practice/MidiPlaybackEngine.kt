@@ -437,6 +437,13 @@ open class MidiPlayerController(
     override fun onNoteOn(event: MusicalEvent) {
         lastMidiEvent = "ON: pitch=${event.pitchMidi} (${event.pitchName}) voice=${event.satbVoice}"
         onNoteOnCallback(event)
+
+        // Tone.js Display-Only Mode (Fix #Phase2.6):
+        // If hardware MIDI is active, mute WebView Web Audio synthesis to avoid duplicated audio and echo
+        if (playbackEngine.isHardwareMidiActive()) {
+            return
+        }
+
         // Compute proper duration using current tempo and ticksPerQuarter
         val bpm = playbackEngine.getCurrentBPM().coerceAtLeast(1f)
         val tpq = currentTpq.coerceAtLeast(1)

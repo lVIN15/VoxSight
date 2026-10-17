@@ -432,37 +432,14 @@ fun Module2PracticeScreen(
                         },
                         onNoteOn = { event ->
                             if (isMicEnabled && selectedPart != VoicePart.Others) {
-                                val partLetter = when (selectedPart) {
-                                    VoicePart.Solo -> "SOLO"
-                                    VoicePart.Others -> "OTHER"
-                                    else -> selectedPart.shortLabel.first().toString().uppercase()
-                                }
-                                val eventVoice = event.satbVoice.uppercase()
-                                val matches = when (partLetter) {
-                                    "SOLO" -> eventVoice.startsWith("SOLO")
-                                    "OTHER" -> eventVoice.startsWith("OTHER")
-                                    else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
-                                }
-                                if (matches) {
+                                if (isEventTargetForSinger(selectedPart, event)) {
                                     onNoteOn(event)
                                 }
                             }
                         },
                         onWaitPitch = { events ->
                             if (isMicEnabled && selectedPart != VoicePart.Others) {
-                                val partLetter = when (selectedPart) {
-                                    VoicePart.Solo -> "SOLO"
-                                    VoicePart.Others -> "OTHER"
-                                    else -> selectedPart.shortLabel.first().toString().uppercase()
-                                }
-                                val targetEvents = events.filter {
-                                    val eventVoice = it.satbVoice.uppercase()
-                                    when (partLetter) {
-                                        "SOLO" -> eventVoice.startsWith("SOLO")
-                                        "OTHER" -> eventVoice.startsWith("OTHER")
-                                        else -> eventVoice.startsWith(partLetter) && !eventVoice.startsWith("SOLO")
-                                    }
-                                }
+                                val targetEvents = events.filter { isEventTargetForSinger(selectedPart, it) }
                                 if (targetEvents.isNotEmpty()) {
                                     onWaitPitch(targetEvents)
                                 }
