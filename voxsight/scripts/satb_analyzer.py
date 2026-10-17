@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", str
 log = logging.getLogger("satb_analyzer")
 
 # ─── Schema Version ──────────────────────────────────────────────────────
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 # ─── SATB Pitch Ranges (MIDI) ────────────────────────────────────────────
 SATB_RANGES = {
@@ -85,6 +85,162 @@ def compute_identity_fingerprint(pitch_midi: int, voice_source: int,
 
 
 # ─── Identity Sort (analysis domain ONLY — Fix #37) ─────────────────────
+def derive_event_v11_metadata(satb_voice: str, xml_element_order: int = -1) -> dict:
+    """
+    Derives Schema v1.1 additive metadata from satb_voice and xml_element_order.
+    Strictly aligns with Section 3.1 JSON Event Schema and Section 3.2 Kotlin model.
+    """
+    voice_str = str(satb_voice).strip() if satb_voice is not None else ""
+    voice_upper = voice_str.upper()
+
+    is_vocal = False
+    participating_parts = []
+    is_unison = False
+    unison_type = None
+
+    # 1. Accompaniment / Instrumental
+    if voice_upper in ("OTHERS", "OTHER", "PIANO", "ACCOMP", "ORGAN", "VIOLIN", "STRINGS", "INSTRUMENT", "6"):
+        is_vocal = False
+        participating_parts = ["Others"]
+        is_unison = False
+        unison_type = None
+
+    # 2. Standard single vocal parts
+    elif voice_upper in ("S", "SOPRANO", "1"):
+        is_vocal = True
+        participating_parts = ["S"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("A", "ALTO", "2"):
+        is_vocal = True
+        participating_parts = ["A"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("T", "TENOR", "3"):
+        is_vocal = True
+        participating_parts = ["T"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("B", "BASS", "4"):
+        is_vocal = True
+        participating_parts = ["B"]
+        is_unison = False
+        unison_type = None
+
+    # 3. Divisi single vocal parts
+    elif voice_upper in ("S1", "SOPRANO1", "SOPRANO 1"):
+        is_vocal = True
+        participating_parts = ["S1"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("S2", "SOPRANO2", "SOPRANO 2"):
+        is_vocal = True
+        participating_parts = ["S2"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("A1", "ALTO1", "ALTO 1"):
+        is_vocal = True
+        participating_parts = ["A1"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("A2", "ALTO2", "ALTO 2"):
+        is_vocal = True
+        participating_parts = ["A2"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("T1", "TENOR1", "TENOR 1"):
+        is_vocal = True
+        participating_parts = ["T1"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("T2", "TENOR2", "TENOR 2"):
+        is_vocal = True
+        participating_parts = ["T2"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("B1", "BASS1", "BASS 1"):
+        is_vocal = True
+        participating_parts = ["B1"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("B2", "BASS2", "BASS 2"):
+        is_vocal = True
+        participating_parts = ["B2"]
+        is_unison = False
+        unison_type = None
+    elif voice_upper in ("SOLO", "5"):
+        is_vocal = True
+        participating_parts = ["SOLO"]
+        is_unison = False
+        unison_type = None
+
+    # 4. Compound Cross-Section Unison
+    elif voice_upper in ("UNISON_TB", "TB"):
+        is_vocal = True
+        participating_parts = ["T", "B"]
+        is_unison = True
+        unison_type = "CROSS_SECTION"
+    elif voice_upper in ("UNISON_SA", "SA"):
+        is_vocal = True
+        participating_parts = ["S", "A"]
+        is_unison = True
+        unison_type = "CROSS_SECTION"
+    elif voice_upper in ("UNISON_ST", "ST"):
+        is_vocal = True
+        participating_parts = ["S", "T"]
+        is_unison = True
+        unison_type = "CROSS_SECTION"
+    elif voice_upper in ("UNISON_AB", "AB"):
+        is_vocal = True
+        participating_parts = ["A", "B"]
+        is_unison = True
+        unison_type = "CROSS_SECTION"
+
+    # 5. Compound Section-Divisi Unison
+    elif voice_upper in ("UNISON_S1S2", "S1S2"):
+        is_vocal = True
+        participating_parts = ["S1", "S2"]
+        is_unison = True
+        unison_type = "SECTION_DIVISI"
+    elif voice_upper in ("UNISON_A1A2", "A1A2"):
+        is_vocal = True
+        participating_parts = ["A1", "A2"]
+        is_unison = True
+        unison_type = "SECTION_DIVISI"
+    elif voice_upper in ("UNISON_T1T2", "T1T2"):
+        is_vocal = True
+        participating_parts = ["T1", "T2"]
+        is_unison = True
+        unison_type = "SECTION_DIVISI"
+    elif voice_upper in ("UNISON_B1B2", "B1B2"):
+        is_vocal = True
+        participating_parts = ["B1", "B2"]
+        is_unison = True
+        unison_type = "SECTION_DIVISI"
+
+    # 6. Universal Unison / Tutti
+    elif voice_upper in ("TUTTI", "UNISON_ALL", "ALL"):
+        is_vocal = True
+        participating_parts = ["ALL"]
+        is_unison = True
+        unison_type = "TUTTI"
+
+    # 7. Unrecognized or UNKNOWN
+    else:
+        is_vocal = False
+        participating_parts = []
+        is_unison = False
+        unison_type = None
+
+    return {
+        "is_vocal": is_vocal,
+        "participating_parts": participating_parts,
+        "is_unison": is_unison,
+        "unison_type": unison_type,
+        "xml_element_order": int(xml_element_order) if xml_element_order is not None else -1
+    }
+
+
 def identity_sort_key(event: dict) -> tuple:
     """
     Sort key for chord_index assignment ONLY.
@@ -1378,6 +1534,12 @@ def analyze(xml_path: str) -> dict:
             if event["voice_source"] > 0:
                 playback_track += f"-v{event['voice_source']}"
 
+            # Schema v1.1 additive metadata derivation
+            v11_meta = derive_event_v11_metadata(
+                event["satb_voice"],
+                event.get("xml_element_order", -1)
+            )
+
             final_events.append({
                 "event_id": event_id,
                 "debug_identity": {
@@ -1402,6 +1564,11 @@ def analyze(xml_path: str) -> dict:
                 "playback_track": playback_track,
                 "satb_voice": event["satb_voice"],
                 "satb_confidence": event["satb_confidence"],
+                "xml_element_order": v11_meta["xml_element_order"],
+                "participating_parts": v11_meta["participating_parts"],
+                "is_vocal": v11_meta["is_vocal"],
+                "is_unison": v11_meta["is_unison"],
+                "unison_type": v11_meta["unison_type"],
                 "schema_version": SCHEMA_VERSION,
             })
 

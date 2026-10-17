@@ -282,11 +282,11 @@ def test_6_musicxml_roundtrip():
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-def test_7_schema_v1_0_unaltered():
-    print("\n--- Test 7: Public JSON Schema v1.0 Preservation ---")
-    assert satb_analyzer.SCHEMA_VERSION == "1.0", f"SCHEMA_VERSION must remain '1.0', got {satb_analyzer.SCHEMA_VERSION}"
+def test_7_schema_v1_1_compliance():
+    print("\n--- Test 7: Public JSON Schema v1.1 Formalization ---")
+    assert satb_analyzer.SCHEMA_VERSION == "1.1", f"SCHEMA_VERSION must be '1.1', got {satb_analyzer.SCHEMA_VERSION}"
 
-    # Verify that analyzing a sample score in standard mode emits schema_version == "1.0"
+    # Verify that analyzing a sample score in standard mode emits schema_version == "1.1" and additive v1.1 fields
     part_list = """    <score-part id="P1"><part-name>Soprano</part-name></score-part>"""
     parts = """  <part id="P1">
     <measure number="1">
@@ -302,16 +302,29 @@ def test_7_schema_v1_0_unaltered():
 
     try:
         result = satb_analyzer.analyze(tmp_path)
-        assert result.get("schema_version") == "1.0", f"Output schema must be '1.0', got {result.get('schema_version')}"
+        assert result.get("schema_version") == "1.1", f"Output schema must be '1.1', got {result.get('schema_version')}"
 
-        # Verify no experimental fields in production payload
-        for ev in result.get("events", []):
-            assert ev.get("schema_version") == "1.0"
-            assert "is_vocal" not in ev, "is_vocal must not appear in production v1.0 events"
-            assert "participating_parts" not in ev, "participating_parts must not appear in production v1.0 events"
-            assert "is_unison" not in ev, "is_unison must not appear in production v1.0 events"
+        # Verify additive v1.1 fields in production payload
+        events = result.get("events", [])
+        assert len(events) > 0, "Expected at least 1 event"
+        for ev in events:
+            assert ev.get("schema_version") == "1.1", f"Event schema must be '1.1', got {ev.get('schema_version')}"
+            assert "is_vocal" in ev, "is_vocal must be present in Schema v1.1 events"
+            assert isinstance(ev["is_vocal"], bool), "is_vocal must be boolean"
+            assert ev["is_vocal"] is True, "Soprano event must have is_vocal == True"
+            assert "participating_parts" in ev, "participating_parts must be present in Schema v1.1 events"
+            assert isinstance(ev["participating_parts"], list), "participating_parts must be a list"
+            assert ev["participating_parts"] == [ev["satb_voice"]], f"Expected [{ev['satb_voice']}], got {ev['participating_parts']}"
+            assert "is_unison" in ev, "is_unison must be present in Schema v1.1 events"
+            assert isinstance(ev["is_unison"], bool), "is_unison must be boolean"
+            assert ev["is_unison"] is False, "Single-voice Soprano note must have is_unison == False"
+            assert "unison_type" in ev, "unison_type must be present in Schema v1.1 events"
+            assert ev["unison_type"] is None, "Single-voice note must have unison_type == None"
+            assert "xml_element_order" in ev, "xml_element_order must be present in Schema v1.1 events"
+            assert isinstance(ev["xml_element_order"], int), "xml_element_order must be int"
+            assert ev["xml_element_order"] >= 0, "xml_element_order must be >= 0"
 
-        print("[PASS] Test 7: Production output strictly preserved at Schema v1.0 with zero experimental leakage.")
+        print("[PASS] Test 7: Production output strictly complies with Schema v1.1 contract.")
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -327,7 +340,7 @@ if __name__ == "__main__":
     test_4_unknown_part_unstamped()
     test_5_ambiguous_notes_unstamped()
     test_6_musicxml_roundtrip()
-    test_7_schema_v1_0_unaltered()
+    test_7_schema_v1_1_compliance()
 
     print("\n" + "=" * 70)
     print("ALL 7/7 TASK 1B TESTS PASSED SUCCESSFULLY!")
