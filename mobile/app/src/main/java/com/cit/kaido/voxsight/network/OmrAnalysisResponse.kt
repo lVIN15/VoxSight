@@ -56,5 +56,9 @@ data class PlaybackTrack(
     @SerializedName("track_id") val trackId: String = "",
     @SerializedName("structural_label") val structuralLabel: String = "",
     @SerializedName("satb_label") val satbLabel: String = "",
-    @SerializedName("satb_confidence_applied") val satbConfidenceApplied: Boolean = false
+    @SerializedName("satb_confidence_applied") val satbConfidenceApplied: Boolean = false,
+    @SerializedName("part_key") val partKey: String = "",
+    @SerializedName("part_role") val partRole: String = "UNKNOWN",
+    @SerializedName("parent_section") val parentSection: String? = null,
+    @SerializedName("is_accompaniment") val isAccompaniment: Boolean = false
 )

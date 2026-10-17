@@ -324,7 +324,18 @@ def test_7_schema_v1_1_compliance():
             assert isinstance(ev["xml_element_order"], int), "xml_element_order must be int"
             assert ev["xml_element_order"] >= 0, "xml_element_order must be >= 0"
 
-        print("[PASS] Test 7: Production output strictly complies with Schema v1.1 contract.")
+        # Section 7: Verify playback_tracks metadata enrichment
+        tracks = result.get("score_metadata", {}).get("playback_tracks", [])
+        assert len(tracks) > 0, "Expected at least 1 playback track"
+        for trk in tracks:
+            assert "part_key" in trk, "part_key must be present in playback track"
+            assert "part_role" in trk, "part_role must be present in playback track"
+            assert trk["part_role"] in ("VOCAL", "ACCOMPANIMENT", "UNKNOWN")
+            assert "parent_section" in trk, "parent_section must be present in playback track"
+            assert "is_accompaniment" in trk, "is_accompaniment must be present in playback track"
+            assert isinstance(trk["is_accompaniment"], bool)
+
+        print("[PASS] Test 7: Production output strictly complies with Schema v1.1 & Section 7 contract.")
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)

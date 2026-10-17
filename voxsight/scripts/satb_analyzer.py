@@ -1607,12 +1607,25 @@ def analyze(xml_path: str) -> dict:
             except ValueError:
                 pass
         p_cat = part_categories.get(part_num, "UNKNOWN")
-        if p_cat == "Solo":
-            satb_label = "Solo"
-        elif p_cat == "Others":
+        # Section 7: Enriched Playback Track Metadata
+        if p_cat == "Others":
             satb_label = "Others"
+            part_key = "OTHER"
+            part_role = "ACCOMPANIMENT"
+            parent_section = None
+            is_accompaniment = True
+        elif p_cat == "Solo":
+            satb_label = "Solo"
+            part_key = "SOLO"
+            part_role = "VOCAL"
+            parent_section = None
+            is_accompaniment = False
         elif p_cat == "UNKNOWN":
             satb_label = "UNKNOWN"
+            part_key = "UNKNOWN"
+            part_role = "UNKNOWN"
+            parent_section = None
+            is_accompaniment = False
         else:
             track_events = [e for e in final_events if e["playback_track"] == tid]
             satb_label = "Soprano"
@@ -1622,10 +1635,35 @@ def analyze(xml_path: str) -> dict:
                     maj = max(set(voices), key=voices.count)
                     satb_label = {"S": "Soprano", "A": "Alto", "T": "Tenor", "B": "Bass"}.get(maj, maj)
 
+            part_role = "VOCAL"
+            is_accompaniment = False
+
+            # Map satb_label to part_key and parent_section
+            norm = satb_label.upper()
+            if "SOPRANO" in norm or norm.startswith("S"):
+                parent_section = "Soprano"
+                part_key = "S2" if ("2" in norm) else ("S1" if "1" in norm else "S")
+            elif "ALTO" in norm or norm.startswith("A"):
+                parent_section = "Alto"
+                part_key = "A2" if ("2" in norm) else ("A1" if "1" in norm else "A")
+            elif "TENOR" in norm or norm.startswith("T"):
+                parent_section = "Tenor"
+                part_key = "T2" if ("2" in norm) else ("T1" if "1" in norm else "T")
+            elif "BASS" in norm or norm.startswith("B"):
+                parent_section = "Bass"
+                part_key = "B2" if ("2" in norm) else ("B1" if "1" in norm else "B")
+            else:
+                parent_section = "Soprano"
+                part_key = "S"
+
         playback_tracks.append({
             "track_id": tid,
             "structural_label": tid.replace("p", "Part ").replace("-s", ", Staff ").replace("-v", ", Voice "),
             "satb_label": satb_label,
+            "part_key": part_key,
+            "part_role": part_role,
+            "parent_section": parent_section,
+            "is_accompaniment": is_accompaniment,
             "satb_confidence_applied": avg_confidence >= THRESHOLD_CONDENSED,
         })
 
