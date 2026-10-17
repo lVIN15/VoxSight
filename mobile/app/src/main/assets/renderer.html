@@ -464,27 +464,27 @@
                         case "1": case "S": case "SOPRANO":
                             return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
                         case "S1": case "SOPRANO1": case "SOPRANO 1":
-                            return { voice: "SOPRANO 1", part: "S1", color: "#FF4081", partId: 11, participating: ["S1"] };
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
                         case "S2": case "SOPRANO2": case "SOPRANO 2":
-                            return { voice: "SOPRANO 2", part: "S2", color: "#C2185B", partId: 12, participating: ["S2"] };
+                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
                         case "2": case "A": case "ALTO":
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2, participating: ["A"] };
+                            return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] };
                         case "A1": case "ALTO1": case "ALTO 1":
-                            return { voice: "ALTO 1", part: "A1", color: "#BA68C8", partId: 21, participating: ["A1"] };
+                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
                         case "A2": case "ALTO2": case "ALTO 2":
-                            return { voice: "ALTO 2", part: "A2", color: "#6A1B9A", partId: 22, participating: ["A2"] };
+                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
                         case "3": case "T": case "TENOR":
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3, participating: ["T"] };
+                            return { voice: "TENOR", part: "T", color: "#1976D2", partId: 3, participating: ["T"] };
                         case "T1": case "TENOR1": case "TENOR 1":
-                            return { voice: "TENOR 1", part: "T1", color: "#00B0FF", partId: 31, participating: ["T1"] };
+                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
                         case "T2": case "TENOR2": case "TENOR 2":
-                            return { voice: "TENOR 2", part: "T2", color: "#1565C0", partId: 32, participating: ["T2"] };
+                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
                         case "4": case "B": case "BASS":
-                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4, participating: ["B"] };
+                            return { voice: "BASS", part: "B", color: "#2E7D32", partId: 4, participating: ["B"] };
                         case "B1": case "BASS1": case "BASS 1":
-                            return { voice: "BASS 1", part: "B1", color: "#8BC34A", partId: 41, participating: ["B1"] };
+                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
                         case "B2": case "BASS2": case "BASS 2":
-                            return { voice: "BASS 2", part: "B2", color: "#2E7D32", partId: 42, participating: ["B2"] };
+                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
                         case "UNISON_TB": case "TB":
                             return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#00BFA5", partId: 34, participating: ["T", "B"] };
                         case "UNISON_SA": case "SA":
@@ -500,9 +500,9 @@
                         case "TUTTI": case "UNISON_ALL": case "ALL":
                             return { voice: "TUTTI", part: "TUTTI", color: "#FFB300", partId: 99, participating: ["ALL"] };
                         case "5": case "SOLO":
-                            return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5, participating: ["SOLO"] };
+                            return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
                         case "6": case "OTHERS": case "OTHER":
-                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6, participating: ["OTHERS"] };
+                            return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6, participating: ["OTHERS"] };
                         default:
                             // Explicit unknown/malformed tokens (e.g. "GUITAR", "UNKNOWN", "0", "7")
                             // Blocked from Priority 2/3/4 heuristics to prevent silent misclassification as Soprano
@@ -1039,17 +1039,17 @@
             var norm = (partLabel || '').toUpperCase();
             switch (norm) {
                 case "S": return "#E91E63";
-                case "S1": return "#FF4081";
-                case "S2": return "#C2185B";
-                case "A": return "#9C27B0";
-                case "A1": return "#BA68C8";
-                case "A2": return "#6A1B9A";
-                case "T": return "#2196F3";
-                case "T1": return "#00B0FF";
-                case "T2": return "#1565C0";
-                case "B": return "#4CAF50";
-                case "B1": return "#8BC34A";
-                case "B2": return "#2E7D32";
+                case "S1": return "#FF1493";
+                case "S2": return "#D50000";
+                case "A": return "#8E24AA";
+                case "A1": return "#AB47BC";
+                case "A2": return "#3F51B5";
+                case "T": return "#1976D2";
+                case "T1": return "#00BCD4";
+                case "T2": return "#0D47A1";
+                case "B": return "#2E7D32";
+                case "B1": return "#7CB342";
+                case "B2": return "#1B5E20";
                 case "UNISON_TB": case "TB": return "#00BFA5";
                 case "UNISON_SA": case "SA": return "#D81B60";
                 case "UNISON_S1S2": return "#FF80AB";
@@ -1057,9 +1057,9 @@
                 case "UNISON_T1T2": return "#80D8FF";
                 case "UNISON_B1B2": return "#B9F6CA";
                 case "TUTTI": case "UNISON_ALL": return "#FFB300";
-                case "SOLO": return "#FF9800";
+                case "SOLO": return "#FF6D00";
                 case "OTHER":
-                case "OTHERS": return "#607D8B";
+                case "OTHERS": return "#546E7A";
                 default: return "#808080";
             }
         }

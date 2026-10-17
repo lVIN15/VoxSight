@@ -65,6 +65,7 @@ data class MusicXmlNote(
     val measureNumber: Int = 1,
     val measureIndex: Int = 0,
     val customVoice: Int? = null,
+    val customVoiceStr: String? = null,
     val lyric: String? = null,
     val stem: String? = null,
     val beam: String? = null,
@@ -404,6 +405,7 @@ fun parseMusicXmlScoreFromText(
     var duration: Int? = null
     var voice: Int? = null
     var customVoice: Int? = null
+    var customVoiceStr: String? = null
     var staff: Int? = null
     var noteType: String? = null
     var lyricText: String? = null
@@ -505,7 +507,20 @@ fun parseMusicXmlScoreFromText(
                             octave = null
                             duration = null
                             voice = null
-                            customVoice = parser.getAttributeValue(null, "data-vx-voice")?.toIntOrNull()
+                            customVoiceStr = parser.getAttributeValue(null, "data-vx-voice")?.trim()
+                            customVoice = customVoiceStr?.let { cv ->
+                                when (cv.uppercase()) {
+                                    "1", "S", "S1", "S2", "SOPRANO", "SOPRANO 1", "SOPRANO 2" -> 1
+                                    "2", "A", "A1", "A2", "ALTO", "ALTO 1", "ALTO 2" -> 2
+                                    "3", "T", "T1", "T2", "TENOR", "TENOR 1", "TENOR 2" -> 3
+                                    "4", "B", "B1", "B2", "BASS", "BASS 1", "BASS 2" -> 4
+                                    "UNISON_TB", "TB" -> 3
+                                    "UNISON_SA", "SA" -> 1
+                                    "5", "SOLO" -> 5
+                                    "6", "OTHERS", "OTHER" -> 6
+                                    else -> cv.toIntOrNull()
+                                }
+                            }
                             staff = null
                             noteType = null
                             lyricText = null
@@ -663,6 +678,7 @@ fun parseMusicXmlScoreFromText(
                                 measureNumber = currentMeasureNumber,
                                 measureIndex = currentMeasureIndex,
                                 customVoice = customVoice,
+                                customVoiceStr = customVoiceStr,
                                 lyric = lyricText,
                                 stem = stem,
                                 beam = beam,
@@ -989,6 +1005,30 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int): Strin
                 nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower == "tb"
 
             val satbVoiceStr = when {
+                !note.customVoiceStr.isNullOrBlank() -> when (note.customVoiceStr.uppercase()) {
+                    "1", "S", "SOPRANO" -> "SOPRANO"
+                    "S1", "SOPRANO1", "SOPRANO 1" -> "SOPRANO 1"
+                    "S2", "SOPRANO2", "SOPRANO 2" -> "SOPRANO 2"
+                    "2", "A", "ALTO" -> "ALTO"
+                    "A1", "ALTO1", "ALTO 1" -> "ALTO 1"
+                    "A2", "ALTO2", "ALTO 2" -> "ALTO 2"
+                    "3", "T", "TENOR" -> "TENOR"
+                    "T1", "TENOR1", "TENOR 1" -> "TENOR 1"
+                    "T2", "TENOR2", "TENOR 2" -> "TENOR 2"
+                    "4", "B", "BASS" -> "BASS"
+                    "B1", "BASS1", "BASS 1" -> "BASS 1"
+                    "B2", "BASS2", "BASS 2" -> "BASS 2"
+                    "UNISON_TB", "TB" -> "TENOR / BASS"
+                    "UNISON_SA", "SA" -> "SOPRANO / ALTO"
+                    "UNISON_S1S2", "S1S2" -> "SOPRANO 1 / 2"
+                    "UNISON_A1A2", "A1A2" -> "ALTO 1 / 2"
+                    "UNISON_T1T2", "T1T2" -> "TENOR 1 / 2"
+                    "UNISON_B1B2", "B1B2" -> "BASS 1 / 2"
+                    "TUTTI", "UNISON_ALL", "ALL" -> "TUTTI"
+                    "5", "SOLO" -> "SOLO"
+                    "6", "OTHERS", "OTHER" -> "OTHERS"
+                    else -> note.customVoiceStr
+                }
                 note.customVoice != null && note.customVoice in 1..6 -> when (note.customVoice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"

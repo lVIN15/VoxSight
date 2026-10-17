@@ -977,15 +977,31 @@
 
         // ─── Vocal Part Color Coding Helper (SATB - Identical to Playback Mode) ─
         function getVocalPartColor(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
-            // Priority 1: Explicit user override via data-vx-voice attribute
-            if (typeof customVoice === 'number') {
-                switch (customVoice) {
-                    case 1: return '#E91E63'; // Soprano - Pink
-                    case 2: return '#9C27B0'; // Alto - Purple
-                    case 3: return '#2196F3'; // Tenor - Blue
-                    case 4: return '#4CAF50'; // Bass - Green
-                    case 5: return '#FF9800'; // Solo - Amber
-                    case 6: return '#607D8B'; // Others - Steel Blue
+            // Priority 1: Explicit user override via data-vx-voice attribute (string tokens or legacy numeric)
+            if (customVoice !== null && customVoice !== undefined) {
+                var cv = String(customVoice).trim().toUpperCase();
+                switch (cv) {
+                    case "1": case "S": case "SOPRANO": return "#E91E63";
+                    case "S1": case "SOPRANO1": case "SOPRANO 1": return "#FF1493";
+                    case "S2": case "SOPRANO2": case "SOPRANO 2": return "#D50000";
+                    case "2": case "A": case "ALTO": return "#8E24AA";
+                    case "A1": case "ALTO1": case "ALTO 1": return "#AB47BC";
+                    case "A2": case "ALTO2": case "ALTO 2": return "#3F51B5";
+                    case "3": case "T": case "TENOR": return "#1976D2";
+                    case "T1": case "TENOR1": case "TENOR 1": return "#00BCD4";
+                    case "T2": case "TENOR2": case "TENOR 2": return "#0D47A1";
+                    case "4": case "B": case "BASS": return "#2E7D32";
+                    case "B1": case "BASS1": case "BASS 1": return "#7CB342";
+                    case "B2": case "BASS2": case "BASS 2": return "#1B5E20";
+                    case "UNISON_TB": case "TB": return "#00BFA5";
+                    case "UNISON_SA": case "SA": return "#D81B60";
+                    case "UNISON_S1S2": case "S1S2": return "#FF80AB";
+                    case "UNISON_A1A2": case "A1A2": return "#CE93D8";
+                    case "UNISON_T1T2": case "T1T2": return "#80D8FF";
+                    case "UNISON_B1B2": case "B1B2": return "#B9F6CA";
+                    case "TUTTI": case "UNISON_ALL": case "ALL": return "#FFB300";
+                    case "5": case "SOLO": return "#FF6D00";
+                    case "6": case "OTHERS": case "OTHER": return "#546E7A";
                 }
             }
 
@@ -1301,7 +1317,7 @@
                             var vxIdStr = node.getAttribute('data-vx-id');
                             var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
                             var customVoiceStr = node.getAttribute('data-vx-voice');
-                            var customVoice = customVoiceStr ? parseInt(customVoiceStr, 10) : null;
+                            var customVoice = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim() : null;
 
                             list.push({
                                 el: node,
@@ -2299,8 +2315,21 @@
 
                 // Check explicit override
                 var customVoiceStr = xmlNoteEl.getAttribute('data-vx-voice');
+                var voiceCode = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim().toUpperCase() : null;
                 if (customVoiceStr) {
-                    voiceId = parseInt(customVoiceStr, 10) || 1;
+                    var parsedInt = parseInt(customVoiceStr, 10);
+                    if (!isNaN(parsedInt)) {
+                        voiceId = parsedInt;
+                    } else {
+                        var cu = customVoiceStr.trim().toUpperCase();
+                        if (cu.startsWith('S') || cu === 'UNISON_SA' || cu === 'UNISON_S1S2') voiceId = 1;
+                        else if (cu.startsWith('A') || cu === 'UNISON_A1A2') voiceId = 2;
+                        else if (cu.startsWith('T') || cu === 'UNISON_TB' || cu === 'UNISON_T1T2') voiceId = 3;
+                        else if (cu.startsWith('B') || cu === 'UNISON_B1B2') voiceId = 4;
+                        else if (cu === 'SOLO') voiceId = 5;
+                        else if (cu === 'OTHERS' || cu === 'OTHER') voiceId = 6;
+                        else voiceId = 1;
+                    }
                 } else if (entry.staffIdx !== undefined && entry.chordPos) {
                     // In 2-part scores: determine SATB voice (1=S, 2=A, 3=T, 4=B)
                     if (entry.staffIdx === 0) {
@@ -2310,8 +2339,14 @@
                     } else {
                         voiceId = parsedVoice;
                     }
+                    voiceCode = (voiceId === 2) ? 'A' : 'S';
+                    if (entry.staffIdx === 1) voiceCode = (voiceId === 4) ? 'B' : 'T';
                 } else {
                     voiceId = parsedVoice;
+                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
+                }
+                if (!voiceCode) {
+                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
                 }
 
                 var measEl = xmlNoteEl.parentNode;
@@ -2348,7 +2383,7 @@
             if (window.VoxSightBridge) {
                 window.VoxSightBridge.onNoteSelected(
                     vxId, pitchStep, alterVal, octaveVal,
-                    durationType, voiceId, measureNum, lyricText, isRest, isDotted
+                    durationType, voiceId, measureNum, lyricText, isRest, isDotted, voiceCode
                 );
             }
         }
@@ -2426,6 +2461,16 @@
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteVoice: note', noteId, 'not found in XML'); return; }
 
+            var token = String(newVoice).trim().toUpperCase();
+            if (token === '1') token = 'S';
+            else if (token === '2') token = 'A';
+            else if (token === '3') token = 'T';
+            else if (token === '4') token = 'B';
+            else if (token === '5') token = 'SOLO';
+            else if (token === '6') token = 'OTHERS';
+
+            noteEl.setAttribute('data-vx-voice', token);
+
             var voiceEl = noteEl.getElementsByTagName('voice')[0];
             if (!voiceEl) {
                 voiceEl = xmlDoc.createElement('voice');
@@ -2433,88 +2478,13 @@
                 if (typeEl) noteEl.insertBefore(voiceEl, typeEl);
                 else noteEl.appendChild(voiceEl);
             }
-
-            var parts = xmlDoc.getElementsByTagName('part');
-            var currPart = noteEl.parentNode;
-            while (currPart && currPart.tagName !== 'part') currPart = currPart.parentNode;
-
-            var currMeas = noteEl.parentNode;
-            while (currMeas && currMeas.tagName !== 'measure') currMeas = currMeas.parentNode;
-
-            // 1. Four-part score (S=1, A=2, T=3, B=4 mapped to parts[0..3])
-            if (parts.length >= 4) {
-                var targetPartIdx = Math.max(0, Math.min(parts.length - 1, newVoice - 1));
-                voiceEl.textContent = '1';
-                noteEl.removeAttribute('data-vx-voice');
-
-                if (currPart && currMeas && currPart !== parts[targetPartIdx]) {
-                    var currPartMeasures = currPart.getElementsByTagName('measure');
-                    var mIdx = -1;
-                    for (let i = 0; i < currPartMeasures.length; i++) {
-                        if (currPartMeasures[i] === currMeas) { mIdx = i; break; }
-                    }
-
-                    var targetPartMeasures = parts[targetPartIdx].getElementsByTagName('measure');
-                    if (mIdx >= 0 && mIdx < targetPartMeasures.length) {
-                        var targetMeas = targetPartMeasures[mIdx];
-
-                        // If note was part of a chord, drop chord tag
-                        var chordTag = noteEl.getElementsByTagName('chord')[0];
-                        if (chordTag) noteEl.removeChild(chordTag);
-
-                        noteEl.parentNode.removeChild(noteEl);
-
-                        // If target measure had only a dummy full-measure rest, remove the dummy rest
-                        var targetNotes = targetMeas.getElementsByTagName('note');
-                        if (targetNotes.length === 1 && targetNotes[0].getElementsByTagName('rest').length > 0) {
-                            targetMeas.removeChild(targetNotes[0]);
-                        }
-                        targetMeas.appendChild(noteEl);
-                    }
-                }
-            }
-            // 2. Two-part score (Part 0 = Treble S/A: S=1, A=2; Part 1 = Bass T/B: T=3, B=4)
-            else if (parts.length === 2) {
-                var targetPartIdx = (newVoice <= 2) ? 0 : 1;
-                var localVoice = (newVoice <= 2) ? newVoice : (newVoice - 2); // 1 or 2
-
-                if (currPart && currMeas && currPart !== parts[targetPartIdx]) {
-                    // Moving across parts (e.g. from Treble to Bass or vice versa)
-                    var currPartMeasures = currPart.getElementsByTagName('measure');
-                    var mIdx = -1;
-                    for (let i = 0; i < currPartMeasures.length; i++) {
-                        if (currPartMeasures[i] === currMeas) { mIdx = i; break; }
-                    }
-
-                    var targetPartMeasures = parts[targetPartIdx].getElementsByTagName('measure');
-                    if (mIdx >= 0 && mIdx < targetPartMeasures.length) {
-                        var targetMeas = targetPartMeasures[mIdx];
-
-                        // Remove chord tag if moving across parts
-                        var chordTag = noteEl.getElementsByTagName('chord')[0];
-                        if (chordTag) noteEl.removeChild(chordTag);
-
-                        voiceEl.textContent = localVoice.toString();
-                        noteEl.setAttribute('data-vx-voice', newVoice.toString());
-
-                        noteEl.parentNode.removeChild(noteEl);
-
-                        var targetNotes = targetMeas.getElementsByTagName('note');
-                        if (targetNotes.length === 1 && targetNotes[0].getElementsByTagName('rest').length > 0) {
-                            targetMeas.removeChild(targetNotes[0]);
-                        }
-                        targetMeas.appendChild(noteEl);
-                    }
-                } else {
-                    // Moving within the same part (e.g. Soprano <-> Alto in Part 0)
-                    // Note: Keep MusicXML voice attribute safe while explicitly recording data-vx-voice
-                    noteEl.setAttribute('data-vx-voice', newVoice.toString());
-                }
-            } else {
-                // Single part score
-                voiceEl.textContent = newVoice.toString();
-                noteEl.setAttribute('data-vx-voice', newVoice.toString());
-            }
+            var numCode = '1';
+            if (token === 'S' || token === 'S1' || token === 'UNISON_SA' || token === 'UNISON_S1S2' || token === 'SOLO' || token === 'TUTTI') numCode = '1';
+            else if (token === 'A' || token === 'A1' || token === 'A2' || token === 'UNISON_A1A2') numCode = '2';
+            else if (token === 'T' || token === 'T1' || token === 'T2' || token === 'UNISON_TB' || token === 'UNISON_T1T2') numCode = '3';
+            else if (token === 'B' || token === 'B1' || token === 'B2' || token === 'UNISON_B1B2') numCode = '4';
+            else if (token === 'OTHERS' || token === 'OTHER') numCode = '1';
+            voiceEl.textContent = numCode;
 
             reloadScore();
         };

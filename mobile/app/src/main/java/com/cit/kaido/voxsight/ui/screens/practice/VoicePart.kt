@@ -8,19 +8,19 @@ import com.google.gson.reflect.TypeToken
 
 enum class VoicePart(val label: String, val shortLabel: String, val color: Color) {
     Soprano("Soprano", "S.", Color(0xFFE91E63)),
-    Soprano1("Soprano 1", "S1", Color(0xFFFF4081)),
-    Soprano2("Soprano 2", "S2", Color(0xFFC2185B)),
-    Alto("Alto", "A.", Color(0xFF9C27B0)),
-    Alto1("Alto 1", "A1", Color(0xFFBA68C8)),
-    Alto2("Alto 2", "A2", Color(0xFF6A1B9A)),
-    Tenor("Tenor", "T.", Color(0xFF2196F3)),
-    Tenor1("Tenor 1", "T1", Color(0xFF00B0FF)),
-    Tenor2("Tenor 2", "T2", Color(0xFF1565C0)),
-    Bass("Bass", "B.", Color(0xFF4CAF50)),
-    Bass1("Bass 1", "B1", Color(0xFF8BC34A)),
-    Bass2("Bass 2", "B2", Color(0xFF2E7D32)),
-    Solo("Solo", "Solo", Color(0xFFFF9800)),
-    Others("Others", "Other", Color(0xFF607D8B));
+    Soprano1("Soprano 1", "S1", Color(0xFFFF1493)),
+    Soprano2("Soprano 2", "S2", Color(0xFFD50000)),
+    Alto("Alto", "A.", Color(0xFF8E24AA)),
+    Alto1("Alto 1", "A1", Color(0xFFAB47BC)),
+    Alto2("Alto 2", "A2", Color(0xFF3F51B5)),
+    Tenor("Tenor", "T.", Color(0xFF1976D2)),
+    Tenor1("Tenor 1", "T1", Color(0xFF00BCD4)),
+    Tenor2("Tenor 2", "T2", Color(0xFF0D47A1)),
+    Bass("Bass", "B.", Color(0xFF2E7D32)),
+    Bass1("Bass 1", "B1", Color(0xFF7CB342)),
+    Bass2("Bass 2", "B2", Color(0xFF1B5E20)),
+    Solo("Solo", "Solo", Color(0xFFFF6D00)),
+    Others("Others", "Other", Color(0xFF546E7A));
 
     val apiCode: String
         get() = when (this) {
@@ -153,8 +153,30 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
         } catch (_: Exception) {}
     }
 
-    // 2. Check direct notes voices (1=Soprano, 2=Alto, 3=Tenor, 4=Bass, 5=Solo, 6=Others)
+    // 2. Check direct notes voices (including string tokens like S1, S2, UNISON_TB)
     score.notes.forEach { note ->
+        if (!note.customVoiceStr.isNullOrBlank()) {
+            when (note.customVoiceStr.uppercase()) {
+                "S", "SOPRANO" -> hasSoprano = true
+                "S1" -> hasSoprano1 = true
+                "S2" -> hasSoprano2 = true
+                "A", "ALTO" -> hasAlto = true
+                "A1" -> hasAlto1 = true
+                "A2" -> hasAlto2 = true
+                "T", "TENOR" -> hasTenor = true
+                "T1" -> hasTenor1 = true
+                "T2" -> hasTenor2 = true
+                "B", "BASS" -> hasBass = true
+                "B1" -> hasBass1 = true
+                "B2" -> hasBass2 = true
+                "UNISON_TB", "TB" -> { hasTenor = true; hasBass = true }
+                "UNISON_SA", "SA" -> { hasSoprano = true; hasAlto = true }
+                "UNISON_S1S2", "S1S2" -> { hasSoprano1 = true; hasSoprano2 = true }
+                "TUTTI", "UNISON_ALL", "ALL" -> { hasSoprano = true; hasAlto = true; hasTenor = true; hasBass = true }
+                "SOLO" -> hasSolo = true
+                "OTHERS", "OTHER" -> hasOthers = true
+            }
+        }
         when (note.voice) {
             1 -> hasSoprano = true
             2 -> hasAlto = true

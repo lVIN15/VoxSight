@@ -53,6 +53,7 @@ data class SelectedNoteInfo(
     val octave: Int,
     val durationType: String,
     val voiceId: Int,
+    val voiceCode: String = "",
     val measureNumber: Int,
     val lyricText: String = "",
     val isRest: Boolean = false,
@@ -91,25 +92,26 @@ fun ScoreReviewScreen(
         fun onNoteSelected(
             id: Int,
             pitchStep: String,
-            alterVal: Double,   // Float in MusicXML (e.g. 1.0, -1.0); Int bridge would silently fail
+            alterVal: Double,
             octaveVal: Int,
             durationType: String,
             voiceId: Int,
             measureNum: Int,
             lyricText: String? = "",
             isRest: Boolean = false,
-            isDotted: Boolean = false
+            isDotted: Boolean = false,
+            voiceCode: String? = null
         ) {
-            // Note selected callback from JS Thread - hop to Main thread
             (context as? android.app.Activity)?.runOnUiThread {
                 selectedMultiRest = null
                 selectedNote = SelectedNoteInfo(
                     id = id,
                     pitchStep = pitchStep,
-                    alter = alterVal.toInt(),  // Round: 1.0 → 1, -1.0 → -1, 0.5 → 0
+                    alter = alterVal.toInt(),
                     octave = octaveVal,
                     durationType = durationType,
                     voiceId = voiceId,
+                    voiceCode = voiceCode ?: "",
                     measureNumber = measureNum,
                     lyricText = lyricText ?: "",
                     isRest = isRest,
@@ -436,6 +438,7 @@ fun ScoreReviewScreen(
                 octave = note.octave,
                 durationType = note.durationType,
                 voiceId = note.voiceId,
+                voiceCode = note.voiceCode,
                 measureNumber = note.measureNumber,
                 lyricText = note.lyricText,
                 isRest = note.isRest,
@@ -445,9 +448,10 @@ fun ScoreReviewScreen(
                     webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
                     selectedNote = selectedNote?.copy(lyricText = newLyric)
                 },
-                onVoiceChanged = { newVoiceId ->
-                    webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, $newVoiceId);", null)
-                    selectedNote = selectedNote?.copy(voiceId = newVoiceId)
+                onVoiceChanged = { newVoiceCode ->
+                    val escapedCode = escapeJavascriptString(newVoiceCode)
+                    webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
+                    selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
                 },
                 onPitchChanged = { newStep, newAlter, newOctave ->
                     webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
@@ -529,10 +533,34 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
             nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower == "tb"
 
         part.notes.forEach { note ->
-            // Priority 1: Explicit user override from data-vx-voice (customVoice)
+            // Priority 1: Explicit user override from data-vx-voice (customVoiceStr or customVoice)
             // Priority 2: Part name keywords (Solo, Others, Condensed SA/TB, Soprano, Alto, Tenor, Bass)
             // Priority 3: Fallback based on part structure and voice numbers
             val satbVoiceStr = when {
+                !note.customVoiceStr.isNullOrBlank() -> when (note.customVoiceStr.uppercase()) {
+                    "1", "S", "SOPRANO" -> "SOPRANO"
+                    "S1", "SOPRANO1", "SOPRANO 1" -> "SOPRANO 1"
+                    "S2", "SOPRANO2", "SOPRANO 2" -> "SOPRANO 2"
+                    "2", "A", "ALTO" -> "ALTO"
+                    "A1", "ALTO1", "ALTO 1" -> "ALTO 1"
+                    "A2", "ALTO2", "ALTO 2" -> "ALTO 2"
+                    "3", "T", "TENOR" -> "TENOR"
+                    "T1", "TENOR1", "TENOR 1" -> "TENOR 1"
+                    "T2", "TENOR2", "TENOR 2" -> "TENOR 2"
+                    "4", "B", "BASS" -> "BASS"
+                    "B1", "BASS1", "BASS 1" -> "BASS 1"
+                    "B2", "BASS2", "BASS 2" -> "BASS 2"
+                    "UNISON_TB", "TB" -> "TENOR / BASS"
+                    "UNISON_SA", "SA" -> "SOPRANO / ALTO"
+                    "UNISON_S1S2", "S1S2" -> "SOPRANO 1 / 2"
+                    "UNISON_A1A2", "A1A2" -> "ALTO 1 / 2"
+                    "UNISON_T1T2", "T1T2" -> "TENOR 1 / 2"
+                    "UNISON_B1B2", "B1B2" -> "BASS 1 / 2"
+                    "TUTTI", "UNISON_ALL", "ALL" -> "TUTTI"
+                    "5", "SOLO" -> "SOLO"
+                    "6", "OTHERS", "OTHER" -> "OTHERS"
+                    else -> note.customVoiceStr
+                }
                 note.customVoice != null && note.customVoice in 1..6 -> when (note.customVoice) {
                     1 -> "SOPRANO"
                     2 -> "ALTO"

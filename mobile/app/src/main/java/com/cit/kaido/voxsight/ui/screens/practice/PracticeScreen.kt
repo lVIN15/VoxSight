@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -785,21 +786,68 @@ private fun PracticeTopBar(
             onDismissRequest = { showLegendDialog = false },
             title = {
                 Text(
-                    text = "SATB Color Legend",
+                    text = "Vocal Parts & Notation Legend",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
                     Text(
-                        text = "Use this guide to identify your vocal part on the sheet music:",
+                        text = "Use this guide to identify vocal parts, divisi, and merged notes on the score:",
                         style = MaterialTheme.typography.bodySmall,
                         color = VoxTextSecondary
                     )
-                    LegendItem("Soprano", Color(0xFFE91E63)) // Pink
-                    LegendItem("Alto", Color(0xFF9C27B0))    // Purple
-                    LegendItem("Tenor", Color(0xFF2196F3))   // Blue
-                    LegendItem("Bass", Color(0xFF4CAF50))    // Green
+
+                    // Core Voice Parts
+                    Text(
+                        text = "CORE VOICES",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = VoxPurplePrimary
+                    )
+                    LegendItem("Soprano", Color(0xFFE91E63))
+                    LegendItem("Alto", Color(0xFF8E24AA))
+                    LegendItem("Tenor", Color(0xFF1976D2))
+                    LegendItem("Bass", Color(0xFF2E7D32))
+
+                    // Divisi Subdivisions
+                    Text(
+                        text = "DIVISI SUBDIVISIONS",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = VoxPurplePrimary
+                    )
+                    LegendItem("Soprano 1", Color(0xFFFF1493))
+                    LegendItem("Soprano 2", Color(0xFFD50000))
+                    LegendItem("Alto 1", Color(0xFFAB47BC))
+                    LegendItem("Alto 2", Color(0xFF3F51B5))
+                    LegendItem("Tenor 1", Color(0xFF00BCD4))
+                    LegendItem("Tenor 2", Color(0xFF0D47A1))
+                    LegendItem("Bass 1", Color(0xFF7CB342))
+                    LegendItem("Bass 2", Color(0xFF1B5E20))
+
+                    // Merged & Unison Notes
+                    Text(
+                        text = "MERGED & UNISON NOTES",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = VoxPurplePrimary
+                    )
+                    LegendItem("Tenor–Bass Unison (T/B)", Color(0xFF00BFA5))
+                    LegendItem("Soprano–Alto Unison (S/A)", Color(0xFFD81B60))
+                    LegendItem("Soprano 1/2 Unison (S1/S2)", Color(0xFFFF80AB))
+                    LegendItem("Tutti / All Voices", Color(0xFFFFB300))
+
+                    // Other Tracks
+                    Text(
+                        text = "OTHER TRACKS",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = VoxPurplePrimary
+                    )
+                    LegendItem("Solo Voice", Color(0xFFFF6D00))
+                    LegendItem("Accompaniment / Others", Color(0xFF546E7A))
                 }
             },
             confirmButton = {
@@ -1239,31 +1287,65 @@ private fun PartSelectorUI(
         modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Row 1: Core SATB parts (only those present in sheet)
+        // Row 1: Core SATB & Divisi parts (Adaptive layout: full width if <= 4, horizontal scroll if > 4)
         if (choirParts.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                choirParts.forEach { part ->
-                    val isSelected = part == selectedPart
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(34.dp)
-                            .clickable(enabled = enabled) { onPartSelected(part) },
-                        color = if (isSelected) part.color else Color.White,
-                        shape = RoundedCornerShape(999.dp),
-                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = part.label,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.SemiBold
-                                ),
-                                color = if (isSelected) Color.White else VoxTextSecondary
-                            )
+            if (choirParts.size <= 4) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    choirParts.forEach { part ->
+                        val isSelected = part == selectedPart
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .clickable(enabled = enabled) { onPartSelected(part) },
+                            color = if (isSelected) part.color else Color.White,
+                            shape = RoundedCornerShape(999.dp),
+                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = part.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = if (isSelected) Color.White else VoxTextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    choirParts.forEach { part ->
+                        val isSelected = part == selectedPart
+                        Surface(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .clickable(enabled = enabled) { onPartSelected(part) },
+                            color = if (isSelected) part.color else Color.White,
+                            shape = RoundedCornerShape(999.dp),
+                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = part.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = if (isSelected) Color.White else VoxTextSecondary
+                                )
+                            }
                         }
                     }
                 }

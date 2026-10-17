@@ -104,11 +104,11 @@ function runTest(name, fn) {
 runTest('TC-01: Legacy numeric codes (1-6) as integers and strings', () => {
     const expected = [
         { code: 1, voice: 'SOPRANO', part: 'S', color: '#E91E63', partId: 1 },
-        { code: 2, voice: 'ALTO', part: 'A', color: '#9C27B0', partId: 2 },
-        { code: 3, voice: 'TENOR', part: 'T', color: '#2196F3', partId: 3 },
-        { code: 4, voice: 'BASS', part: 'B', color: '#4CAF50', partId: 4 },
-        { code: 5, voice: 'SOLO', part: 'SOLO', color: '#FF9800', partId: 5 },
-        { code: 6, voice: 'OTHERS', part: 'OTHERS', color: '#607D8B', partId: 6 },
+        { code: 2, voice: 'ALTO', part: 'A', color: '#8E24AA', partId: 2 },
+        { code: 3, voice: 'TENOR', part: 'T', color: '#1976D2', partId: 3 },
+        { code: 4, voice: 'BASS', part: 'B', color: '#2E7D32', partId: 4 },
+        { code: 5, voice: 'SOLO', part: 'SOLO', color: '#FF6D00', partId: 5 },
+        { code: 6, voice: 'OTHERS', part: 'OTHERS', color: '#546E7A', partId: 6 },
     ];
 
     for (const exp of expected) {
@@ -132,11 +132,11 @@ runTest('TC-01: Legacy numeric codes (1-6) as integers and strings', () => {
 runTest('TC-02: Approved canonical string tokens (S, A, T, B, Solo, Others)', () => {
     const expected = [
         { token: 'S', voice: 'SOPRANO', part: 'S', color: '#E91E63', partId: 1 },
-        { token: 'A', voice: 'ALTO', part: 'A', color: '#9C27B0', partId: 2 },
-        { token: 'T', voice: 'TENOR', part: 'T', color: '#2196F3', partId: 3 },
-        { token: 'B', voice: 'BASS', part: 'B', color: '#4CAF50', partId: 4 },
-        { token: 'Solo', voice: 'SOLO', part: 'SOLO', color: '#FF9800', partId: 5 },
-        { token: 'Others', voice: 'OTHERS', part: 'OTHERS', color: '#607D8B', partId: 6 },
+        { token: 'A', voice: 'ALTO', part: 'A', color: '#8E24AA', partId: 2 },
+        { token: 'T', voice: 'TENOR', part: 'T', color: '#1976D2', partId: 3 },
+        { token: 'B', voice: 'BASS', part: 'B', color: '#2E7D32', partId: 4 },
+        { token: 'Solo', voice: 'SOLO', part: 'SOLO', color: '#FF6D00', partId: 5 },
+        { token: 'Others', voice: 'OTHERS', part: 'OTHERS', color: '#546E7A', partId: 6 },
     ];
 
     for (const exp of expected) {
@@ -153,7 +153,7 @@ runTest('TC-03: Mobile compatibility alias (OTHER)', () => {
     const resOther = getVocalPartInfo(1, 0, 0, 4, null, 'OTHER');
     assert.strictEqual(resOther.voice, 'OTHERS');
     assert.strictEqual(resOther.part, 'OTHERS');
-    assert.strictEqual(resOther.color, '#607D8B');
+    assert.strictEqual(resOther.color, '#546E7A');
     assert.strictEqual(resOther.partId, 6);
 
     const resOtherLower = getVocalPartInfo(1, 0, 0, 4, null, 'other');
@@ -167,15 +167,15 @@ runTest('TC-04: Case insensitivity and whitespace tolerance', () => {
         { input: ' s ', expectedPart: 'S', expectedColor: '#E91E63' },
         { input: 'SOPRANO', expectedPart: 'S', expectedColor: '#E91E63' },
         { input: ' soprano ', expectedPart: 'S', expectedColor: '#E91E63' },
-        { input: 'a', expectedPart: 'A', expectedColor: '#9C27B0' },
-        { input: ' ALTO ', expectedPart: 'A', expectedColor: '#9C27B0' },
-        { input: 't', expectedPart: 'T', expectedColor: '#2196F3' },
-        { input: 'b', expectedPart: 'B', expectedColor: '#4CAF50' },
-        { input: 'SOLO', expectedPart: 'SOLO', expectedColor: '#FF9800' },
-        { input: ' solo ', expectedPart: 'SOLO', expectedColor: '#FF9800' },
-        { input: 'others', expectedPart: 'OTHERS', expectedColor: '#607D8B' },
-        { input: ' Others ', expectedPart: 'OTHERS', expectedColor: '#607D8B' },
-        { input: ' 2 ', expectedPart: 'A', expectedColor: '#9C27B0' },
+        { input: 'a', expectedPart: 'A', expectedColor: '#8E24AA' },
+        { input: ' ALTO ', expectedPart: 'A', expectedColor: '#8E24AA' },
+        { input: 't', expectedPart: 'T', expectedColor: '#1976D2' },
+        { input: 'b', expectedPart: 'B', expectedColor: '#2E7D32' },
+        { input: 'SOLO', expectedPart: 'SOLO', expectedColor: '#FF6D00' },
+        { input: ' solo ', expectedPart: 'SOLO', expectedColor: '#FF6D00' },
+        { input: 'others', expectedPart: 'OTHERS', expectedColor: '#546E7A' },
+        { input: ' Others ', expectedPart: 'OTHERS', expectedColor: '#546E7A' },
+        { input: ' 2 ', expectedPart: 'A', expectedColor: '#8E24AA' },
     ];
 
     for (const v of variations) {
@@ -278,11 +278,11 @@ runTest('TC-09: Unison and Divisi tokens resolution', () => {
 
     const resS1 = getVocalPartInfo(1, 0, 0, 4, null, 'S1');
     assert.strictEqual(resS1.part, 'S1');
-    assert.strictEqual(resS1.color, '#FF4081');
+    assert.strictEqual(resS1.color, '#FF1493');
 
     const resB2 = getVocalPartInfo(1, 0, 0, 4, null, 'B2');
     assert.strictEqual(resB2.part, 'B2');
-    assert.strictEqual(resB2.color, '#2E7D32');
+    assert.strictEqual(resB2.color, '#1B5E20');
 
     const resTutti = getVocalPartInfo(1, 0, 0, 4, null, 'TUTTI');
     assert.strictEqual(resTutti.part, 'TUTTI');

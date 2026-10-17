@@ -30,6 +30,7 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurpleIconBg
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
+import com.cit.kaido.voxsight.ui.theme.VoxTextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,12 +41,13 @@ fun NoteEditorBottomSheet(
     octave: Int,
     durationType: String,
     voiceId: Int,
+    voiceCode: String = "",
     measureNumber: Int,
     lyricText: String = "",
     isRest: Boolean = false,
     isDotted: Boolean = false,
     onLyricChanged: (String) -> Unit = {},
-    onVoiceChanged: (Int) -> Unit,
+    onVoiceChanged: (String) -> Unit,
     onPitchChanged: (step: String, alter: Int, octave: Int) -> Unit,
     onDurationChanged: (String, Boolean) -> Unit,
     onToggleDot: (Boolean) -> Unit,
@@ -123,56 +125,109 @@ fun NoteEditorBottomSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 1. Voice Assignment Section (SATB)
-            Text(
-                text = "Voice / Part Assignment",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = VoxTextPrimary,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Start
-            )
-            Spacer(modifier = Modifier.height(10.dp))
+            // 1. Voice Assignment Section (SATB, Divisi, Merged Unisons)
+            var selectedCategory by remember { mutableStateOf("Core") }
+            val activeToken = if (voiceCode.isNotBlank()) voiceCode.uppercase() else when (voiceId) {
+                1 -> "S"
+                2 -> "A"
+                3 -> "T"
+                4 -> "B"
+                5 -> "SOLO"
+                6 -> "OTHERS"
+                else -> "S"
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val voices = listOf(
-                    1 to "Soprano (S)",
-                    2 to "Alto (A)",
-                    3 to "Tenor (T)",
-                    4 to "Bass (B)"
+                Text(
+                    text = "Voice / Part Assignment",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxTextPrimary
                 )
-                voices.forEach { (id, name) ->
-                    val isSelected = voiceId == id
-                    val voiceColor = when (id) {
-                        1 -> Color(0xFFE91E63) // Soprano - Pink
-                        2 -> Color(0xFF9C27B0) // Alto - Purple
-                        3 -> Color(0xFF2196F3) // Tenor - Blue
-                        4 -> Color(0xFF4CAF50) // Bass - Green
-                        else -> VoxPurplePrimary
+                // Category Selector Pills
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("Core", "Divisi", "Merged", "Other").forEach { cat ->
+                        val isCatActive = selectedCategory == cat
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .clickable { selectedCategory = cat },
+                            color = if (isCatActive) VoxPurplePrimary else Color(0xFFF0F0F0)
+                        ) {
+                            Text(
+                                text = cat,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isCatActive) Color.White else VoxTextSecondary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
 
+            data class VoiceOption(val code: String, val label: String, val color: Color)
+            val options = when (selectedCategory) {
+                "Core" -> listOf(
+                    VoiceOption("S", "Soprano (S)", Color(0xFFE91E63)),
+                    VoiceOption("A", "Alto (A)", Color(0xFF8E24AA)),
+                    VoiceOption("T", "Tenor (T)", Color(0xFF1976D2)),
+                    VoiceOption("B", "Bass (B)", Color(0xFF2E7D32))
+                )
+                "Divisi" -> listOf(
+                    VoiceOption("S1", "S1", Color(0xFFFF1493)),
+                    VoiceOption("S2", "S2", Color(0xFFD50000)),
+                    VoiceOption("A1", "A1", Color(0xFFAB47BC)),
+                    VoiceOption("A2", "A2", Color(0xFF3F51B5)),
+                    VoiceOption("T1", "T1", Color(0xFF00BCD4)),
+                    VoiceOption("T2", "T2", Color(0xFF0D47A1)),
+                    VoiceOption("B1", "B1", Color(0xFF7CB342)),
+                    VoiceOption("B2", "B2", Color(0xFF1B5E20))
+                )
+                "Merged" -> listOf(
+                    VoiceOption("UNISON_TB", "T/B Unison", Color(0xFF00BFA5)),
+                    VoiceOption("UNISON_SA", "S/A Unison", Color(0xFFD81B60)),
+                    VoiceOption("UNISON_S1S2", "S1/S2 Unison", Color(0xFFFF80AB)),
+                    VoiceOption("TUTTI", "Tutti (All)", Color(0xFFFFB300))
+                )
+                else -> listOf(
+                    VoiceOption("SOLO", "Solo Voice", Color(0xFFFF6D00)),
+                    VoiceOption("OTHERS", "Accompaniment", Color(0xFF546E7A))
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                options.forEach { opt ->
+                    val isSelected = activeToken == opt.code
                     Surface(
                         modifier = Modifier
-                            .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onVoiceChanged(id) }
+                            .clickable { onVoiceChanged(opt.code) }
                             .border(
                                 width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) voiceColor else VoxCardStroke,
+                                color = if (isSelected) opt.color else VoxCardStroke,
                                 shape = RoundedCornerShape(12.dp)
                             ),
-                        color = if (isSelected) voiceColor.copy(alpha = 0.1f) else Color.Transparent
+                        color = if (isSelected) opt.color.copy(alpha = 0.12f) else Color.Transparent
                     ) {
                         Box(
-                            modifier = Modifier.padding(vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = name.substringAfter("(").substringBefore(")"),
-                                fontSize = 15.sp,
+                                text = opt.label,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) voiceColor else VoxTextSubtitle
+                                color = if (isSelected) opt.color else VoxTextSubtitle
                             )
                         }
                     }
