@@ -363,11 +363,7 @@ fun Module2PracticeScreen(
 
             LaunchedEffect(selectedPart, visualFocusEnabled, midiController) {
                 if (visualFocusEnabled) {
-                    val partKey = when (selectedPart) {
-                        VoicePart.Solo -> "SOLO"
-                        VoicePart.Others -> "OTHER"
-                        else -> selectedPart.shortLabel.first().toString()
-                    }
+                    val partKey = selectedPart.apiCode
                     midiController?.setVisualFocus(partKey)
                 } else {
                     midiController?.clearVisualFocus()
@@ -404,14 +400,11 @@ fun Module2PracticeScreen(
                                 else -> selectedPart.shortLabel.first().toString()
                             }
                             if (audioFocusEnabled) {
-                                val focusKey = when (audioFocusPart) {
-                                    VoicePart.Solo -> "SOLO"
-                                    VoicePart.Others -> "OTHER"
-                                    else -> audioFocusPart.shortLabel.first().toString()
-                                }
+                                val focusKey = audioFocusPart.apiCode
                                 controller.focusPart(focusKey)
                             }
                             if (visualFocusEnabled) {
+                                val partKey = selectedPart.apiCode
                                 controller.setVisualFocus(partKey)
                             } else {
                                 controller.clearVisualFocus()
@@ -1239,7 +1232,7 @@ private fun PartSelectorUI(
     onPartSelected: (VoicePart) -> Unit,
     enabled: Boolean
 ) {
-    val choirParts = availableParts.filter { it in listOf(VoicePart.Soprano, VoicePart.Alto, VoicePart.Tenor, VoicePart.Bass) }
+    val choirParts = availableParts.filter { it !in listOf(VoicePart.Solo, VoicePart.Others) }
     val additionalParts = availableParts.filter { it in listOf(VoicePart.Solo, VoicePart.Others) }
 
     Column(

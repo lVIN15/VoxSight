@@ -346,7 +346,7 @@ def test_4_voice_code_map_fallbacks():
         ("Solo", "Solo"),
         ("Others", "Others"),
         ("UNKNOWN", None),
-        ("UNISON_TB", None),
+        ("UNISON_TB", "UNISON_TB"),
         ("DIVISI_S1", None),
         (None, None),
         ("", None),

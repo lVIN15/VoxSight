@@ -80,6 +80,12 @@ vm.runInContext(fnMatch[0], context);
 const getVocalPartInfo = context.getVocalPartInfo;
 assert(typeof getVocalPartInfo === 'function', 'getVocalPartInfo was not extracted as a function');
 
+const focusMatch = htmlContent.match(/function isVisualFocusMatch\([\s\S]*?\n {8}\}/);
+if (focusMatch) {
+    vm.runInContext(focusMatch[0], context);
+}
+const isVisualFocusMatch = context.isVisualFocusMatch;
+
 let totalTests = 0;
 let passedTests = 0;
 
@@ -256,6 +262,50 @@ runTest('TC-08: Visual focus dimming simulation for UNKNOWN notes', () => {
     // 4. Unknown note when no focus is active (currentVisualFocus = null)
     const unknownColorNoFocus = simulateDimming('UNKNOWN', null, '#808080');
     assert.strictEqual(unknownColorNoFocus, '#808080', 'Unknown note must be normal #808080 when no focus is active');
+});
+
+// ─── Test 9: Unison and Divisi Tokens ─────────────────────────────────────
+runTest('TC-09: Unison and Divisi tokens resolution', () => {
+    const resTB = getVocalPartInfo(1, 0, 0, 4, null, 'UNISON_TB');
+    assert.strictEqual(resTB.part, 'UNISON_TB');
+    assert.strictEqual(resTB.color, '#00BFA5');
+    assert.strictEqual(JSON.stringify(resTB.participating), JSON.stringify(['T', 'B']));
+
+    const resSA = getVocalPartInfo(1, 0, 0, 4, null, 'UNISON_SA');
+    assert.strictEqual(resSA.part, 'UNISON_SA');
+    assert.strictEqual(resSA.color, '#D81B60');
+    assert.strictEqual(JSON.stringify(resSA.participating), JSON.stringify(['S', 'A']));
+
+    const resS1 = getVocalPartInfo(1, 0, 0, 4, null, 'S1');
+    assert.strictEqual(resS1.part, 'S1');
+    assert.strictEqual(resS1.color, '#FF4081');
+
+    const resB2 = getVocalPartInfo(1, 0, 0, 4, null, 'B2');
+    assert.strictEqual(resB2.part, 'B2');
+    assert.strictEqual(resB2.color, '#2E7D32');
+
+    const resTutti = getVocalPartInfo(1, 0, 0, 4, null, 'TUTTI');
+    assert.strictEqual(resTutti.part, 'TUTTI');
+    assert.strictEqual(resTutti.color, '#FFB300');
+});
+
+// ─── Test 10: Multi-Part Visual Focus Highlighting ───────────────────────
+runTest('TC-10: Multi-part visual focus highlighting for merged unison notes', () => {
+    // isVisualFocusMatch is defined in renderer.html script block and evaluated into the global scope
+    assert.strictEqual(isVisualFocusMatch('T', 'UNISON_TB', ['T', 'B']), true, 'Tenor focus must highlight UNISON_TB');
+    assert.strictEqual(isVisualFocusMatch('B', 'UNISON_TB', ['T', 'B']), true, 'Bass focus must highlight UNISON_TB');
+    assert.strictEqual(isVisualFocusMatch('A', 'UNISON_TB', ['T', 'B']), false, 'Alto focus must dim UNISON_TB');
+    assert.strictEqual(isVisualFocusMatch('S', 'UNISON_TB', ['T', 'B']), false, 'Soprano focus must dim UNISON_TB');
+
+    assert.strictEqual(isVisualFocusMatch('S', 'UNISON_SA', ['S', 'A']), true, 'Soprano focus must highlight UNISON_SA');
+    assert.strictEqual(isVisualFocusMatch('A', 'UNISON_SA', ['S', 'A']), true, 'Alto focus must highlight UNISON_SA');
+
+    assert.strictEqual(isVisualFocusMatch('S', 'S1', ['S1']), true, 'Soprano focus must highlight S1');
+    assert.strictEqual(isVisualFocusMatch('S', 'S2', ['S2']), true, 'Soprano focus must highlight S2');
+    assert.strictEqual(isVisualFocusMatch('A', 'S1', ['S1']), false, 'Alto focus must dim S1');
+
+    assert.strictEqual(isVisualFocusMatch('T', 'TUTTI', ['ALL']), true, 'Tenor focus must highlight TUTTI');
+    assert.strictEqual(isVisualFocusMatch('OTHERS', 'TUTTI', ['ALL']), false, 'Accompaniment focus must dim TUTTI');
 });
 
 console.log('='.repeat(70));

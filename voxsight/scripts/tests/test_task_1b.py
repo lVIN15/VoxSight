@@ -46,7 +46,7 @@ def test_1_voice_code_map_contract():
 
     # Assert unknown keys return None (never default to Soprano or '1')
     assert vmap.get('UNKNOWN') is None, "UNKNOWN must map to None"
-    assert vmap.get('UNISON_TB') is None, "Future divisi tokens must return None in Task 1B"
+    assert vmap.get('UNISON_TB') == 'UNISON_TB', "Unison tokens supported in VOICE_CODE_MAP"
     assert vmap.get('GUITAR') is None, "Unrecognized instruments must return None"
     assert vmap.get(None) is None, "None must return None"
     assert vmap.get('') is None, "Empty string must return None"

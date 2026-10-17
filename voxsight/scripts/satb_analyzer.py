@@ -615,7 +615,23 @@ VOICE_CODE_MAP = {
     'T': 'T',
     'B': 'B',
     'Solo': 'Solo',
-    'Others': 'Others'
+    'Others': 'Others',
+    'S1': 'S1',
+    'S2': 'S2',
+    'A1': 'A1',
+    'A2': 'A2',
+    'T1': 'T1',
+    'T2': 'T2',
+    'B1': 'B1',
+    'B2': 'B2',
+    'UNISON_TB': 'UNISON_TB',
+    'UNISON_SA': 'UNISON_SA',
+    'UNISON_S1S2': 'UNISON_S1S2',
+    'UNISON_A1A2': 'UNISON_A1A2',
+    'UNISON_T1T2': 'UNISON_T1T2',
+    'UNISON_B1B2': 'UNISON_B1B2',
+    'TUTTI': 'TUTTI',
+    'UNISON_ALL': 'TUTTI',
 }
 
 
@@ -1077,6 +1093,108 @@ def stamp_voices_into_xml(filepath: str, events: list, measure_offsets: dict = N
 
 
 # ─── Main Analysis Pipeline ──────────────────────────────────────────────
+
+def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None, total_staves: int = 2) -> None:
+    """
+    Phase 3: Polyphonic Voice Separation, Unison Merging and Divisi Detection.
+    Mutates raw_events in-place:
+    1. In-Staff Polyphonic Divisi:
+       - Only splits into S1/S2 or B1/B2 when multiple sounding notes at the same tick
+         share the same section voice and are part of a multi-staff choral score or divisi part.
+    2. Cross-Voice / Cross-Part Same-Pitch Unisons:
+       - T and B sharing pitch at same tick -> UNISON_TB
+       - S and A sharing pitch at same tick -> UNISON_SA
+       - S1 and S2 sharing pitch at same tick -> UNISON_S1S2
+       - B1 and B2 sharing pitch at same tick -> UNISON_B1B2
+       - 3+ vocal parts sharing pitch at same tick -> TUTTI
+    3. Condensed 2-Staff Choral Scores:
+       - Staff 2 single note when Staff 1 has 2+ notes -> UNISON_TB
+       - Staff 1 single note when Staff 2 has 2+ notes -> UNISON_SA
+       - Both Staff 1 and Staff 2 single notes sharing identical pitch -> TUTTI
+    """
+    vocal_notes = [e for e in raw_events if not e.get('is_rest', False) and e.get('satb_voice') not in ('Solo', 'Others', 'UNKNOWN')]
+    if not vocal_notes:
+        return
+
+    # Sounding notes only (exclude grace notes with 0 duration)
+    sounding_notes = [e for e in vocal_notes if e.get('duration_ticks', 0) > 0 and e.get('duration_quarters', 0) > 0]
+
+    all_staves = set(e.get('staff_id', 1) for e in sounding_notes)
+    has_multiple_staves = (total_staves >= 2 and len(all_staves) >= 2)
+
+    # 1. In-staff polyphonic divisi (only when staff has multiple notes of the same voice in multi-staff/divisi scores)
+    if has_multiple_staves or (choral_part_indices and len(choral_part_indices) >= 2):
+        by_staff = {}
+        for e in sounding_notes:
+            by_staff.setdefault((e.get('part_id', 1), e.get('staff_id', 1)), []).append(e)
+
+        for (p_id, s_id), s_notes in by_staff.items():
+            by_tick = {}
+            for n in s_notes:
+                by_tick.setdefault(n['tick_position'], []).append(n)
+
+            for tick, nlist in by_tick.items():
+                if len(nlist) >= 2:
+                    for v in ('S', 'A', 'T', 'B'):
+                        same_v = [n for n in nlist if n.get('satb_voice') == v]
+                        if len(same_v) >= 2:
+                            same_v.sort(key=lambda x: x['pitch_midi'], reverse=True)
+                            same_v[0]['satb_voice'] = f'{v}1'
+                            for sub_note in same_v[1:]:
+                                sub_note['satb_voice'] = f'{v}2'
+
+    # 2. Cross-voice same-pitch unisons (exact pitch and tick match across distinct voices)
+    by_tick_pitch = {}
+    for e in sounding_notes:
+        by_tick_pitch.setdefault((e['tick_position'], e['pitch_midi']), []).append(e)
+
+    for (tick, pitch), elist in by_tick_pitch.items():
+        if len(elist) >= 2:
+            parts_set = set(e.get('satb_voice', '') for e in elist)
+            if ('T' in parts_set and 'B' in parts_set) or (any(p in parts_set for p in ('T1', 'T2')) and any(p in parts_set for p in ('B1', 'B2'))):
+                for e in elist:
+                    if e.get('satb_voice') in ('T', 'B', 'T1', 'T2', 'B1', 'B2'):
+                        e['satb_voice'] = 'UNISON_TB'
+            elif ('S' in parts_set and 'A' in parts_set) or (any(p in parts_set for p in ('S1', 'S2')) and any(p in parts_set for p in ('A1', 'A2'))):
+                for e in elist:
+                    if e.get('satb_voice') in ('S', 'A', 'S1', 'S2', 'A1', 'A2'):
+                        e['satb_voice'] = 'UNISON_SA'
+            elif 'S1' in parts_set and 'S2' in parts_set:
+                for e in elist:
+                    e['satb_voice'] = 'UNISON_S1S2'
+            elif 'B1' in parts_set and 'B2' in parts_set:
+                for e in elist:
+                    e['satb_voice'] = 'UNISON_B1B2'
+            elif len(parts_set.intersection({'S', 'A', 'T', 'B', 'S1', 'S2', 'A1', 'A2', 'T1', 'T2', 'B1', 'B2'})) >= 3:
+                for e in elist:
+                    e['satb_voice'] = 'TUTTI'
+
+    # 3. Condensed 2-staff scores (Staff 1 = SA, Staff 2 = TB)
+    if has_multiple_staves and 1 in all_staves and 2 in all_staves:
+        by_tick_vocal = {}
+        for e in sounding_notes:
+            by_tick_vocal.setdefault(e['tick_position'], []).append(e)
+
+        for tick, elist in by_tick_vocal.items():
+            staves_at_tick = {}
+            for e in elist:
+                staves_at_tick.setdefault(e.get('staff_id', 1), []).append(e)
+
+            if 1 in staves_at_tick and 2 in staves_at_tick:
+                s1_notes = staves_at_tick[1]
+                s2_notes = staves_at_tick[2]
+                if len(s1_notes) >= 2 and len(s2_notes) == 1:
+                    if s2_notes[0].get('satb_voice') in ('T', 'B'):
+                        s2_notes[0]['satb_voice'] = 'UNISON_TB'
+                elif len(s2_notes) >= 2 and len(s1_notes) == 1:
+                    if s1_notes[0].get('satb_voice') in ('S', 'A'):
+                        s1_notes[0]['satb_voice'] = 'UNISON_SA'
+                elif len(s1_notes) == 1 and len(s2_notes) == 1:
+                    if s1_notes[0]['pitch_midi'] == s2_notes[0]['pitch_midi']:
+                        s1_notes[0]['satb_voice'] = 'TUTTI'
+                        s2_notes[0]['satb_voice'] = 'TUTTI'
+
+
 def analyze(xml_path: str) -> dict:
     """
     Main analysis pipeline. Follows the frozen kernel ordering:
@@ -1497,6 +1615,12 @@ def analyze(xml_path: str) -> dict:
     except Exception as exc:
         log.error(f"Global SATB optimization failed: {exc}")
 
+    # --- Step 3.5: Phase 3 Polyphonic Voice Separation, Unison Merging & Divisi ---
+    try:
+        detect_unisons_and_divisi(raw_events, choral_part_indices=choral_part_indices, total_staves=staff_count)
+    except Exception as exc:
+        log.error(f"Unison and divisi detection failed: {exc}")
+
     # ─── Step 4: Segment offset correction (MEASURE SPACE) ───────────
     # Currently passthrough — offset correction activates when drift detected
     # This is the extensible zone boundary: steps 4-6 are FROZEN KERNEL
@@ -1629,32 +1753,59 @@ def analyze(xml_path: str) -> dict:
         else:
             track_events = [e for e in final_events if e["playback_track"] == tid]
             satb_label = "Soprano"
+            part_key = "S"
+            parent_section = "Soprano"
             if track_events:
-                voices = [e["satb_voice"] for e in track_events if e["satb_voice"] in ["S", "A", "T", "B", "Solo", "Others"]]
+                vocal_valid = ["S", "A", "T", "B", "S1", "S2", "A1", "A2", "T1", "T2", "B1", "B2", "UNISON_TB", "UNISON_SA", "TUTTI", "Solo", "Others"]
+                voices = [e["satb_voice"] for e in track_events if e["satb_voice"] in vocal_valid]
                 if voices:
                     maj = max(set(voices), key=voices.count)
-                    satb_label = {"S": "Soprano", "A": "Alto", "T": "Tenor", "B": "Bass"}.get(maj, maj)
+                    if maj == "UNISON_TB":
+                        satb_label = "Tenor / Bass"
+                        part_key = "UNISON_TB"
+                        parent_section = "Tenor"
+                    elif maj == "UNISON_SA":
+                        satb_label = "Soprano / Alto"
+                        part_key = "UNISON_SA"
+                        parent_section = "Soprano"
+                    elif maj == "TUTTI":
+                        satb_label = "Tutti"
+                        part_key = "ALL"
+                        parent_section = "Soprano"
+                    elif maj in ("S1", "S2"):
+                        satb_label = f"Soprano {maj[1]}"
+                        part_key = maj
+                        parent_section = "Soprano"
+                    elif maj in ("A1", "A2"):
+                        satb_label = f"Alto {maj[1]}"
+                        part_key = maj
+                        parent_section = "Alto"
+                    elif maj in ("T1", "T2"):
+                        satb_label = f"Tenor {maj[1]}"
+                        part_key = maj
+                        parent_section = "Tenor"
+                    elif maj in ("B1", "B2"):
+                        satb_label = f"Bass {maj[1]}"
+                        part_key = maj
+                        parent_section = "Bass"
+                    else:
+                        satb_label = {"S": "Soprano", "A": "Alto", "T": "Tenor", "B": "Bass"}.get(maj, maj)
+                        norm = satb_label.upper()
+                        if "SOPRANO" in norm or norm.startswith("S"):
+                            parent_section = "Soprano"
+                            part_key = "S"
+                        elif "ALTO" in norm or norm.startswith("A"):
+                            parent_section = "Alto"
+                            part_key = "A"
+                        elif "TENOR" in norm or norm.startswith("T"):
+                            parent_section = "Tenor"
+                            part_key = "T"
+                        elif "BASS" in norm or norm.startswith("B"):
+                            parent_section = "Bass"
+                            part_key = "B"
 
             part_role = "VOCAL"
             is_accompaniment = False
-
-            # Map satb_label to part_key and parent_section
-            norm = satb_label.upper()
-            if "SOPRANO" in norm or norm.startswith("S"):
-                parent_section = "Soprano"
-                part_key = "S2" if ("2" in norm) else ("S1" if "1" in norm else "S")
-            elif "ALTO" in norm or norm.startswith("A"):
-                parent_section = "Alto"
-                part_key = "A2" if ("2" in norm) else ("A1" if "1" in norm else "A")
-            elif "TENOR" in norm or norm.startswith("T"):
-                parent_section = "Tenor"
-                part_key = "T2" if ("2" in norm) else ("T1" if "1" in norm else "T")
-            elif "BASS" in norm or norm.startswith("B"):
-                parent_section = "Bass"
-                part_key = "B2" if ("2" in norm) else ("B1" if "1" in norm else "B")
-            else:
-                parent_section = "Soprano"
-                part_key = "S"
 
         playback_tracks.append({
             "track_id": tid,

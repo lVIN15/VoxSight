@@ -462,21 +462,51 @@
                 if (cv !== "") {
                     switch (cv) {
                         case "1": case "S": case "SOPRANO":
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
+                        case "S1": case "SOPRANO1": case "SOPRANO 1":
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FF4081", partId: 11, participating: ["S1"] };
+                        case "S2": case "SOPRANO2": case "SOPRANO 2":
+                            return { voice: "SOPRANO 2", part: "S2", color: "#C2185B", partId: 12, participating: ["S2"] };
                         case "2": case "A": case "ALTO":
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2, participating: ["A"] };
+                        case "A1": case "ALTO1": case "ALTO 1":
+                            return { voice: "ALTO 1", part: "A1", color: "#BA68C8", partId: 21, participating: ["A1"] };
+                        case "A2": case "ALTO2": case "ALTO 2":
+                            return { voice: "ALTO 2", part: "A2", color: "#6A1B9A", partId: 22, participating: ["A2"] };
                         case "3": case "T": case "TENOR":
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3, participating: ["T"] };
+                        case "T1": case "TENOR1": case "TENOR 1":
+                            return { voice: "TENOR 1", part: "T1", color: "#00B0FF", partId: 31, participating: ["T1"] };
+                        case "T2": case "TENOR2": case "TENOR 2":
+                            return { voice: "TENOR 2", part: "T2", color: "#1565C0", partId: 32, participating: ["T2"] };
                         case "4": case "B": case "BASS":
-                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4, participating: ["B"] };
+                        case "B1": case "BASS1": case "BASS 1":
+                            return { voice: "BASS 1", part: "B1", color: "#8BC34A", partId: 41, participating: ["B1"] };
+                        case "B2": case "BASS2": case "BASS 2":
+                            return { voice: "BASS 2", part: "B2", color: "#2E7D32", partId: 42, participating: ["B2"] };
+                        case "UNISON_TB": case "TB":
+                            return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#00BFA5", partId: 34, participating: ["T", "B"] };
+                        case "UNISON_SA": case "SA":
+                            return { voice: "SOPRANO / ALTO", part: "UNISON_SA", color: "#D81B60", partId: 12, participating: ["S", "A"] };
+                        case "UNISON_S1S2": case "S1S2":
+                            return { voice: "SOPRANO 1 / 2", part: "UNISON_S1S2", color: "#FF80AB", partId: 112, participating: ["S1", "S2"] };
+                        case "UNISON_A1A2": case "A1A2":
+                            return { voice: "ALTO 1 / 2", part: "UNISON_A1A2", color: "#CE93D8", partId: 212, participating: ["A1", "A2"] };
+                        case "UNISON_T1T2": case "T1T2":
+                            return { voice: "TENOR 1 / 2", part: "UNISON_T1T2", color: "#80D8FF", partId: 312, participating: ["T1", "T2"] };
+                        case "UNISON_B1B2": case "B1B2":
+                            return { voice: "BASS 1 / 2", part: "UNISON_B1B2", color: "#B9F6CA", partId: 412, participating: ["B1", "B2"] };
+                        case "TUTTI": case "UNISON_ALL": case "ALL":
+                            return { voice: "TUTTI", part: "TUTTI", color: "#FFB300", partId: 99, participating: ["ALL"] };
                         case "5": case "SOLO":
-                            return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                            return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5, participating: ["SOLO"] };
                         case "6": case "OTHERS": case "OTHER":
-                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6, participating: ["OTHERS"] };
                         default:
                             // Explicit unknown/malformed tokens (e.g. "GUITAR", "UNKNOWN", "0", "7")
                             // Blocked from Priority 2/3/4 heuristics to prevent silent misclassification as Soprano
-                            return { voice: "UNKNOWN", part: "UNKNOWN", color: "#808080", partId: 0 };
+                            return { voice: "UNKNOWN", part: "UNKNOWN", color: "#808080", partId: 0, participating: [] };
                     }
                 }
             }
@@ -1006,19 +1036,82 @@
             var src = gNote ? (gNote.sourceNote || gNote.SourceNote) : null;
             if (src && src.__vx_baseColor && src.__vx_baseColor.length === 7) return src.__vx_baseColor;
             var partLabel = (gNote && gNote.__vx_partLabel) || (src ? src.CustomSatbLabel : "S");
-            switch (partLabel) {
+            var norm = (partLabel || '').toUpperCase();
+            switch (norm) {
                 case "S": return "#E91E63";
+                case "S1": return "#FF4081";
+                case "S2": return "#C2185B";
                 case "A": return "#9C27B0";
+                case "A1": return "#BA68C8";
+                case "A2": return "#6A1B9A";
                 case "T": return "#2196F3";
+                case "T1": return "#00B0FF";
+                case "T2": return "#1565C0";
                 case "B": return "#4CAF50";
-                case "SOLO":
-                case "Solo": return "#FF9800";
+                case "B1": return "#8BC34A";
+                case "B2": return "#2E7D32";
+                case "UNISON_TB": case "TB": return "#00BFA5";
+                case "UNISON_SA": case "SA": return "#D81B60";
+                case "UNISON_S1S2": return "#FF80AB";
+                case "UNISON_A1A2": return "#CE93D8";
+                case "UNISON_T1T2": return "#80D8FF";
+                case "UNISON_B1B2": return "#B9F6CA";
+                case "TUTTI": case "UNISON_ALL": return "#FFB300";
+                case "SOLO": return "#FF9800";
                 case "OTHER":
-                case "OTHERS":
-                case "Other":
-                case "Others": return "#607D8B";
-                default: return "#000000";
+                case "OTHERS": return "#607D8B";
+                default: return "#808080";
             }
+        }
+
+        /**
+         * Multi-part relational matcher for Visual Focus illumination.
+         * Ensures merged notes (UNISON_TB) stay illuminated for both Tenor and Bass!
+         */
+        function isVisualFocusMatch(focus, partLabel, participating) {
+            if (!focus) return true;
+            var nf = String(focus).trim().toUpperCase();
+            var np = String(partLabel || '').trim().toUpperCase();
+            if (nf === 'OTHER') nf = 'OTHERS';
+            if (np === 'OTHER') np = 'OTHERS';
+
+            // 1. Direct string match
+            if (nf === np) return true;
+
+            // 2. Participating parts array (e.g. UNISON_TB has ["T", "B"])
+            if (participating && Array.isArray(participating)) {
+                for (var i = 0; i < participating.length; i++) {
+                    var p = String(participating[i]).trim().toUpperCase();
+                    if (p === nf) return true;
+                    if (nf === 'S' && (p === 'S1' || p === 'S2')) return true;
+                    if (nf === 'A' && (p === 'A1' || p === 'A2')) return true;
+                    if (nf === 'T' && (p === 'T1' || p === 'T2')) return true;
+                    if (nf === 'B' && (p === 'B1' || p === 'B2')) return true;
+                }
+            }
+
+            // 3. TUTTI or UNISON_ALL matches any vocal focus
+            if (np === 'TUTTI' || np === 'UNISON_ALL' || np === 'ALL') {
+                return (nf !== 'OTHERS');
+            }
+
+            // 4. Section matching (Focus = S matches S1, S2, UNISON_SA, UNISON_S1S2)
+            if (nf === 'S' && (np === 'S1' || np === 'S2' || np === 'UNISON_SA' || np === 'UNISON_S1S2' || np === 'SA')) return true;
+            if (nf === 'A' && (np === 'A1' || np === 'A2' || np === 'UNISON_SA' || np === 'UNISON_A1A2' || np === 'SA')) return true;
+            if (nf === 'T' && (np === 'T1' || np === 'T2' || np === 'UNISON_TB' || np === 'UNISON_T1T2' || np === 'TB')) return true;
+            if (nf === 'B' && (np === 'B1' || np === 'B2' || np === 'UNISON_TB' || np === 'UNISON_B1B2' || np === 'TB')) return true;
+
+            // 5. Divisi focus matches unison within subdivision
+            if ((nf === 'S1' || nf === 'S2') && (np === 'UNISON_S1S2' || np === 'S')) return true;
+            if ((nf === 'A1' || nf === 'A2') && (np === 'UNISON_A1A2' || np === 'A')) return true;
+            if ((nf === 'T1' || nf === 'T2') && (np === 'UNISON_T1T2' || np === 'T')) return true;
+            if ((nf === 'B1' || nf === 'B2') && (np === 'UNISON_B1B2' || np === 'B')) return true;
+
+            // 6. Compound tokens string matching (e.g. "UNISON_TB" matches "T", "B", "T1", "T2", "B1", "B2")
+            if ((np === 'UNISON_TB' || np === 'TB') && (nf === 'T' || nf === 'B' || nf === 'T1' || nf === 'T2' || nf === 'B1' || nf === 'B2')) return true;
+            if ((np === 'UNISON_SA' || np === 'SA') && (nf === 'S' || nf === 'A' || nf === 'S1' || nf === 'S2' || nf === 'A1' || nf === 'A2')) return true;
+
+            return false;
         }
 
         /**
@@ -1039,14 +1132,11 @@
                     if (!srcNote) continue;
 
                     let baseColor = getOriginalVoiceColor(gNote);
-                    let partLabel = gNote.__vx_partLabel || srcNote.CustomSatbLabel || "S";
+                    let partLabel = gNote.__vx_partLabel || (srcNote ? srcNote.CustomSatbLabel : "S");
+                    let participating = gNote.__vx_participating || (srcNote ? srcNote.__vx_participating : null);
 
-                    let normFocus = (currentVisualFocus || '').toUpperCase();
-                    let normPart = (partLabel || '').toUpperCase();
-                    if (normFocus === 'OTHER') normFocus = 'OTHERS';
-                    if (normPart === 'OTHER') normPart = 'OTHERS';
-
-                    const isDimmed = (currentVisualFocus !== null && normFocus !== normPart);
+                    const isMatch = isVisualFocusMatch(currentVisualFocus, partLabel, participating);
+                    const isDimmed = (currentVisualFocus !== null && !isMatch);
                     const targetColor = isDimmed ? (baseColor + "26") : baseColor;
 
                     applyNoteVoiceColor(gNote, targetColor);
@@ -1536,9 +1626,11 @@
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
                     gNote.__vx_baseColor = vocalInfo.color;
                     gNote.__vx_partLabel = vocalInfo.part;
+                    gNote.__vx_participating = vocalInfo.participating;
                     if (gNote.sourceNote) {
                         gNote.sourceNote.__vx_baseColor = vocalInfo.color;
                         gNote.sourceNote.CustomSatbLabel = vocalInfo.part;
+                        gNote.sourceNote.__vx_participating = vocalInfo.participating;
                     }
 
                     if (!xn.isRest) {
