@@ -1098,19 +1098,24 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
     """
     Phase 3: Polyphonic Voice Separation, Unison Merging and Divisi Detection.
     Mutates raw_events in-place:
-    1. In-Staff Polyphonic Divisi:
-       - Only splits into S1/S2 or B1/B2 when multiple sounding notes at the same tick
-         share the same section voice and are part of a multi-staff choral score or divisi part.
-    2. Cross-Voice / Cross-Part Same-Pitch Unisons:
-       - T and B sharing pitch at same tick -> UNISON_TB
-       - S and A sharing pitch at same tick -> UNISON_SA
-       - S1 and S2 sharing pitch at same tick -> UNISON_S1S2
-       - B1 and B2 sharing pitch at same tick -> UNISON_B1B2
-       - 3+ vocal parts sharing pitch at same tick -> TUTTI
-    3. Condensed 2-Staff Choral Scores:
-       - Staff 2 single note when Staff 1 has 2+ notes -> UNISON_TB
-       - Staff 1 single note when Staff 2 has 2+ notes -> UNISON_SA
-       - Both Staff 1 and Staff 2 single notes sharing identical pitch -> TUTTI
+    1. Open Choral Scores (len(choral_part_indices) >= 3 or total_staves >= 3 or len(all_parts) >= 3):
+       - Dedicated parts (Part 1 = S, Part 2 = A, Part 3 = T, Part 4 = B) retain their vocal identity.
+       - NEVER merge across independent parts/staves into TUTTI, UNISON_TB, or UNISON_SA!
+       - In-staff polyphonic divisi splits co-located notes within the same part/staff:
+         Multiple S notes -> S1 / S2 (or UNISON_S1S2 if sharing pitch)
+         Multiple A notes -> A1 / A2 (or UNISON_A1A2 if sharing pitch)
+         Multiple T notes -> T1 / T2 (or UNISON_T1T2 if sharing pitch)
+         Multiple B notes -> B1 / B2 (or UNISON_B1B2 if sharing pitch)
+    2. Condensed 2-Staff Choral Scores (total_staves <= 2 and len(choral_part_indices) <= 2):
+       - Staff 1 is Treble (S/A), Staff 2 is Bass (T/B).
+       - In-staff polyphonic divisi splits co-located notes on the same staff.
+       - Same-staff cross-voice unisons:
+         T and B sharing pitch on Staff 2 -> UNISON_TB
+         S and A sharing pitch on Staff 1 -> UNISON_SA
+       - Condensed staff-level polyphony balance:
+         Staff 2 single note when Staff 1 has 2+ notes -> UNISON_TB
+         Staff 1 single note when Staff 2 has 2+ notes -> UNISON_SA
+       - Distinct staves are never falsely merged into TUTTI.
     """
     vocal_notes = [e for e in raw_events if not e.get('is_rest', False) and e.get('satb_voice') not in ('Solo', 'Others', 'UNKNOWN')]
     if not vocal_notes:
@@ -1118,16 +1123,22 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
 
     # Sounding notes only (exclude grace notes with 0 duration)
     sounding_notes = [e for e in vocal_notes if e.get('duration_ticks', 0) > 0 and e.get('duration_quarters', 0) > 0]
+    if not sounding_notes:
+        return
 
     all_staves = set(e.get('staff_id', 1) for e in sounding_notes)
+    all_parts = set(e.get('part_id', 1) for e in sounding_notes)
+    num_choral_parts = len(choral_part_indices) if choral_part_indices else len(all_parts)
+    is_open_choral_score = (num_choral_parts >= 3 or total_staves >= 3 or len(all_parts) >= 3)
     has_multiple_staves = (total_staves >= 2 and len(all_staves) >= 2)
+    can_have_divisi = has_multiple_staves or (num_choral_parts >= 2)
 
-    # 1. In-staff polyphonic divisi (only when staff has multiple notes of the same voice in multi-staff/divisi scores)
-    if has_multiple_staves or (choral_part_indices and len(choral_part_indices) >= 2):
-        by_staff = {}
-        for e in sounding_notes:
-            by_staff.setdefault((e.get('part_id', 1), e.get('staff_id', 1)), []).append(e)
+    by_staff = {}
+    for e in sounding_notes:
+        by_staff.setdefault((e.get('part_id', 1), e.get('staff_id', 1)), []).append(e)
 
+    # 1. In-Staff Polyphonic Divisi & In-Staff Unisons (per part/staff)
+    if can_have_divisi:
         for (p_id, s_id), s_notes in by_staff.items():
             by_tick = {}
             for n in s_notes:
@@ -1138,39 +1149,37 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
                     for v in ('S', 'A', 'T', 'B'):
                         same_v = [n for n in nlist if n.get('satb_voice') == v]
                         if len(same_v) >= 2:
-                            same_v.sort(key=lambda x: x['pitch_midi'], reverse=True)
-                            same_v[0]['satb_voice'] = f'{v}1'
-                            for sub_note in same_v[1:]:
-                                sub_note['satb_voice'] = f'{v}2'
+                            pitches = set(x['pitch_midi'] for x in same_v)
+                            if len(pitches) == 1:
+                                unison_token = f'UNISON_{v}1{v}2'
+                                for sub_note in same_v:
+                                    sub_note['satb_voice'] = unison_token
+                            else:
+                                same_v.sort(key=lambda x: x['pitch_midi'], reverse=True)
+                                same_v[0]['satb_voice'] = f'{v}1'
+                                for sub_note in same_v[1:]:
+                                    sub_note['satb_voice'] = f'{v}2'
 
-    # 2. Cross-voice same-pitch unisons (exact pitch and tick match across distinct voices)
-    by_tick_pitch = {}
-    for e in sounding_notes:
-        by_tick_pitch.setdefault((e['tick_position'], e['pitch_midi']), []).append(e)
+                    # In condensed scores, check same-staff cross-voice unisons (T+B or S+A on same staff)
+                    if not is_open_choral_score:
+                        by_pitch = {}
+                        for n in nlist:
+                            by_pitch.setdefault(n['pitch_midi'], []).append(n)
+                        for pitch, p_notes in by_pitch.items():
+                            if len(p_notes) >= 2:
+                                p_voices = set(x.get('satb_voice') for x in p_notes)
+                                if ('T' in p_voices and 'B' in p_voices) or (any(pv in p_voices for pv in ('T1', 'T2')) and any(pv in p_voices for pv in ('B1', 'B2'))):
+                                    for x in p_notes:
+                                        if x.get('satb_voice') in ('T', 'B', 'T1', 'T2', 'B1', 'B2'):
+                                            x['satb_voice'] = 'UNISON_TB'
+                                elif ('S' in p_voices and 'A' in p_voices) or (any(pv in p_voices for pv in ('S1', 'S2')) and any(pv in p_voices for pv in ('A1', 'A2'))):
+                                    for x in p_notes:
+                                        if x.get('satb_voice') in ('S', 'A', 'S1', 'S2', 'A1', 'A2'):
+                                            x['satb_voice'] = 'UNISON_SA'
 
-    for (tick, pitch), elist in by_tick_pitch.items():
-        if len(elist) >= 2:
-            parts_set = set(e.get('satb_voice', '') for e in elist)
-            if ('T' in parts_set and 'B' in parts_set) or (any(p in parts_set for p in ('T1', 'T2')) and any(p in parts_set for p in ('B1', 'B2'))):
-                for e in elist:
-                    if e.get('satb_voice') in ('T', 'B', 'T1', 'T2', 'B1', 'B2'):
-                        e['satb_voice'] = 'UNISON_TB'
-            elif ('S' in parts_set and 'A' in parts_set) or (any(p in parts_set for p in ('S1', 'S2')) and any(p in parts_set for p in ('A1', 'A2'))):
-                for e in elist:
-                    if e.get('satb_voice') in ('S', 'A', 'S1', 'S2', 'A1', 'A2'):
-                        e['satb_voice'] = 'UNISON_SA'
-            elif 'S1' in parts_set and 'S2' in parts_set:
-                for e in elist:
-                    e['satb_voice'] = 'UNISON_S1S2'
-            elif 'B1' in parts_set and 'B2' in parts_set:
-                for e in elist:
-                    e['satb_voice'] = 'UNISON_B1B2'
-            elif len(parts_set.intersection({'S', 'A', 'T', 'B', 'S1', 'S2', 'A1', 'A2', 'T1', 'T2', 'B1', 'B2'})) >= 3:
-                for e in elist:
-                    e['satb_voice'] = 'TUTTI'
-
-    # 3. Condensed 2-staff scores (Staff 1 = SA, Staff 2 = TB)
-    if has_multiple_staves and 1 in all_staves and 2 in all_staves:
+    # 2. Condensed 2-Staff Choral Scores (Staff 1 = SA, Staff 2 = TB)
+    # Strictly for condensed scores with 2 staves (not open 4-part SATB)
+    if not is_open_choral_score and 1 in all_staves and 2 in all_staves:
         by_tick_vocal = {}
         for e in sounding_notes:
             by_tick_vocal.setdefault(e['tick_position'], []).append(e)
@@ -1189,10 +1198,6 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
                 elif len(s2_notes) >= 2 and len(s1_notes) == 1:
                     if s1_notes[0].get('satb_voice') in ('S', 'A'):
                         s1_notes[0]['satb_voice'] = 'UNISON_SA'
-                elif len(s1_notes) == 1 and len(s2_notes) == 1:
-                    if s1_notes[0]['pitch_midi'] == s2_notes[0]['pitch_midi']:
-                        s1_notes[0]['satb_voice'] = 'TUTTI'
-                        s2_notes[0]['satb_voice'] = 'TUTTI'
 
 
 def analyze(xml_path: str) -> dict:

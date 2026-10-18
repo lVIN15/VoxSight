@@ -13,6 +13,7 @@ suites = [
     ('Task 1A.3 (Pre-Scan & Stamping Suite)', [sys.executable, str(TEST_DIR / 'test_task_1a3.py')]),
     ('MXL Round-Trip Stamping Test', [sys.executable, str(TEST_DIR / 'test_mxl_stamping.py')]),
     ('Remediation Regression Suite (Findings 1-4)', [sys.executable, str(TEST_DIR / 'test_remediation_suite.py')]),
+    ('Vocal-Part Detection Accuracy Suite', [sys.executable, str(TEST_DIR / 'test_vocal_part_detection_accuracy.py')]),
 ]
 
 all_ok = True
@@ -34,7 +35,7 @@ for name, status in results:
     print(f'[{status}] {name}')
 print('=' * 65)
 if all_ok:
-    print('ALL 7 SUITES PASSED CLEANLY (100% SUCCESS RATE)')
+    print('ALL 8 SUITES PASSED CLEANLY (100% SUCCESS RATE)')
 else:
     print('ONE OR MORE SUITES FAILED')
 print('=' * 65)

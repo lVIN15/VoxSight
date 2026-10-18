@@ -123,10 +123,9 @@ fun NoteEditorBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // 1. Voice Assignment Section (SATB, Divisi, Merged Unisons)
-            var selectedCategory by remember { mutableStateOf("Core") }
             val activeToken = if (voiceCode.isNotBlank()) voiceCode.uppercase() else when (voiceId) {
                 1 -> "S"
                 2 -> "A"
@@ -136,39 +135,57 @@ fun NoteEditorBottomSheet(
                 6 -> "OTHERS"
                 else -> "S"
             }
+            val initialCategory = when {
+                activeToken in listOf("S1", "S2", "A1", "A2", "T1", "T2", "B1", "B2") -> "Divisi"
+                activeToken in listOf("UNISON_TB", "UNISON_SA", "UNISON_S1S2", "TUTTI") -> "Merged"
+                activeToken in listOf("SOLO", "OTHERS") -> "Other"
+                else -> "Core"
+            }
+            var selectedCategory by remember(activeToken) { mutableStateOf(initialCategory) }
 
-            Row(
+            Text(
+                text = "Voice / Part Assignment",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = VoxTextPrimary,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                textAlign = TextAlign.Start
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Segmented Category Filter Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFF3F4F6))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "Voice / Part Assignment",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = VoxTextPrimary
-                )
-                // Category Selector Pills
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("Core", "Divisi", "Merged", "Other").forEach { cat ->
-                        val isCatActive = selectedCategory == cat
-                        Surface(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .clickable { selectedCategory = cat },
-                            color = if (isCatActive) VoxPurplePrimary else Color(0xFFF0F0F0)
-                        ) {
-                            Text(
-                                text = cat,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isCatActive) Color.White else VoxTextSecondary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                listOf("Core", "Divisi", "Merged", "Other").forEach { cat ->
+                    val isCatActive = selectedCategory == cat
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isCatActive) Color.White else Color.Transparent)
+                            .clickable { selectedCategory = cat }
+                            .then(
+                                if (isCatActive) Modifier.border(1.dp, VoxCardStroke, RoundedCornerShape(8.dp))
+                                else Modifier
                             )
-                        }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cat,
+                            fontSize = 12.sp,
+                            fontWeight = if (isCatActive) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isCatActive) VoxPurplePrimary else VoxTextSecondary
+                        )
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             data class VoiceOption(val code: String, val label: String, val color: Color)
             val options = when (selectedCategory) {
@@ -210,24 +227,31 @@ fun NoteEditorBottomSheet(
                     val isSelected = activeToken == opt.code
                     Surface(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .clickable { onVoiceChanged(opt.code) }
                             .border(
                                 width = if (isSelected) 2.dp else 1.dp,
                                 color = if (isSelected) opt.color else VoxCardStroke,
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(10.dp)
                             ),
-                        color = if (isSelected) opt.color.copy(alpha = 0.12f) else Color.Transparent
+                        color = if (isSelected) opt.color.copy(alpha = 0.12f) else Color.White
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(opt.color)
+                            )
                             Text(
                                 text = opt.label,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) opt.color else VoxTextSubtitle
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) opt.color else VoxTextPrimary
                             )
                         }
                     }
@@ -236,7 +260,7 @@ fun NoteEditorBottomSheet(
 
             // 2. Pitch Transposer Section (Only for normal notes)
             if (!isRest) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = "Pitch & Accidental",
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
