@@ -32,6 +32,7 @@ enum class UploadStatus { IDLE, PROCESSING, READY }
 object UploadManager {
     val uploadStatus = MutableStateFlow(UploadStatus.IDLE)
     val uploadProgress = MutableStateFlow(0f)
+    val uploadPhaseText = MutableStateFlow("Import in progress...")
     var pendingMusicXml: String? = null
     var pendingScoreTitle: String? = null
     var pendingFileName: String? = null
@@ -44,10 +45,13 @@ object UploadManager {
 
     fun clearReadyState() {
         uploadStatus.value = UploadStatus.IDLE
+        uploadProgress.value = 0f
+        uploadPhaseText.value = "Import in progress..."
         pendingMusicXml = null
         pendingScoreTitle = null
         pendingFileName = null
         activeError = null
+        navigateToReview.value = false
     }
 
     fun uploadScore(
@@ -62,11 +66,13 @@ object UploadManager {
         
         uploadStatus.value = UploadStatus.PROCESSING
         uploadProgress.value = 0f
+        uploadPhaseText.value = "Uploading score..."
         
         android.widget.Toast.makeText(context, "Import in progress", android.widget.Toast.LENGTH_SHORT).show()
         activeError = null
         pendingMusicXml = null
         pendingScoreTitle = null
+        navigateToReview.value = false
         
         val appContext = context.applicationContext
         val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -122,46 +128,66 @@ object UploadManager {
                 val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
                 
-                // Smooth natural progression over ~30 seconds
+                // Natural progression capped at 90% while network request is in flight
                 val progressJob = launch {
                     var currentP = 0f
                     var lastNotifyTime = 0L
-                    while (currentP < 1f) {
-                        currentP += 0.0033f // Approx 30 seconds to reach 100%
-                        if (currentP > 1f) currentP = 1f
+                    while (currentP < 0.90f) {
+                        // Smoothly decelerate as it approaches 90%
+                        val increment = when {
+                            currentP < 0.40f -> 0.008f   // ~5 seconds to reach 40%
+                            currentP < 0.70f -> 0.0035f  // ~8.5 seconds to reach 70%
+                            currentP < 0.85f -> 0.0015f  // ~10 seconds to reach 85%
+                            else -> 0.0003f             // Creep towards 90%
+                        }
+                        currentP += increment
+                        if (currentP > 0.90f) currentP = 0.90f
                         uploadProgress.value = currentP
+                        
+                        val phase = when {
+                            currentP < 0.35f -> "Uploading score..."
+                            currentP < 0.70f -> "Digitizing staves & notes..."
+                            currentP < 0.88f -> "Analyzing vocal parts (SATB)..."
+                            else -> "Finalizing musical analysis..."
+                        }
+                        uploadPhaseText.value = phase
+                        
                         withContext(Dispatchers.Main) { onProgress(currentP) }
                         
                         val now = System.currentTimeMillis()
                         if (now - lastNotifyTime > 1000) {
                             builder.setProgress(100, (currentP * 100).toInt(), false)
+                                .setContentText(phase)
                             notificationManager.notify(NOTIFICATION_ID, builder.build())
                             lastNotifyTime = now
                         }
-                        if (currentP >= 1f) break
-                        delay(100)
+                        if (currentP >= 0.90f) {
+                            // Hold at 90% while waiting for network
+                            delay(200)
+                        } else {
+                            delay(100)
+                        }
                     }
                 }
                 
                 val response = ApiClient.omrService.analyzeScore(body, bypassCache)
                 
-                // If it finishes early, smoothly fast-forward to 100%
-                if (progressJob.isActive) {
-                    progressJob.cancel()
-                    var currentP = uploadProgress.value
-                    while (currentP < 1f) {
-                        currentP += 0.05f // Speed up significantly
-                        if (currentP > 1f) currentP = 1f
-                        uploadProgress.value = currentP
-                        withContext(Dispatchers.Main) { onProgress(currentP) }
-                        // Skip notifying Android during fast-forward to avoid rate limits
-                        if (currentP >= 1f) break
-                        delay(30)
-                    }
-                }
+                // Cancel progress simulator
+                progressJob.cancel()
                 
                 if (response.success && response.musicXml != null) {
                     val scoreTitle = deriveTitleFromFileName(originalFileName)
+                    
+                    // Smooth fast-forward to 100%
+                    uploadPhaseText.value = "Score ready!"
+                    var currentP = uploadProgress.value
+                    while (currentP < 1f) {
+                        currentP += 0.05f
+                        if (currentP > 1f) currentP = 1f
+                        uploadProgress.value = currentP
+                        withContext(Dispatchers.Main) { onProgress(currentP) }
+                        delay(25)
+                    }
                     uploadProgress.value = 1f
                     withContext(Dispatchers.Main) { onProgress(1f) }
                     
@@ -189,15 +215,16 @@ object UploadManager {
                         
                     notificationManager.notify(NOTIFICATION_ID, builder.build())
                     
-                    pendingMusicXml = response.musicXml
-                    pendingScoreTitle = scoreTitle
                     uploadStatus.value = UploadStatus.READY
+                    navigateToReview.value = true
                     withContext(Dispatchers.Main) {
                         onSuccess(response.musicXml, scoreTitle)
                     }
                 } else {
                     val err = response.error ?: "Conversion/Analysis failed."
                     activeError = err
+                    uploadProgress.value = 0f
+                    uploadPhaseText.value = ""
                     builder.setContentTitle("Upload Failed")
                         .setContentText(err)
                         .setProgress(0, 0, false)
@@ -223,6 +250,8 @@ object UploadManager {
                     }
                 }
                 activeError = errorMessage
+                uploadProgress.value = 0f
+                uploadPhaseText.value = ""
                 builder.setContentTitle("Upload Failed")
                     .setContentText(errorMessage)
                     .setProgress(0, 0, false)
@@ -236,8 +265,14 @@ object UploadManager {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                val err = "Upload Error: ${e.message}"
+                val err = if (e is java.io.InterruptedIOException || e.message?.contains("timeout", ignoreCase = true) == true) {
+                    "Connection timed out. Please verify your connection and try again."
+                } else {
+                    "Upload Error: ${e.message}"
+                }
                 activeError = err
+                uploadProgress.value = 0f
+                uploadPhaseText.value = ""
                 builder.setContentTitle("Upload Failed")
                     .setContentText("An unexpected error occurred.")
                     .setProgress(0, 0, false)

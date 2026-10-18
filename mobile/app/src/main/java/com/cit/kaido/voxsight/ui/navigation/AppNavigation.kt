@@ -42,9 +42,15 @@ fun AppNavigation() {
     val navigateToReview by com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.collectAsState()
     androidx.compose.runtime.LaunchedEffect(navigateToReview) {
         if (navigateToReview) {
-            practiceViewModel.pendingMusicXml = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingMusicXml ?: ""
-            practiceViewModel.pendingScoreTitle = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingScoreTitle ?: ""
-            navController.navigate("review")
+            val xml = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingMusicXml ?: ""
+            val title = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingScoreTitle ?: ""
+            if (xml.isNotBlank()) {
+                practiceViewModel.pendingMusicXml = xml
+                practiceViewModel.pendingScoreTitle = title
+                if (navController.currentDestination?.route != "review") {
+                    navController.navigate("review")
+                }
+            }
             com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.value = false
         }
     }
@@ -210,7 +216,9 @@ fun AppNavigation() {
                 onNavigateToReview = { musicXml, title ->
                     practiceViewModel.pendingMusicXml = musicXml
                     practiceViewModel.pendingScoreTitle = title
-                    navController.navigate("review")
+                    if (navController.currentDestination?.route != "review") {
+                        navController.navigate("review")
+                    }
                 },
                 onNavigateToProfile = {
                     navController.navigate("profile")

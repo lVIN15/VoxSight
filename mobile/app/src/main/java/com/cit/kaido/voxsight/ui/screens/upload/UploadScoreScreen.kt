@@ -154,9 +154,29 @@ fun UploadScoreScreen(
     // ── Processing state ────────────────────────────────────────
     val uploadStatus by UploadManager.uploadStatus.collectAsState()
     val uploadProgress by UploadManager.uploadProgress.collectAsState()
+    val uploadPhaseText by UploadManager.uploadPhaseText.collectAsState()
     val processingFileName = UploadManager.pendingFileName ?: ""
     val isProcessing = uploadStatus == UploadStatus.PROCESSING
     val isReady = uploadStatus == UploadStatus.READY
+    
+    var activeErrorDialog by remember { mutableStateOf<VoxErrorDialogData?>(null) }
+    
+    // Auto-navigate to review as soon as uploadStatus becomes READY
+    androidx.compose.runtime.LaunchedEffect(uploadStatus) {
+        if (uploadStatus == UploadStatus.READY) {
+            val xml = UploadManager.pendingMusicXml
+            val title = UploadManager.pendingScoreTitle ?: deriveTitleFromFileName(processingFileName)
+            if (!xml.isNullOrBlank()) {
+                val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(xml)
+                if (unsupportedReason != null) {
+                    activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                    UploadManager.clearReadyState()
+                } else {
+                    onNavigateToReview(xml, title)
+                }
+            }
+        }
+    }
     
     var allowMusicXmlBypass by remember { mutableStateOf(false) }
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
@@ -167,7 +187,6 @@ fun UploadScoreScreen(
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var showCustomScanner by remember { mutableStateOf(false) }
-    var activeErrorDialog by remember { mutableStateOf<VoxErrorDialogData?>(null) }
     var showClearAllConfirm by remember { mutableStateOf(false) }
 
     // ── Activity Result Launchers ───────────────────────────────
@@ -221,16 +240,15 @@ fun UploadScoreScreen(
                 context = context,
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
-                bypassCache = true,
+                bypassCache = false,
                 onProgress = { /* handled by UploadManager state */ },
                 onSuccess = { musicXml, title ->
                     val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                     if (unsupportedReason != null) {
                         activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                        UploadManager.clearReadyState()
                     } else {
-                        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                            onNavigateToReview(musicXml, title)
-                        }
+                        onNavigateToReview(musicXml, title)
                     }
                 },
                 onError = { error ->
@@ -272,16 +290,15 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = it,
                     coroutineScope = coroutineScope,
-                    bypassCache = true,
+                    bypassCache = false,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                         if (unsupportedReason != null) {
                             activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                            UploadManager.clearReadyState()
                         } else {
-                            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                                onNavigateToReview(musicXml, title)
-                            }
+                            onNavigateToReview(musicXml, title)
                         }
                     },
                     onError = { error ->
@@ -370,16 +387,15 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = optimizedUri,
                     coroutineScope = coroutineScope,
-                    bypassCache = true,
+                    bypassCache = false,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                         if (unsupportedReason != null) {
                             activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                            UploadManager.clearReadyState()
                         } else {
-                            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                                onNavigateToReview(musicXml, title)
-                            }
+                            onNavigateToReview(musicXml, title)
                         }
                     },
                     onError = { error ->
@@ -552,6 +568,7 @@ fun UploadScoreScreen(
                 ProcessingCard(
                     fileName = processingFileName,
                     progress = uploadProgress,
+                    phaseText = uploadPhaseText,
                     isReady = isReady,
                     bypassEnabled = allowMusicXmlBypass,
                     onBypass = {
@@ -817,6 +834,7 @@ private fun ActionCard(
 private fun ProcessingCard(
     fileName: String,
     progress: Float,
+    phaseText: String,
     isReady: Boolean,
     bypassEnabled: Boolean,
     onBypass: () -> Unit,
@@ -906,7 +924,7 @@ private fun ProcessingCard(
             }
 
             Text(
-                text = if (isReady) "Ready for edit" else stringResource(R.string.processing_status),
+                text = if (isReady) "Score ready! Tap to review" else phaseText.ifBlank { stringResource(R.string.processing_status) },
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isReady) VoxPurplePrimary else VoxTextSubtitle,
                 fontWeight = if (isReady) FontWeight.Bold else FontWeight.Normal

@@ -31,10 +31,10 @@ object ApiClient {
             }
             response
         }
-        .connectTimeout(60, TimeUnit.SECONDS) // Render cold-start handling (~45s)
-        .readTimeout(600, TimeUnit.SECONDS) // 10 min timeout for OMR conversion on cloud
-        .writeTimeout(300, TimeUnit.SECONDS)
-        .callTimeout(600, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS) // Railway connection handling
+        .readTimeout(180, TimeUnit.SECONDS) // 3 min timeout for OMR conversion on cloud
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(180, TimeUnit.SECONDS)
         .build()
 
     /**
