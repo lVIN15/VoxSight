@@ -38,6 +38,30 @@ fun AppNavigation() {
     val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
     val isLoggedIn = prefs.getString("logged_in_username", null) != null
     val startDest = if (isLoggedIn) "upload" else "landing"
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (isLoggedIn) {
+            val savedEmail = prefs.getString("logged_in_email", null)
+            val savedUsername = prefs.getString("logged_in_username", null)
+            withContext(Dispatchers.IO) {
+                try {
+                    val client = com.cit.kaido.voxsight.network.Supabase.client
+                    val nowIso = currentUtcTimestamp()
+                    if (!savedEmail.isNullOrBlank()) {
+                        client.postgrest["User"].update({ set("last_login", nowIso) }) {
+                            filter { eq("email", savedEmail) }
+                        }
+                    } else if (!savedUsername.isNullOrBlank()) {
+                        client.postgrest["User"].update({ set("last_login", nowIso) }) {
+                            filter { eq("username", savedUsername) }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Ignore network/RLS errors on startup timestamp sync
+                }
+            }
+        }
+    }
     
     val navigateToReview by com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.collectAsState()
     androidx.compose.runtime.LaunchedEffect(navigateToReview) {
@@ -48,6 +72,7 @@ fun AppNavigation() {
                 practiceViewModel.pendingMusicXml = xml
                 practiceViewModel.pendingScoreTitle = title
                 if (navController.currentDestination?.route != "review") {
+                    com.cit.kaido.voxsight.util.PremiumManager.consumeUploadCredit(context)
                     navController.navigate("review")
                 }
             }
@@ -95,32 +120,71 @@ fun AppNavigation() {
                 onSignInClicked = { email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Hash the password the same way we did in Registration
-                            val md = java.security.MessageDigest.getInstance("SHA-256")
-                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
-                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
-                            
+                            val trimmedEmail = email.trim()
                             val client = com.cit.kaido.voxsight.network.Supabase.client
                             
-                            // Query the custom User table
+                            // Query the User table by email first, then verify the salted BCrypt hash
                             val users = client.postgrest["User"].select {
                                 filter {
-                                    eq("email", email)
-                                    eq("password_hash", hashString)
+                                    eq("email", trimmedEmail)
                                 }
                             }.decodeList<com.cit.kaido.voxsight.model.User>()
                             
-                            if (users.isNotEmpty()) {
-                                val user = users.first()
+                            val matchedUser = users.firstOrNull { candidate ->
+                                val storedHash = candidate.passwordHash
+                                if (storedHash.startsWith("\$2")) {
+                                    // Salted BCrypt hash verification
+                                    try {
+                                        org.mindrot.jbcrypt.BCrypt.checkpw(password, storedHash)
+                                    } catch (_: Exception) {
+                                        false
+                                    }
+                                } else {
+                                    // Legacy SHA-256 fallback (auto-upgrades to BCrypt on match)
+                                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                                    val legacySha256 = md.digest(password.toByteArray(Charsets.UTF_8))
+                                        .joinToString("") { "%02x".format(it) }
+                                    val isLegacyMatch = storedHash == legacySha256
+                                    if (isLegacyMatch) {
+                                        try {
+                                            val upgradedHash = org.mindrot.jbcrypt.BCrypt.hashpw(
+                                                password,
+                                                org.mindrot.jbcrypt.BCrypt.gensalt(12)
+                                            )
+                                            client.postgrest["User"].update(
+                                                { set("password_hash", upgradedHash) }
+                                            ) {
+                                                filter { eq("email", candidate.email) }
+                                            }
+                                        } catch (_: Exception) {
+                                            // Ignore if update fails; login still succeeds
+                                        }
+                                    }
+                                    isLegacyMatch
+                                }
+                            }
+                            
+                            if (matchedUser != null) {
+                                try {
+                                    val nowIso = currentUtcTimestamp()
+                                    client.postgrest["User"].update(
+                                        { set("last_login", nowIso) }
+                                    ) {
+                                        filter { eq("email", matchedUser.email) }
+                                    }
+                                } catch (_: Exception) {
+                                    // Non-fatal if update fails
+                                }
+
                                 val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
                                 prefs.edit()
-                                    .putString("logged_in_username", user.username)
-                                    .putString("logged_in_email", user.email)
+                                    .putString("logged_in_username", matchedUser.username)
+                                    .putString("logged_in_email", matchedUser.email)
                                     .apply()
-                                com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, user.username, user.email)
+                                com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, matchedUser.username, matchedUser.email)
 
                                 withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Welcome back, ${user.username}!", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Welcome back, ${matchedUser.username}!", android.widget.Toast.LENGTH_SHORT).show()
                                     navController.navigate("upload") {
                                         popUpTo("landing") { inclusive = true }
                                     }
@@ -171,15 +235,17 @@ fun AppNavigation() {
                 onSignUpClicked = { name, email, password ->
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Simple SHA-256 hash for demonstration (NOT recommended for production)
-                            val md = java.security.MessageDigest.getInstance("SHA-256")
-                            val hashBytes = md.digest(password.toByteArray(Charsets.UTF_8))
-                            val hashString = hashBytes.joinToString("") { "%02x".format(it) }
+                            // Salted BCrypt password hashing (cost factor 12)
+                            val bcryptHash = org.mindrot.jbcrypt.BCrypt.hashpw(
+                                password,
+                                org.mindrot.jbcrypt.BCrypt.gensalt(12)
+                            )
 
                             val newUser = com.cit.kaido.voxsight.model.User(
                                 username = name,
-                                email = email,
-                                passwordHash = hashString
+                                email = email.trim(),
+                                passwordHash = bcryptHash,
+                                lastLogin = currentUtcTimestamp()
                             )
                             
                             val client = com.cit.kaido.voxsight.network.Supabase.client
@@ -188,8 +254,9 @@ fun AppNavigation() {
                             val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
                             prefs.edit()
                                 .putString("logged_in_username", name)
-                                .putString("logged_in_email", email)
+                                .putString("logged_in_email", email.trim())
                                 .apply()
+                            com.cit.kaido.voxsight.util.PremiumManager.initializeNewUserCredits(context, name, email.trim())
                             
                             withContext(Dispatchers.Main) {
                                 android.widget.Toast.makeText(context, "Registration Successful!", android.widget.Toast.LENGTH_SHORT).show()
@@ -208,6 +275,7 @@ fun AppNavigation() {
         }
 
         composable("upload") {
+            val uploadCoroutineScope = androidx.compose.runtime.rememberCoroutineScope()
             UploadScoreScreen(
                 onNavigateToPractice = { score ->
                     practiceViewModel.setCurrentScore(score)
@@ -217,11 +285,17 @@ fun AppNavigation() {
                     practiceViewModel.pendingMusicXml = musicXml
                     practiceViewModel.pendingScoreTitle = title
                     if (navController.currentDestination?.route != "review") {
+                        uploadCoroutineScope.launch {
+                            com.cit.kaido.voxsight.util.PremiumManager.consumeUploadCredit(context)
+                        }
                         navController.navigate("review")
                     }
                 },
                 onNavigateToProfile = {
                     navController.navigate("profile")
+                },
+                onNavigateToShop = {
+                    navController.navigate("shop")
                 }
             )
         }
@@ -246,7 +320,7 @@ fun AppNavigation() {
                     navController.navigate("my_music_sheets")
                 },
                 onUpgradeToPremiumClicked = {
-                    navController.navigate("premium_upgrade")
+                    navController.navigate("shop")
                 },
                 onSettingsClicked = {
                     navController.navigate("settings")
@@ -265,6 +339,13 @@ fun AppNavigation() {
                     practiceViewModel.setCurrentScore(score)
                     navController.navigate("select_mode")
                 }
+            )
+        }
+
+        composable("shop") {
+            com.cit.kaido.voxsight.ui.screens.profile.ShopScreen(
+                onBackClicked = { navController.popBackStack() },
+                onPremiumClicked = { navController.navigate("premium_upgrade") }
             )
         }
 
@@ -640,6 +721,12 @@ private suspend fun handleGoogleLoginOrRegister(
     }
 }
 
+private fun currentUtcTimestamp(): String {
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    return sdf.format(java.util.Date())
+}
+
 private suspend fun handleSocialLoginSuccess(
     context: android.content.Context,
     navController: androidx.navigation.NavController,
@@ -648,6 +735,7 @@ private suspend fun handleSocialLoginSuccess(
     provider: String
 ) {
     val client = com.cit.kaido.voxsight.network.Supabase.client
+    val nowIso = currentUtcTimestamp()
             
     val users = client.postgrest["User"].select {
         filter { eq("email", email) }
@@ -657,9 +745,21 @@ private suspend fun handleSocialLoginSuccess(
         val newUser = com.cit.kaido.voxsight.model.User(
             username = name,
             email = email,
-            passwordHash = "${provider}_OAUTH"
+            passwordHash = "${provider}_OAUTH",
+            lastLogin = nowIso
         )
         client.postgrest["User"].insert(newUser)
+        com.cit.kaido.voxsight.util.PremiumManager.initializeNewUserCredits(context, name, email)
+    } else {
+        try {
+            client.postgrest["User"].update(
+                { set("last_login", nowIso) }
+            ) {
+                filter { eq("email", email) }
+            }
+        } catch (_: Exception) {
+            // Non-fatal if update fails
+        }
     }
     
     val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)

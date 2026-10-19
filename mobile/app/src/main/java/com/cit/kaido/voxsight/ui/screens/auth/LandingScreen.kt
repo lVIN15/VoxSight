@@ -63,14 +63,6 @@ import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.ui.theme.VoxM3PrimaryContainer
 import kotlinx.coroutines.delay
 
-/**
- * VoxSight Landing Page — 1:1 match to Stitch design
- * "VoxSight Landing Page - Refined Notes Layout"
- *
- * Layout: Full-screen dark background with gradient overlay,
- * floating music note, brand headline, carousel dots,
- * and a white bottom sheet with Log in / Sign up CTAs.
- */
 @Composable
 fun LandingScreen(
     onLoginClicked: () -> Unit,
@@ -103,7 +95,7 @@ fun LandingScreen(
     }
 
     // ── Auto-swiping Background Setup ────────────────────────
-    // We'll use 3 background states based on the images you uploaded. 
+    // We'll use 3 background states based on the images uploaded.
     val totalImages = 3
     var currentImageIndex by remember { mutableIntStateOf(0) }
 
@@ -198,14 +190,14 @@ fun LandingScreen(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            // ── Floating Music Note + Brand ─────────────────────
+            // ── Floating Official VoxSight Icon + Brand ─────────
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Floating music note with purple glow
+                // Floating official VoxSight icon with purple glow
                 Icon(
-                    imageVector = Icons.Outlined.MusicNote,
-                    contentDescription = "Music Note",
+                    painter = painterResource(id = R.drawable.ic_stat_name),
+                    contentDescription = "VoxSight Logo",
                     tint = Color.White,
                     modifier = Modifier
                         .size(72.dp)

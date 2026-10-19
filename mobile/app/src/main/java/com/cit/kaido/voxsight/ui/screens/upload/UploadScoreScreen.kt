@@ -146,7 +146,8 @@ import java.util.UUID
 fun UploadScoreScreen(
     onNavigateToPractice: (MusicXmlScore) -> Unit = {},
     onNavigateToReview: (musicXml: String, title: String) -> Unit = { _, _ -> },
-    onNavigateToProfile: () -> Unit = {}
+    onNavigateToProfile: () -> Unit = {},
+    onNavigateToShop: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -503,11 +504,55 @@ fun UploadScoreScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            var showOutOfCreditsDialog by remember { mutableStateOf(false) }
+
+            if (showOutOfCreditsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showOutOfCreditsDialog = false },
+                    title = {
+                        Text(
+                            text = "Out of Upload Credits",
+                            fontWeight = FontWeight.Bold,
+                            color = VoxTextPrimary
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "You have 0 upload credits remaining. Visit the Credit Shop to purchase more Upload Credits or upgrade to VoxSight Premium!",
+                            color = VoxTextSecondary,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showOutOfCreditsDialog = false
+                                onNavigateToShop()
+                            }
+                        ) {
+                            Text("GET UPLOAD CREDITS", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showOutOfCreditsDialog = false }) {
+                            Text("CANCEL", color = VoxTextSubtitle)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+
             val runIfUpToDate: (() -> Unit) -> Unit = { action ->
-                coroutineScope.launch {
-                    val isOutdated = AppUpdateManager.checkIsUpdateRequired(context)
-                    if (!isOutdated) {
-                        action()
+                if (com.cit.kaido.voxsight.util.PremiumManager.getUploadCredits(context) <= 0) {
+                    showOutOfCreditsDialog = true
+                } else {
+                    coroutineScope.launch {
+                        val isOutdated = AppUpdateManager.checkIsUpdateRequired(context)
+                        if (!isOutdated) {
+                            action()
+                        }
                     }
                 }
             }

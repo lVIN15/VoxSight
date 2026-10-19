@@ -91,7 +91,7 @@ fun PremiumUpgradeScreen(
                     username = username,
                     email = email,
                     planName = "VoxSight Premium (Monthly)",
-                    amountCentavos = 10000
+                    amountCentavos = 8500
                 )
             )
             isLoadingCheckout = false
@@ -360,7 +360,7 @@ fun PremiumUpgradeScreen(
                 )
             } else {
                 Text(
-                    text = if (isPremium) "✓ Active Premium Member" else "₱ 100.00 / month",
+                    text = if (isPremium) "✓ Active Premium Member" else "₱ 85.00 / month",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -410,7 +410,7 @@ fun PremiumUpgradeScreen(
             },
             text = {
                 Text(
-                    text = "Your PayMongo payment of ₱100.00 was successful. Your account has been upgraded to VoxSight Premium!",
+                    text = "Your PayMongo payment of ₱85.00 was successful. Your account has been upgraded to VoxSight Premium (+50 Upload Credits)!",
                     textAlign = TextAlign.Center
                 )
             },
@@ -490,7 +490,7 @@ fun PremiumUpgradeScreen(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun PaymongoInAppWebView(
+internal fun PaymongoInAppWebView(
     checkoutUrl: String,
     sessionId: String?,
     successUrl: String,

@@ -63,7 +63,7 @@ public class PaymongoService {
 
         int amountCentavos = (request != null && request.getAmountCentavos() != null && request.getAmountCentavos() >= 2000)
                 ? request.getAmountCentavos()
-                : 10000; // Default ₱100.00
+                : 8500; // Default ₱85.00
 
         String planName = (request != null && request.getPlanName() != null && !request.getPlanName().isBlank())
                 ? request.getPlanName()

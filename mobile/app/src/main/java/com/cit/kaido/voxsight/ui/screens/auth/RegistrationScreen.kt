@@ -58,9 +58,6 @@ import com.cit.kaido.voxsight.ui.theme.VoxM3Surface
 import com.cit.kaido.voxsight.ui.theme.VoxM3SurfaceContainerLowest
 import com.cit.kaido.voxsight.ui.theme.VoxM3SurfaceVariant
 
-/**
- * Registration Screen — 1:1 match to Stitch design "Registration - VoxSight"
- */
 @Composable
 fun RegistrationScreen(
     onBackClicked: () -> Unit,
@@ -69,12 +66,17 @@ fun RegistrationScreen(
     onFacebookSignInClicked: () -> Unit = {},
     onSignUpClicked: (name: String, email: String, password: String) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
+    var emailError by remember { mutableStateOf<String?>(null) }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
+
+    val emailRegex = remember { Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$") }
+    fun isValidEmail(input: String): Boolean = emailRegex.matches(input.trim())
 
     val totalImages = 3
     var currentImageIndex by remember { mutableIntStateOf(0) }
@@ -216,7 +218,7 @@ fun RegistrationScreen(
         ) {
             // Header
             Text(
-                text = "Get started free.",
+                text = "Get started",
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold,
                 fontSize = 30.sp,
@@ -225,7 +227,7 @@ fun RegistrationScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Free forever. No credit card needed.",
+                text = "Registration is free. No card needed.",
                 fontSize = 14.sp,
                 color = VoxM3OnSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -237,7 +239,7 @@ fun RegistrationScreen(
             VoxOutlinedField(
                 value = name,
                 onValueChange = { name = it },
-                label = "YOUR NAME",
+                label = "Your Name",
                 placeholder = "John Doe"
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -245,18 +247,35 @@ fun RegistrationScreen(
             // ── Email Field ─────────────────────────────────────
             VoxOutlinedField(
                 value = email,
-                onValueChange = { email = it },
-                label = "EMAIL ADDRESS",
+                onValueChange = {
+                    email = it
+                    if (emailError != null && isValidEmail(it)) {
+                        emailError = null
+                    }
+                },
+                label = "Email Address",
                 placeholder = "name@example.com",
                 keyboardType = KeyboardType.Email
             )
+            if (emailError != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = emailError!!,
+                    color = Color(0xFFD32F2F),
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp),
+                    textAlign = TextAlign.Start
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
 
             // ── Password Field ──────────────────────────────────
             VoxOutlinedField(
                 value = password,
                 onValueChange = { password = it },
-                label = "PASSWORD",
+                label = "Password",
                 placeholder = "••••••••••••",
                 isPassword = true,
                 passwordVisible = passwordVisible,
@@ -302,7 +321,7 @@ fun RegistrationScreen(
             VoxOutlinedField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
-                label = "CONFIRM PASSWORD",
+                label = "Confirm Password",
                 placeholder = "••••••••••••",
                 isPassword = true,
                 passwordVisible = confirmPasswordVisible,
@@ -327,7 +346,19 @@ fun RegistrationScreen(
                             colors = listOf(VoxM3Primary, VoxM3PrimaryContainer)
                         )
                     )
-                    .clickable { onSignUpClicked(name, email, password) },
+                    .clickable {
+                        if (!isValidEmail(email)) {
+                            emailError = "Please enter a valid email address (e.g. name@example.com)"
+                            android.widget.Toast.makeText(
+                                context,
+                                "Please enter a valid email address (xxx@x.x)",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            emailError = null
+                            onSignUpClicked(name, email.trim(), password)
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Text(

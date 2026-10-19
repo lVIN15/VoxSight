@@ -23,7 +23,7 @@ data class CreateCheckoutSessionRequest(
     val username: String? = null,
     val email: String? = null,
     val planName: String = "VoxSight Premium (Monthly)",
-    val amountCentavos: Int = 10000,
+    val amountCentavos: Int = 8500,
     val successUrl: String = PaymongoClient.DEFAULT_SUCCESS_URL,
     val cancelUrl: String = PaymongoClient.DEFAULT_CANCEL_URL
 )

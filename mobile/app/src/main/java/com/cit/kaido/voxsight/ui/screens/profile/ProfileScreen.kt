@@ -197,7 +197,7 @@ fun ProfileScreen(
             )
 
             ProfileCard(
-                title = if (isPremium) "VoxSight Premium (Active)" else "Upgrade to Premium",
+                title = "Get Upload Credits",
                 icon = Lucide.Crown,
                 iconColor = orangeDark,
                 onClick = onUpgradeToPremiumClicked

@@ -114,4 +114,7 @@ dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.utils)
     implementation(libs.kotlinx.serialization.json)
+
+    // BCrypt for salted password hashing
+    implementation("org.mindrot:jbcrypt:0.4")
 }
