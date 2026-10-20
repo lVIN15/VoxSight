@@ -549,18 +549,44 @@
                             return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
                         }
 
+                        // Explicit Divisi Part Names checked before generic section strings
+                        if (combinedStr.indexOf('soprano 1') !== -1 || combinedStr === 's1' || combinedStr === 's 1') {
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
+                        }
+                        if (combinedStr.indexOf('soprano 2') !== -1 || combinedStr === 's2' || combinedStr === 's 2') {
+                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
+                        }
+                        if (combinedStr.indexOf('alto 1') !== -1 || combinedStr === 'a1' || combinedStr === 'a 1') {
+                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
+                        }
+                        if (combinedStr.indexOf('alto 2') !== -1 || combinedStr === 'a2' || combinedStr === 'a 2') {
+                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
+                        }
+                        if (combinedStr.indexOf('tenor 1') !== -1 || combinedStr === 't1' || combinedStr === 't 1') {
+                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
+                        }
+                        if (combinedStr.indexOf('tenor 2') !== -1 || combinedStr === 't2' || combinedStr === 't 2') {
+                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
+                        }
+                        if (combinedStr.indexOf('bass 1') !== -1 || combinedStr === 'b1' || combinedStr === 'b 1') {
+                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
+                        }
+                        if (combinedStr.indexOf('bass 2') !== -1 || combinedStr === 'b2' || combinedStr === 'b 2') {
+                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
+                        }
+
                         // Pure Single-Voice Part Names (mutually guarded, including single-letter abbreviations)
                         if ((combinedStr.indexOf('soprano') !== -1 || /\bs\b/i.test(combinedStr) || combinedStr.trim() === 's' || combinedStr.trim() === 's.') && combinedStr.indexOf('alto') === -1) {
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
                         }
                         if ((combinedStr.indexOf('alto') !== -1 || /\ba\b/i.test(combinedStr) || combinedStr.trim() === 'a' || combinedStr.trim() === 'a.') && combinedStr.indexOf('soprano') === -1) {
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2, participating: ["A"] };
                         }
                         if ((combinedStr.indexOf('tenor') !== -1 || /\bt\b/i.test(combinedStr) || combinedStr.trim() === 't' || combinedStr.trim() === 't.') && combinedStr.indexOf('bass') === -1) {
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3, participating: ["T"] };
                         }
                         if ((combinedStr.indexOf('bass') !== -1 || /\bb\b/i.test(combinedStr) || combinedStr.trim() === 'b' || combinedStr.trim() === 'b.') && combinedStr.indexOf('tenor') === -1) {
-                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4, participating: ["B"] };
                         }
                     }
                 } catch (e) { }

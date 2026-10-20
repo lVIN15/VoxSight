@@ -137,6 +137,90 @@ def test_open_satb_divisi_isolation():
             os.remove(p)
 
 
+def test_condensed_2staff_four_parts_no_false_divisi():
+    """Condensed 2-staff SATB (Staff 1: S=A4, A=F4; Staff 2: T=D3, B=G2).
+    Must assign S, A, T, B. ZERO false divisi (no S1/S2 or B1/B2).
+    """
+    print("\n--- Test 4: Condensed 2-Staff 4-Part SATB (No False Divisi) ---")
+    xml_cond = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Choir</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><staves>2</staves></attributes>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><staff>1</staff></note>
+      <backup><duration>1</duration></backup>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice><staff>1</staff></note>
+      <backup><duration>1</duration></backup>
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>1</duration><voice>3</voice><staff>2</staff></note>
+      <backup><duration>1</duration></backup>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>1</duration><voice>4</voice><staff>2</staff></note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".musicxml", delete=False, encoding="utf-8") as f:
+        f.write(xml_cond)
+        p = f.name
+    try:
+        res = satb_analyzer.analyze(p)
+        voices = set(e["satb_voice"] for e in res["events"])
+        print(f"  Assigned voices: {voices}")
+        assert voices == {"S", "A", "T", "B"}, f"Expected {{'S', 'A', 'T', 'B'}}, got {voices}"
+        assert not any(v in voices for v in ("B1", "B2", "S1", "S2")), f"False divisi detected in {voices}"
+        print("  [PASS] Test 4: Condensed SATB cleanly separated into S, A, T, B without false divisi.")
+    finally:
+        if os.path.exists(p):
+            os.remove(p)
+
+
+def test_open_satb_bass_divisi_isolation():
+    """Open 4-part SATB with Part 4 (Bass) Divisi into B1 and B2 (Happy Birthday m.8 case).
+    Measures 1-7 Bass are B; Measure 8 Bass divides into B1 and B2.
+    """
+    print("\n--- Test 5: Open 4-Part SATB with Part 4 Divisi (B1 and B2) ---")
+    xml_b_div = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+    <score-part id="P3"><part-name>Tenor</part-name></score-part>
+    <score-part id="P4"><part-name>Bass</part-name></score-part>
+  </part-list>
+  <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><lyric><text>to</text></lyric></note></measure></part>
+  <part id="P2"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><lyric><text>to</text></lyric></note></measure></part>
+  <part id="P3"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><lyric><text>to</text></lyric></note></measure></part>
+  <part id="P4">
+    <measure number="1">
+      <attributes><divisions>1</divisions></attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><lyric><text>to</text></lyric></note>
+      <backup><duration>1</duration></backup>
+      <note><pitch><step>C</step><octave>2</octave></pitch><duration>1</duration><voice>2</voice></note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".musicxml", delete=False, encoding="utf-8") as f:
+        f.write(xml_b_div)
+        p = f.name
+    try:
+        res = satb_analyzer.analyze(p)
+        part_voices = {}
+        for ev in res["events"]:
+            part_voices.setdefault(ev["part_id"], []).append(ev["satb_voice"])
+        print(f"  Part voices: {part_voices}")
+        assert set(part_voices[4]) == {"B1", "B2"}, f"Expected B1 and B2 in Part 4, got {part_voices[4]}"
+        assert part_voices[1] == ["S"], f"Expected ['S'] in Part 1, got {part_voices[1]}"
+        assert part_voices[2] == ["A"], f"Expected ['A'] in Part 2, got {part_voices[2]}"
+        assert part_voices[3] == ["T"], f"Expected ['T'] in Part 3, got {part_voices[3]}"
+        print("  [PASS] Test 5: Bass Divisi B1/B2 cleanly separated in Part 4; other parts undisturbed.")
+    finally:
+        if os.path.exists(p):
+            os.remove(p)
+
+
 def main():
     print("==================================================================")
     print("STARTING VOCAL-PART DETECTION ACCURACY REGRESSION SUITE")
@@ -144,6 +228,8 @@ def main():
     test_open_satb_unison_pitches_no_tutti()
     test_condensed_2staff_unison_tb()
     test_open_satb_divisi_isolation()
+    test_condensed_2staff_four_parts_no_false_divisi()
+    test_open_satb_bass_divisi_isolation()
     print("\n==================================================================")
     print("ALL VOCAL-PART DETECTION TESTS PASSED (100% SUCCESS RATE)")
     print("==================================================================")

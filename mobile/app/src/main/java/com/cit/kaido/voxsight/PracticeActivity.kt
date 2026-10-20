@@ -371,14 +371,8 @@ class PracticeActivity : AppCompatActivity(),
     override fun onHighlightNotes(highlights: List<SyncManager.NoteHighlightData>) {
         val coloredNotes = highlights.map { highlight ->
             val event = eventStream.find { it.eventId == highlight.eventId }
-            val part = event?.satbVoice?.firstOrNull()?.toString()?.uppercase() ?: "S"
-            val hexColor = when (part) {
-                "S" -> "#E91E63"
-                "A" -> "#9C27B0"
-                "T" -> "#2196F3"
-                "B" -> "#4CAF50"
-                else -> "#6366f1"
-            }
+            val part = event?.participatingParts?.firstOrNull() ?: event?.satbVoice?.uppercase() ?: "S"
+            val hexColor = com.cit.kaido.voxsight.ui.screens.practice.getVoiceHexColor(part)
             mapOf(
                 "eventId" to highlight.eventId,
                 "x" to highlight.x,

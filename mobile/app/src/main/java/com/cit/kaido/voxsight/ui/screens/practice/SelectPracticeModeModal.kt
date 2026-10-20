@@ -187,7 +187,7 @@ fun SelectPracticeModeModal(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = part.shortLabel,
+                                            text = part.getDisplayShortLabel(vocalParts),
                                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                             color = part.color
                                         )
@@ -195,16 +195,24 @@ fun SelectPracticeModeModal(
                                     Spacer(modifier = Modifier.width(14.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = part.label,
+                                            text = part.getDisplayLabel(vocalParts),
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                             color = Color(0xFF191C20)
                                         )
                                         Text(
                                             text = when (part) {
-                                                VoicePart.Soprano -> "High vocal range • Treble clef"
-                                                VoicePart.Alto -> "Middle-low vocal range • Treble clef"
-                                                VoicePart.Tenor -> "High male vocal range • Octave Treble/Bass"
-                                                VoicePart.Bass -> "Low male vocal range • Bass clef"
+                                                VoicePart.Soprano -> if (vocalParts.any { it == VoicePart.Soprano1 || it == VoicePart.Soprano2 }) "All Soprano section notes • Treble clef" else "High vocal range • Treble clef"
+                                                VoicePart.Alto -> if (vocalParts.any { it == VoicePart.Alto1 || it == VoicePart.Alto2 }) "All Alto section notes • Treble clef" else "Middle-low vocal range • Treble clef"
+                                                VoicePart.Tenor -> if (vocalParts.any { it == VoicePart.Tenor1 || it == VoicePart.Tenor2 }) "All Tenor section notes • Octave Treble/Bass" else "High male vocal range • Octave Treble/Bass"
+                                                VoicePart.Bass -> if (vocalParts.any { it == VoicePart.Bass1 || it == VoicePart.Bass2 }) "All Bass section notes • Bass clef" else "Low male vocal range • Bass clef"
+                                                VoicePart.Soprano1 -> "First Soprano (higher subdivision)"
+                                                VoicePart.Soprano2 -> "Second Soprano (lower subdivision)"
+                                                VoicePart.Alto1 -> "First Alto (higher subdivision)"
+                                                VoicePart.Alto2 -> "Second Alto (lower subdivision)"
+                                                VoicePart.Tenor1 -> "First Tenor (higher subdivision)"
+                                                VoicePart.Tenor2 -> "Second Tenor (lower subdivision)"
+                                                VoicePart.Bass1 -> "First Bass (higher subdivision)"
+                                                VoicePart.Bass2 -> "Second Bass (lower subdivision)"
                                                 VoicePart.Solo -> "Soloist / Lead vocal melody"
                                                 else -> "Vocal part"
                                             },
@@ -214,7 +222,7 @@ fun SelectPracticeModeModal(
                                     }
                                     Icon(
                                         imageVector = Icons.Outlined.PlayArrow,
-                                        contentDescription = "Start ${part.label}",
+                                        contentDescription = "Start ${part.getDisplayLabel(vocalParts)}",
                                         tint = part.color,
                                         modifier = Modifier.size(24.dp)
                                     )

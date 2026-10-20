@@ -351,11 +351,7 @@ fun Module2PracticeScreen(
             LaunchedEffect(audioFocusPart, audioFocusEnabled, isAccompanimentEnabled, midiController) {
                 midiController?.isAccompanimentEnabled = isAccompanimentEnabled
                 if (audioFocusEnabled) {
-                    val focusKey = when (audioFocusPart) {
-                        VoicePart.Solo -> "SOLO"
-                        VoicePart.Others -> "OTHER"
-                        else -> audioFocusPart.shortLabel.first().toString()
-                    }
+                    val focusKey = audioFocusPart.apiCode
                     midiController?.focusPart(focusKey)
                 } else {
                     midiController?.unmuteAllParts()
@@ -386,26 +382,17 @@ fun Module2PracticeScreen(
                         score = resolvedScore,
                         tempo = 120,
                         isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others,
-                        selectedVoicePart = when (selectedPart) {
-                            VoicePart.Solo -> "SOLO"
-                            VoicePart.Others -> "OTHER"
-                            else -> selectedPart.shortLabel.first().toString().uppercase()
-                        },
+                        selectedVoicePart = selectedPart.apiCode,
                         pitchAttempts = pitchAttempts,
                         onReady = { controller ->
                             midiController = controller
                             currentBpm = controller.getBaseBPM()
-                            val partKey = when (selectedPart) {
-                                VoicePart.Solo -> "SOLO"
-                                VoicePart.Others -> "OTHER"
-                                else -> selectedPart.shortLabel.first().toString()
-                            }
+                            val partKey = selectedPart.apiCode
                             if (audioFocusEnabled) {
                                 val focusKey = audioFocusPart.apiCode
                                 controller.focusPart(focusKey)
                             }
                             if (visualFocusEnabled) {
-                                val partKey = selectedPart.apiCode
                                 controller.setVisualFocus(partKey)
                             } else {
                                 controller.clearVisualFocus()
@@ -901,6 +888,7 @@ private fun VoicePartCard(
         if (isLocked) {
             TestPitchVoicePartCard(
                 selectedPart = selectedPart,
+                availableParts = availableParts,
                 audioFocusEnabled = audioFocusEnabled,
                 onAudioFocusChange = onAudioFocusChange,
                 visualFocusEnabled = visualFocusEnabled,
@@ -946,6 +934,7 @@ private fun VoicePartCard(
 @Composable
 private fun TestPitchVoicePartCard(
     selectedPart: VoicePart,
+    availableParts: List<VoicePart> = emptyList(),
     audioFocusEnabled: Boolean,
     onAudioFocusChange: (Boolean) -> Unit,
     visualFocusEnabled: Boolean,
@@ -994,7 +983,7 @@ private fun TestPitchVoicePartCard(
                                 .background(selectedPart.color)
                         )
                         Text(
-                            text = "${selectedPart.label.uppercase()} (TESTING)",
+                            text = "${selectedPart.getDisplayLabel(availableParts).uppercase()} (TESTING)",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
@@ -1233,7 +1222,7 @@ private fun DropdownSection(
                                         .background(part.color, androidx.compose.foundation.shape.CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text(part.label, color = Color.Black)
+                                Text(part.getDisplayLabel(availableParts), color = Color.Black)
                             }
                         },
                         onClick = {
@@ -1262,7 +1251,7 @@ private fun DropdownSection(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = currentPart.label.uppercase(),
+                            text = currentPart.getDisplayLabel(availableParts).uppercase(),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = Color.White
                         )
@@ -1307,7 +1296,7 @@ private fun PartSelectorUI(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = part.label,
+                                    text = part.getDisplayLabel(availableParts),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.SemiBold
                                     ),
@@ -1339,7 +1328,7 @@ private fun PartSelectorUI(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = part.label,
+                                    text = part.getDisplayLabel(availableParts),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.SemiBold
                                     ),
@@ -1371,7 +1360,7 @@ private fun PartSelectorUI(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
-                                text = part.label,
+                                text = part.getDisplayLabel(availableParts),
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold
                                 ),

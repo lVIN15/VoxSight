@@ -1146,6 +1146,23 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
 
             for tick, nlist in by_tick.items():
                 if len(nlist) >= 2:
+                    if not is_open_choral_score and len(nlist) == 2:
+                        # Condensed 2-staff score: 2 notes on Staff 1 are S & A; 2 notes on Staff 2 are T & B
+                        pitches = set(x['pitch_midi'] for x in nlist)
+                        if len(pitches) == 1:
+                            unison_tok = 'UNISON_SA' if s_id == 1 else 'UNISON_TB'
+                            for sub_note in nlist:
+                                sub_note['satb_voice'] = unison_tok
+                        else:
+                            nlist.sort(key=lambda x: x['pitch_midi'], reverse=True)
+                            if s_id == 1:
+                                nlist[0]['satb_voice'] = 'S'
+                                nlist[1]['satb_voice'] = 'A'
+                            else:
+                                nlist[0]['satb_voice'] = 'T'
+                                nlist[1]['satb_voice'] = 'B'
+                        continue
+
                     for v in ('S', 'A', 'T', 'B'):
                         same_v = [n for n in nlist if n.get('satb_voice') == v]
                         if len(same_v) >= 2:

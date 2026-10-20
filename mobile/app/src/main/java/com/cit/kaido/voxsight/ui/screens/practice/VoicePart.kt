@@ -3,6 +3,7 @@ package com.cit.kaido.voxsight.ui.screens.practice
 import androidx.compose.ui.graphics.Color
 import com.cit.kaido.voxsight.model.MusicalEvent
 import com.cit.kaido.voxsight.model.SATBVoice
+import com.cit.kaido.voxsight.model.normalizeLegacyVoiceToParts
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -64,6 +65,26 @@ val DIVISI_TO_PARENT_MAP: Map<String, String> = mapOf(
     "B1" to "B", "B2" to "B"
 )
 
+fun VoicePart.getDisplayLabel(availableParts: Collection<VoicePart> = emptyList()): String {
+    return when (this) {
+        VoicePart.Bass -> if (availableParts.any { it == VoicePart.Bass1 || it == VoicePart.Bass2 }) "Bass (All)" else "Bass"
+        VoicePart.Tenor -> if (availableParts.any { it == VoicePart.Tenor1 || it == VoicePart.Tenor2 }) "Tenor (All)" else "Tenor"
+        VoicePart.Alto -> if (availableParts.any { it == VoicePart.Alto1 || it == VoicePart.Alto2 }) "Alto (All)" else "Alto"
+        VoicePart.Soprano -> if (availableParts.any { it == VoicePart.Soprano1 || it == VoicePart.Soprano2 }) "Soprano (All)" else "Soprano"
+        else -> this.label
+    }
+}
+
+fun VoicePart.getDisplayShortLabel(availableParts: Collection<VoicePart> = emptyList()): String {
+    return when (this) {
+        VoicePart.Bass -> if (availableParts.any { it == VoicePart.Bass1 || it == VoicePart.Bass2 }) "B. (All)" else "B."
+        VoicePart.Tenor -> if (availableParts.any { it == VoicePart.Tenor1 || it == VoicePart.Tenor2 }) "T. (All)" else "T."
+        VoicePart.Alto -> if (availableParts.any { it == VoicePart.Alto1 || it == VoicePart.Alto2 }) "A. (All)" else "A."
+        VoicePart.Soprano -> if (availableParts.any { it == VoicePart.Soprano1 || it == VoicePart.Soprano2 }) "S. (All)" else "S."
+        else -> this.shortLabel
+    }
+}
+
 /**
  * Deterministic Pitch Target Matcher for Singer Practice (Fix #Phase2.3 & Phase 3 Divisi/Unison).
  */
@@ -104,6 +125,118 @@ fun isEventTargetForSinger(selectedPart: VoicePart, event: MusicalEvent): Boolea
     }
 
     return false
+}
+
+/**
+ * Determines whether a MusicalEvent matches a target voice part or visual focus part.
+ * Used for audio playback gating and visual playback highlight filtering.
+ *
+ * - When targetPart is null: all active vocal notes match (no filtering).
+ * - When targetPart is a divisi subdivision (e.g. "B1"):
+ *   - Matches notes assigned specifically to "B1".
+ *   - Matches undivided parent section notes ("B") that both subdivisions sing.
+ *   - Rejects sibling subdivisions ("B2") to maintain strict isolation.
+ *   - Matches unisons (UNISON_B1B2, UNISON_TB, TUTTI/ALL).
+ * - When targetPart is a parent section (e.g. "B"):
+ *   - Matches "B", "B1", "B2", UNISON_TB, and TUTTI/ALL.
+ */
+fun isEventMatchingFocusOrPart(targetPart: String?, event: MusicalEvent): Boolean {
+    if (targetPart.isNullOrBlank()) return true
+    val focus = targetPart.trim().uppercase()
+    val eventVoices = event.participatingParts.ifEmpty { normalizeLegacyVoiceToParts(event.satbVoice) }
+        .map { it.trim().uppercase() }
+
+    if (eventVoices.isEmpty()) return true
+
+    // 1. Tutti / Universal Choral Unison: All vocal singers participate
+    if (eventVoices.any { it == "ALL" || it == "TUTTI" || it == "UNISON_ALL" }) {
+        return focus !in setOf("OTHER", "OTHERS")
+    }
+
+    // 2. Direct exact match (e.g. "B1" == "B1", "SOLO" == "SOLO", or unison ["B1", "B2"])
+    if (eventVoices.contains(focus)) {
+        return true
+    }
+
+    // 3. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
+    val allowedDivisi = SECTION_DIVISI_MAP[focus]
+    if (allowedDivisi != null && eventVoices.any { it in allowedDivisi }) {
+        return true
+    }
+
+    // 4. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
+    val parent = DIVISI_TO_PARENT_MAP[focus]
+    if (parent != null && eventVoices.contains(parent)) {
+        return true
+    }
+
+    // 5. Cross-section unisons (e.g. UNISON_TB has ["T", "B"])
+    if (eventVoices.any { it == "UNISON_TB" || it == "TB" }) {
+        val effective = parent ?: focus
+        if (effective == "T" || effective == "B") return true
+    }
+    if (eventVoices.any { it == "UNISON_SA" || it == "SA" }) {
+        val effective = parent ?: focus
+        if (effective == "S" || effective == "A") return true
+    }
+
+    return false
+}
+
+fun getVoiceHexColor(partCode: String): String = when (partCode.trim().uppercase()) {
+    "S", "SOPRANO" -> "#E91E63"
+    "S1" -> "#FF1493"
+    "S2" -> "#D50000"
+    "A", "ALTO" -> "#8E24AA"
+    "A1" -> "#AB47BC"
+    "A2" -> "#3F51B5"
+    "T", "TENOR" -> "#1976D2"
+    "T1" -> "#00BCD4"
+    "T2" -> "#0D47A1"
+    "B", "BASS" -> "#4CAF50"
+    "B1" -> "#7CB342"
+    "B2" -> "#1B5E20"
+    "SOLO" -> "#FF6D00"
+    "OTHER", "OTHERS" -> "#607D8B"
+    else -> "#6366f1"
+}
+
+fun getHighlightColorForEvent(event: MusicalEvent, targetFocusPart: String?): String {
+    val voice = event.satbVoice.uppercase().trim()
+    val parts = (if (event.participatingParts.isNotEmpty()) event.participatingParts else listOf(voice))
+        .map { it.uppercase().trim() }
+
+    // If focused on a specific line (e.g. B1) and note is for B1 or undivided B, use the focused line color
+    if (targetFocusPart != null) {
+        val upperFocus = targetFocusPart.trim().uppercase()
+        if (parts.contains(upperFocus)) {
+            return getVoiceHexColor(upperFocus)
+        }
+        val parent = DIVISI_TO_PARENT_MAP[upperFocus]
+        if (parent != null && parts.contains(parent)) {
+            return getVoiceHexColor(upperFocus)
+        }
+    }
+
+    // Otherwise use note's own primary voice color
+    val primaryPart = when {
+        parts.contains("B2") -> "B2"
+        parts.contains("B1") -> "B1"
+        parts.contains("B") -> "B"
+        parts.contains("T2") -> "T2"
+        parts.contains("T1") -> "T1"
+        parts.contains("T") -> "T"
+        parts.contains("A2") -> "A2"
+        parts.contains("A1") -> "A1"
+        parts.contains("A") -> "A"
+        parts.contains("S2") -> "S2"
+        parts.contains("S1") -> "S1"
+        parts.contains("S") -> "S"
+        parts.contains("SOLO") -> "SOLO"
+        parts.contains("OTHERS") || parts.contains("OTHER") -> "OTHER"
+        else -> voice
+    }
+    return getVoiceHexColor(primaryPart)
 }
 
 fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
@@ -189,7 +322,17 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
 
     // 3. Check parts metadata and notes in parts
     score.parts.forEach { part ->
-        val nameLower = part.name.lowercase()
+        val nameLower = part.name.lowercase().trim()
+        val isInstrumental = listOf(
+            "piano", "organ", "keyboard", "guitar", "accomp", "orch",
+            "strings", "instrument", "violin", "flute", "trumpet", "drum", "percussion", "clarinet", "saxophone"
+        ).any { nameLower.contains(it) }
+
+        if (isInstrumental) {
+            hasOthers = true
+            return@forEach
+        }
+
         if (nameLower.contains("soprano 1") || nameLower == "s1" || nameLower == "s 1") hasSoprano1 = true
         if (nameLower.contains("soprano 2") || nameLower == "s2" || nameLower == "s 2") hasSoprano2 = true
         if (nameLower.contains("alto 1") || nameLower == "a1" || nameLower == "a 1") hasAlto1 = true
@@ -205,32 +348,45 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
         if (!hasBass1 && !hasBass2 && (nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower))) hasBass = true
 
         if (listOf("solo", "cantor", "leader", "descant").any { nameLower.contains(it) }) hasSolo = true
-        if (listOf("piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings", "other", "instrument").any { nameLower.contains(it) }) hasOthers = true
+        if (nameLower.contains("other")) hasOthers = true
     }
 
     val result = mutableListOf<VoicePart>()
-    if (hasSoprano1) result.add(VoicePart.Soprano1)
-    if (hasSoprano2) result.add(VoicePart.Soprano2)
-    if (hasSoprano || (!hasSoprano1 && !hasSoprano2 && hasSoprano)) {
-        if (!result.contains(VoicePart.Soprano)) result.add(VoicePart.Soprano)
+
+    // Soprano Section
+    val isSopranoDivisi = hasSoprano1 && hasSoprano2
+    if (isSopranoDivisi) {
+        result.add(VoicePart.Soprano1)
+        result.add(VoicePart.Soprano2)
+    } else if (hasSoprano || hasSoprano1 || hasSoprano2) {
+        result.add(VoicePart.Soprano)
     }
 
-    if (hasAlto1) result.add(VoicePart.Alto1)
-    if (hasAlto2) result.add(VoicePart.Alto2)
-    if (hasAlto || (!hasAlto1 && !hasAlto2 && hasAlto)) {
-        if (!result.contains(VoicePart.Alto)) result.add(VoicePart.Alto)
+    // Alto Section
+    val isAltoDivisi = hasAlto1 && hasAlto2
+    if (isAltoDivisi) {
+        result.add(VoicePart.Alto1)
+        result.add(VoicePart.Alto2)
+    } else if (hasAlto || hasAlto1 || hasAlto2) {
+        result.add(VoicePart.Alto)
     }
 
-    if (hasTenor1) result.add(VoicePart.Tenor1)
-    if (hasTenor2) result.add(VoicePart.Tenor2)
-    if (hasTenor || (!hasTenor1 && !hasTenor2 && hasTenor)) {
-        if (!result.contains(VoicePart.Tenor)) result.add(VoicePart.Tenor)
+    // Tenor Section
+    val isTenorDivisi = hasTenor1 && hasTenor2
+    if (isTenorDivisi) {
+        result.add(VoicePart.Tenor1)
+        result.add(VoicePart.Tenor2)
+    } else if (hasTenor || hasTenor1 || hasTenor2) {
+        result.add(VoicePart.Tenor)
     }
 
-    if (hasBass1) result.add(VoicePart.Bass1)
-    if (hasBass2) result.add(VoicePart.Bass2)
-    if (hasBass || (!hasBass1 && !hasBass2 && hasBass)) {
-        if (!result.contains(VoicePart.Bass)) result.add(VoicePart.Bass)
+    // Bass Section
+    val isBassDivisi = hasBass1 && hasBass2
+    if (isBassDivisi) {
+        result.add(VoicePart.Bass1)
+        result.add(VoicePart.Bass2)
+    } else if (hasBass || hasBass1 || hasBass2) {
+        result.add(VoicePart.Bass)
     }
 
     if (hasSolo) result.add(VoicePart.Solo)

@@ -37,7 +37,7 @@ import kotlin.math.abs
  *   NOTE_ON  → NEVER skip. Dispatch immediately if late.
  *   NOTE_OFF → NEVER skip. Dispatch immediately. No-op if already released.
  */
-class NativePlaybackEngine(private val context: Context) {
+class NativePlaybackEngine(private val context: Context? = null) {
 
     companion object {
         private const val TAG = "NativePlaybackEngine"
@@ -140,7 +140,7 @@ class NativePlaybackEngine(private val context: Context) {
      */
     fun initialize() {
         Log.i(TAG, "Initializing MIDI playback engine")
-        midiManager = context.getSystemService(Context.MIDI_SERVICE) as? MidiManager
+        midiManager = context?.getSystemService(Context.MIDI_SERVICE) as? MidiManager
 
         if (midiManager == null) {
             Log.e(TAG, "MIDI service not available")
@@ -388,6 +388,74 @@ class NativePlaybackEngine(private val context: Context) {
         }
     }
 
+    // ─── Audio Focus Support ──────────────────────────────────────────
+    private var focusedVoicePart: String? = null
+
+    fun setFocusedVoicePart(part: String?) {
+        focusedVoicePart = part?.trim()?.uppercase()
+    }
+
+    fun getFocusedVoicePart(): String? = focusedVoicePart
+
+    fun silenceAllActiveNotes() {
+        val keysToCancel = activeNotes.keys.toList()
+        for (key in keysToCancel) {
+            val ch = key / 128
+            val n = key % 128
+            sendNoteOff(ch, n)
+        }
+        activeNotes.clear()
+        activeAccompanimentNotes.clear()
+    }
+
+    private val SECTION_DIVISI_MAP: Map<String, Set<String>> = mapOf(
+        "S" to setOf("S", "S1", "S2"),
+        "A" to setOf("A", "A1", "A2"),
+        "T" to setOf("T", "T1", "T2"),
+        "B" to setOf("B", "B1", "B2")
+    )
+
+    private val DIVISI_TO_PARENT_MAP: Map<String, String> = mapOf(
+        "S1" to "S", "S2" to "S",
+        "A1" to "A", "A2" to "A",
+        "T1" to "T", "T2" to "T",
+        "B1" to "B", "B2" to "B"
+    )
+
+    fun isVocalEventActiveInAudio(eventVoices: List<String>): Boolean {
+        val focus = focusedVoicePart
+        if (focus == null) {
+            // Decouple voice vs. track gating for vocal lines on shared staves (Fix #Phase2.4)
+            return eventVoices.any { v -> mutedVoices[normalizeVoiceKey(v)] != true }
+        }
+
+        val upperVoices = eventVoices.map { it.uppercase().trim() }
+
+        // 1. Tutti / Universal Choral Unison: All vocal singers participate
+        if (upperVoices.any { it == "ALL" || it == "TUTTI" || it == "UNISON_ALL" }) {
+            return focus !in setOf("OTHER", "OTHERS")
+        }
+
+        // 2. Direct exact match (e.g. "B1" == "B1", "SOLO" == "SOLO")
+        if (upperVoices.contains(focus)) {
+            return true
+        }
+
+        // 3. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
+        val allowedDivisi = SECTION_DIVISI_MAP[focus]
+        if (allowedDivisi != null && upperVoices.any { it in allowedDivisi }) {
+            return true
+        }
+
+        // 4. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
+        val parent = DIVISI_TO_PARENT_MAP[focus]
+        if (parent != null && upperVoices.contains(parent)) {
+            return true
+        }
+
+        return false
+    }
+
     fun isHardwareMidiActive(): Boolean = midiInputPort != null
 
     fun isAccompanimentTrack(trackId: String): Boolean {
@@ -560,8 +628,7 @@ class NativePlaybackEngine(private val context: Context) {
         val isAnyVoiceActive = if (isAccompaniment) {
             mutedVoices["OTHER"] != true && mutedVoices["OTHERS"] != true && !isTrackMuted(event.playbackTrack)
         } else {
-            // Decouple voice vs. track gating for vocal lines on shared staves (Fix #Phase2.4)
-            eventVoices.any { v -> mutedVoices[normalizeVoiceKey(v)] != true }
+            isVocalEventActiveInAudio(eventVoices)
         }
 
         if (!isAnyVoiceActive) {

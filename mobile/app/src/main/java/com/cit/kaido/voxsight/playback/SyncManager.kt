@@ -261,7 +261,7 @@ class SyncManager {
                             else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
                         }
                         !usedOsmdIds.contains(elem.id) &&
-                        elemPart == eventPart &&
+                        (elem.part.equals(event.satbVoice, ignoreCase = true) || elemPart == eventPart) &&
                         elem.midiNote == event.pitchMidi
                     }
                     if (candidate != null) {
@@ -300,7 +300,7 @@ class SyncManager {
                             else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
                         }
                         !usedOsmdIds.contains(elem.id) &&
-                        elemPart == eventPart
+                        (elem.part.equals(event.satbVoice, ignoreCase = true) || elemPart == eventPart)
                     }
                     if (candidate != null) {
                         usedOsmdIds.add(candidate.id)
