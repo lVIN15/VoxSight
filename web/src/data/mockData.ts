@@ -8,8 +8,8 @@ export const PROJECT_INFO = {
   apkVersion: '1.3.0',
   apkSize: '34.5 MB',
   minAndroidVersion: 'Android 8.0 (API 26)+',
-  downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk',
-  releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.3.0',
+  downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/1.3.0/voxsight-v1.3.0.apk',
+  releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/1.3.0',
   githubRepo: 'https://github.com/lVIN15/VoxSight',
   demoVideoUrl: 'https://www.youtube.com/watch?v=31P9AGV1Fak',
 };

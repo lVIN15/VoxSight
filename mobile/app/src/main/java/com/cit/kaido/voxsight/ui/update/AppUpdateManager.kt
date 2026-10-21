@@ -80,7 +80,7 @@ object AppUpdateManager {
     fun triggerForceUpdate(downloadUrl: String = "", minVersionName: String = "1.2") {
         val current = _updateInfo.value ?: AppVersionResponse(
             minVersionName = minVersionName,
-            downloadUrl = downloadUrl.ifEmpty { "https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk" },
+            downloadUrl = downloadUrl.ifEmpty { "https://github.com/lVIN15/VoxSight/releases/download/1.3.0/voxsight-v1.3.0.apk" },
             forceUpdate = true
         )
 

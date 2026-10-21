@@ -48,8 +48,8 @@ fun ForceUpdateDialog(
     val currentVersion = BuildConfig.VERSION_NAME
     val requiredVersion = updateInfo?.minVersionName ?: "1.2"
     val downloadUrl = updateInfo?.downloadUrl?.ifEmpty {
-        "https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk"
-    } ?: "https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk"
+        "https://github.com/lVIN15/VoxSight/releases/download/1.3.0/voxsight-v1.3.0.apk"
+    } ?: "https://github.com/lVIN15/VoxSight/releases/download/1.3.0/voxsight-v1.3.0.apk"
 
     // If installed version already meets or exceeds required version, do not render dialog
     if (currentVersion.equals(requiredVersion, ignoreCase = true) || BuildConfig.VERSION_CODE >= (updateInfo?.minVersionCode ?: 1)) {
