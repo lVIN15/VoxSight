@@ -6,7 +6,7 @@ export const PROJECT_INFO = {
   tagline: 'Bridging the literacy gap in amateur choral ensembles with AI-driven sheet music scanning, voice isolation, and real-time pitch feedback.',
   teamCode: '2526-sem2-it332-51',
   apkVersion: '1.3.0',
-  apkSize: '30 MB',
+  apkSize: '34.5 MB',
   minAndroidVersion: 'Android 8.0 (API 26)+',
   downloadUrl: 'https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk',
   releaseUrl: 'https://github.com/lVIN15/VoxSight/releases/tag/v1.3.0',
@@ -40,10 +40,10 @@ export const CORE_FEATURES: FeatureItem[] = [
     iconName: 'Eye',
     badge: 'Cognitive Aid',
     highlights: [
-      'Visual stave opacity reduction to ≤20% for non-selected voice parts',
-      'Substantial background track volume suppression to prevent harmonic confusion',
-      'Synthesized human vocal tones (Aah/Ooh vowel soundfonts) instead of piano MIDI',
-      'Instant toggle between Soprano, Alto, Tenor, and Bass lines'
+      'Polyphonic SATB & divisi subdivision support (Soprano 1/2, Alto 1/2, Tenor 1/2, Bass 1/2)',
+      'Visual stave opacity reduction to ≤20% for non-selected voice parts with adaptive color highlights',
+      'Synthesized human vocal tones (Aah/Ooh vowel soundfonts) with isolated accompaniment balancing',
+      'Automatic unison detection and solo passage preservation across multi-part choir scores'
     ]
   },
   {
@@ -73,7 +73,7 @@ export const CORE_FEATURES: FeatureItem[] = [
       'Low-latency visual pitch feedback display within ≤0.5 seconds of vocal input',
       'Target pitch accuracy detection rate of ≥85% under quiet conditions',
       'Clear color-coded guidance (Green = In-Tune, Amber = Near, Red = Out-of-Tune)',
-      'Identifies specific measures requiring targeted home repetition'
+      'Synchronized vocal take recording that automatically tracks with playback start and pause',
     ]
   }
 ];
