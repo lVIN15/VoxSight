@@ -21,17 +21,17 @@ public class AppVersionProperties {
     /**
      * Current latest available version name.
      */
-    private String latestVersionName = "1.2";
+    private String latestVersionName = "1.3.0";
 
     /**
      * Direct download URL for the latest APK.
      */
-    private String downloadUrl = "https://github.com/lVIN15/VoxSight/releases/download/v1.2/voxsight-v1.2.apk";
+    private String downloadUrl = "https://github.com/lVIN15/VoxSight/releases/download/v1.3.0/voxsight-v1.3.0.apk";
 
     /**
      * URL to the release notes on GitHub.
      */
-    private String releaseNotesUrl = "https://github.com/lVIN15/VoxSight/releases/tag/v1.2";
+    private String releaseNotesUrl = "https://github.com/lVIN15/VoxSight/releases/tag/v1.3.0";
 
     /**
      * Whether force update enforcement is active. Default true for active gating.

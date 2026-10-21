@@ -21,8 +21,8 @@ android {
         applicationId = "com.cit.kaido.voxsight"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3.0"
         buildConfigField("String", "PAYMONGO_SECRET_KEY", "\"$paymongoSecretKey\"")
     }
     buildTypes {
