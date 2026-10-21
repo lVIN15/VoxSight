@@ -258,7 +258,7 @@ fun NoteEditorBottomSheet(
                 }
             }
 
-            // 2. Pitch Transposer Section (Only for normal notes)
+            // 2. Pitch & Accidental Section (Only for normal notes)
             if (!isRest) {
                 Spacer(modifier = Modifier.height(14.dp))
                 Text(
@@ -269,131 +269,291 @@ fun NoteEditorBottomSheet(
                     textAlign = TextAlign.Start
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+
+                val alterSymbol = when (alter) {
+                    -1 -> "♭"
+                    1 -> "♯"
+                    else -> ""
+                }
+
+                Surface(
+                    color = Color(0xFFF9FAFB),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, VoxCardStroke),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    val alterSymbol = when (alter) {
-                        -1 -> "♭"
-                        1 -> "♯"
-                        else -> ""
-                    }
-
-                    Surface(
-                        color = VoxPurpleIconBg,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .width(96.dp)
-                            .height(120.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "$pitchStep$alterSymbol$octave",
-                                fontSize = 30.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = VoxPurplePrimary
-                            )
-                        }
-                    }
-
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Semitone Pitch Step Adjuster
+                        // Row 1: Note Hero Preview Badge (Left) + Step & Octave Steppers (Right)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("Step", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IconButton(
-                                    onClick = {
-                                        val steps = listOf("C", "D", "E", "F", "G", "A", "B")
-                                        val currentIndex = steps.indexOf(pitchStep)
-                                        if (pitchStep == "B") {
-                                            if (octave < 8) onPitchChanged("C", alter, octave + 1)
-                                        } else if (currentIndex != -1 && currentIndex < steps.size - 1) {
-                                            onPitchChanged(steps[currentIndex + 1], alter, octave)
-                                        }
-                                    },
-                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
+                            // Note Hero Preview Box (compact, sleek)
+                            Surface(
+                                color = VoxPurpleIconBg,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .width(68.dp)
+                                    .height(76.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
-                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Step Up", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val steps = listOf("C", "D", "E", "F", "G", "A", "B")
-                                        val currentIndex = steps.indexOf(pitchStep)
-                                        if (pitchStep == "C") {
-                                            if (octave > 1) onPitchChanged("B", alter, octave - 1)
-                                        } else if (currentIndex > 0) {
-                                            onPitchChanged(steps[currentIndex - 1], alter, octave)
-                                        }
-                                    },
-                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
-                                ) {
-                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Step Down", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = "$pitchStep$alterSymbol$octave",
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VoxPurplePrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(1.dp))
+                                    Text(
+                                        text = "Pitch",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = VoxTextSubtitle
+                                    )
                                 }
                             }
-                        }
 
-                        // Accidental Switchers (Flat / Natural / Sharp)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Accidental", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(VoxPurpleIconBg)
-                                    .padding(1.dp)
+                            // Steppers Column (Step & Octave)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                val accidentals = listOf(-1 to "♭", 0 to "♮", 1 to "♯")
-                                accidentals.forEach { (valAlter, symbol) ->
-                                    val isAccSelected = alter == valAlter
-                                    Box(
-                                        modifier = Modifier
-                                            .size(26.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isAccSelected) VoxPurplePrimary else Color.Transparent)
-                                            .clickable { onPitchChanged(pitchStep, valAlter, octave) },
-                                        contentAlignment = Alignment.Center
+                                // Step Adjuster Row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Step",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = VoxTextPrimary
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Text(
-                                            text = symbol,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isAccSelected) Color.White else VoxPurplePrimary
-                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(VoxPurpleIconBg)
+                                                .clickable {
+                                                    val steps = listOf("C", "D", "E", "F", "G", "A", "B")
+                                                    val currentIndex = steps.indexOf(pitchStep)
+                                                    if (pitchStep == "C") {
+                                                        if (octave > 1) onPitchChanged("B", alter, octave - 1)
+                                                    } else if (currentIndex > 0) {
+                                                        onPitchChanged(steps[currentIndex - 1], alter, octave)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.KeyboardArrowDown,
+                                                contentDescription = "Step Down",
+                                                tint = VoxPurplePrimary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+
+                                        // Step Value Badge
+                                        Box(
+                                            modifier = Modifier
+                                                .width(28.dp)
+                                                .height(26.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color.White)
+                                                .border(1.dp, VoxCardStroke, RoundedCornerShape(6.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = pitchStep,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = VoxPurplePrimary
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(VoxPurpleIconBg)
+                                                .clickable {
+                                                    val steps = listOf("C", "D", "E", "F", "G", "A", "B")
+                                                    val currentIndex = steps.indexOf(pitchStep)
+                                                    if (pitchStep == "B") {
+                                                        if (octave < 8) onPitchChanged("C", alter, octave + 1)
+                                                    } else if (currentIndex != -1 && currentIndex < steps.size - 1) {
+                                                        onPitchChanged(steps[currentIndex + 1], alter, octave)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.KeyboardArrowUp,
+                                                contentDescription = "Step Up",
+                                                tint = VoxPurplePrimary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Octave Adjuster Row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Octave",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = VoxTextPrimary
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(VoxPurpleIconBg)
+                                                .clickable {
+                                                    if (octave > 1) onPitchChanged(pitchStep, alter, octave - 1)
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.KeyboardArrowDown,
+                                                contentDescription = "Octave Down",
+                                                tint = VoxPurplePrimary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+
+                                        // Octave Value Badge
+                                        Box(
+                                            modifier = Modifier
+                                                .width(28.dp)
+                                                .height(26.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color.White)
+                                                .border(1.dp, VoxCardStroke, RoundedCornerShape(6.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = octave.toString(),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = VoxPurplePrimary
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(VoxPurpleIconBg)
+                                                .clickable {
+                                                    if (octave < 8) onPitchChanged(pitchStep, alter, octave + 1)
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.KeyboardArrowUp,
+                                                contentDescription = "Octave Up",
+                                                tint = VoxPurplePrimary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // Octave Adjuster
-                        Row(
+                        // Divider
+                        HorizontalDivider(color = VoxCardStroke.copy(alpha = 0.6f), thickness = 1.dp)
+
+                        // Row 2: Accidental Segmented Control (Dedicated Full Width)
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Octave", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = VoxTextPrimary)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IconButton(
-                                    onClick = { if (octave < 8) onPitchChanged(pitchStep, alter, octave + 1) },
-                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
-                                ) {
-                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Octave Up", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(
-                                    onClick = { if (octave > 1) onPitchChanged(pitchStep, alter, octave - 1) },
-                                    modifier = Modifier.size(30.dp).background(VoxPurpleIconBg, CircleShape)
-                                ) {
-                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Octave Down", tint = VoxPurplePrimary, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Accidental",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VoxTextSubtitle
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFFEDE9FE))
+                                    .padding(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val accidentals = listOf(
+                                    Triple(-1, "♭", "Flat"),
+                                    Triple(0, "♮", "Natural"),
+                                    Triple(1, "♯", "Sharp")
+                                )
+
+                                accidentals.forEach { (valAlter, symbol, name) ->
+                                    val isAccSelected = alter == valAlter
+                                    val (symbolSize, symbolOffsetY) = when (valAlter) {
+                                        -1 -> 20.sp to (-3).dp    // Flat: enlarged to match Sharp visual size, lifted to optical baseline
+                                        0  -> 20.sp to (-5.5).dp  // Natural: enlarged, lifted further (-5.5dp) so its central square body aligns directly with the "Natural" text
+                                        1  -> 16.sp to (-0.5).dp  // Sharp: already prominent and visually balanced
+                                        else -> 16.sp to 0.dp
+                                    }
+
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(38.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { onPitchChanged(pitchStep, valAlter, octave) },
+                                        color = if (isAccSelected) VoxPurplePrimary else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = symbol,
+                                                fontSize = symbolSize,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isAccSelected) Color.White else VoxPurplePrimary,
+                                                modifier = Modifier.offset(y = symbolOffsetY)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = name,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isAccSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isAccSelected) Color.White else VoxTextPrimary
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

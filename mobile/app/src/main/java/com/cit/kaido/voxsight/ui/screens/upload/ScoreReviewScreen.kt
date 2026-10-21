@@ -25,6 +25,11 @@ import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +49,9 @@ import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
 import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
+import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
+import com.cit.kaido.voxsight.ui.screens.practice.detectAvailableParts
+import com.cit.kaido.voxsight.ui.screens.practice.VoicePart
 import com.google.gson.Gson
 
 data class SelectedNoteInfo(
@@ -65,7 +73,7 @@ data class SelectedMultiRestInfo(
     val count: Int
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ScoreReviewScreen(
@@ -80,6 +88,12 @@ fun ScoreReviewScreen(
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
+
+    val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
+    var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val legendItems = remember(parsedScore, dynamicVoiceCodes) {
+        extractScorePartLegendItems(parsedScore, dynamicVoiceCodes)
+    }
 
     BackHandler(enabled = isFullscreen) {
         isFullscreen = false
@@ -253,7 +267,7 @@ fun ScoreReviewScreen(
                     }
                 }
 
-                // SATB Vocal Part Legend
+                // Score Parts Legend
                 Surface(
                     color = Color.White,
                     modifier = Modifier
@@ -263,27 +277,85 @@ fun ScoreReviewScreen(
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, VoxCardStroke)
                 ) {
-                    Row(
+                    var isExpanded by remember { mutableStateOf(false) }
+                    val showExpandToggle = legendItems.size > 4
+
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "Vocal Parts:",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = VoxTextSubtitle
-                        )
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            VoiceLegendItem("Soprano", Color(0xFFE91E63))
-                            VoiceLegendItem("Alto", Color(0xFF9C27B0))
-                            VoiceLegendItem("Tenor", Color(0xFF2196F3))
-                            VoiceLegendItem("Bass", Color(0xFF4CAF50))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Score Parts",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = VoxTextSubtitle
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(VoxPurplePrimary.copy(alpha = 0.08f))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${legendItems.size}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VoxPurplePrimary
+                                    )
+                                }
+                            }
+
+                            if (!isExpanded) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 10.dp)
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    legendItems.forEach { item ->
+                                        ScorePartLegendChip(item)
+                                    }
+                                }
+                            }
+
+                            if (showExpandToggle) {
+                                IconButton(
+                                    onClick = { isExpanded = !isExpanded },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (isExpanded) "Collapse" else "Expand All Score Parts",
+                                        tint = VoxTextSubtitle,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (isExpanded) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                legendItems.forEach { item ->
+                                    ScorePartLegendChip(item)
+                                }
+                            }
                         }
                     }
                 }
@@ -452,6 +524,7 @@ fun ScoreReviewScreen(
                     val escapedCode = escapeJavascriptString(newVoiceCode)
                     webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
                     selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
+                    dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
                 },
                 onPitchChanged = { newStep, newAlter, newOctave ->
                     webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
@@ -807,6 +880,34 @@ fun ScoreInfoDialog(
 }
 
 @Composable
+private fun ScorePartLegendChip(item: ScorePartLegendItem) {
+    Surface(
+        color = item.color.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, item.color.copy(alpha = 0.25f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(item.color)
+            )
+            Text(
+                text = item.name,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = item.color
+            )
+        }
+    }
+}
+
+@Composable
 private fun VoiceLegendItem(name: String, color: Color) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -825,4 +926,110 @@ private fun VoiceLegendItem(name: String, color: Color) {
             color = color
         )
     }
+}
+
+data class ScorePartLegendItem(
+    val code: String,
+    val name: String,
+    val color: Color
+)
+
+fun extractScorePartLegendItems(
+    score: MusicXmlScore?,
+    dynamicVoiceCodes: Set<String> = emptySet()
+): List<ScorePartLegendItem> {
+    if (score == null) {
+        return listOf(
+            ScorePartLegendItem("S", "Soprano", Color(0xFFE91E63)),
+            ScorePartLegendItem("A", "Alto", Color(0xFF8E24AA)),
+            ScorePartLegendItem("T", "Tenor", Color(0xFF1976D2)),
+            ScorePartLegendItem("B", "Bass", Color(0xFF2E7D32))
+        )
+    }
+
+    val availableVoiceParts = detectAvailableParts(score)
+    val result = mutableListOf<ScorePartLegendItem>()
+    val addedCodes = mutableSetOf<String>()
+
+    fun addPartIfNew(code: String, name: String, color: Color) {
+        if (addedCodes.add(code.uppercase())) {
+            result.add(ScorePartLegendItem(code, name, color))
+        }
+    }
+
+    // 1. Add detected vocal parts from score (core sections and divisi)
+    availableVoiceParts.forEach { vp ->
+        val code = vp.apiCode
+        val label = vp.label
+        val color = vp.color
+        addPartIfNew(code, label, color)
+    }
+
+    // 2. Check for any merged or unison notes in the score
+    val scoreCustomVoices = mutableSetOf<String>()
+    score.notes.forEach { note ->
+        if (!note.customVoiceStr.isNullOrBlank()) {
+            scoreCustomVoices.add(note.customVoiceStr.uppercase().trim())
+        }
+    }
+    score.parts.forEach { part ->
+        part.notes.forEach { note ->
+            if (!note.customVoiceStr.isNullOrBlank()) {
+                scoreCustomVoices.add(note.customVoiceStr.uppercase().trim())
+            }
+        }
+    }
+    // Include dynamic voice codes from interactive editing in this session
+    scoreCustomVoices.addAll(dynamicVoiceCodes.map { it.uppercase().trim() })
+
+    // Add unisons and special indicators if present
+    if (scoreCustomVoices.any { it in setOf("UNISON_TB", "TB") }) {
+        addPartIfNew("UNISON_TB", "Tenor / Bass", Color(0xFF00BFA5))
+    }
+    if (scoreCustomVoices.any { it in setOf("UNISON_SA", "SA") }) {
+        addPartIfNew("UNISON_SA", "Soprano / Alto", Color(0xFFD81B60))
+    }
+    if (scoreCustomVoices.any { it in setOf("UNISON_S1S2", "S1S2") }) {
+        addPartIfNew("UNISON_S1S2", "Soprano 1/2", Color(0xFFFF80AB))
+    }
+    if (scoreCustomVoices.any { it in setOf("UNISON_A1A2", "A1A2") }) {
+        addPartIfNew("UNISON_A1A2", "Alto 1/2", Color(0xFFCE93D8))
+    }
+    if (scoreCustomVoices.any { it in setOf("UNISON_T1T2", "T1T2") }) {
+        addPartIfNew("UNISON_T1T2", "Tenor 1/2", Color(0xFF80D8FF))
+    }
+    if (scoreCustomVoices.any { it in setOf("UNISON_B1B2", "B1B2") }) {
+        addPartIfNew("UNISON_B1B2", "Bass 1/2", Color(0xFFB9F6CA))
+    }
+    if (scoreCustomVoices.any { it in setOf("TUTTI", "UNISON_ALL", "ALL") }) {
+        addPartIfNew("TUTTI", "Tutti (All)", Color(0xFFFFB300))
+    }
+
+    // Dynamic divisi or other parts added by user during editing
+    dynamicVoiceCodes.forEach { code ->
+        val upper = code.uppercase().trim()
+        when (upper) {
+            "S" -> addPartIfNew("S", "Soprano", Color(0xFFE91E63))
+            "S1" -> addPartIfNew("S1", "Soprano 1", Color(0xFFFF1493))
+            "S2" -> addPartIfNew("S2", "Soprano 2", Color(0xFFD50000))
+            "A" -> addPartIfNew("A", "Alto", Color(0xFF8E24AA))
+            "A1" -> addPartIfNew("A1", "Alto 1", Color(0xFFAB47BC))
+            "A2" -> addPartIfNew("A2", "Alto 2", Color(0xFF3F51B5))
+            "T" -> addPartIfNew("T", "Tenor", Color(0xFF1976D2))
+            "T1" -> addPartIfNew("T1", "Tenor 1", Color(0xFF00BCD4))
+            "T2" -> addPartIfNew("T2", "Tenor 2", Color(0xFF0D47A1))
+            "B" -> addPartIfNew("B", "Bass", Color(0xFF2E7D32))
+            "B1" -> addPartIfNew("B1", "Bass 1", Color(0xFF7CB342))
+            "B2" -> addPartIfNew("B2", "Bass 2", Color(0xFF1B5E20))
+            "SOLO" -> addPartIfNew("SOLO", "Solo", Color(0xFFFF6D00))
+            "OTHERS" -> addPartIfNew("OTHERS", "Accompaniment", Color(0xFF546E7A))
+        }
+    }
+
+    return if (result.isNotEmpty()) result else listOf(
+        ScorePartLegendItem("S", "Soprano", Color(0xFFE91E63)),
+        ScorePartLegendItem("A", "Alto", Color(0xFF8E24AA)),
+        ScorePartLegendItem("T", "Tenor", Color(0xFF1976D2)),
+        ScorePartLegendItem("B", "Bass", Color(0xFF2E7D32))
+    )
 }
