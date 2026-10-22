@@ -378,8 +378,10 @@ fun VoxOutlinedField(
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
     passwordVisible: Boolean = false,
-    onTogglePassword: (() -> Unit)? = null
+    onTogglePassword: (() -> Unit)? = null,
+    isError: Boolean = false
 ) {
+    val errorColor = Color(0xFFD32F2F)
     TextField(
         value = value,
         onValueChange = { if (it.length <= 30) onValueChange(it) },
@@ -419,8 +421,8 @@ fun VoxOutlinedField(
         modifier = Modifier
             .fillMaxWidth()
             .border(
-                width = 1.dp,
-                color = VoxM3OutlineVariant.copy(alpha = 0.2f),
+                width = if (isError) 1.5.dp else 1.dp,
+                color = if (isError) errorColor else VoxM3OutlineVariant.copy(alpha = 0.2f),
                 shape = RoundedCornerShape(12.dp)
             ),
         shape = RoundedCornerShape(12.dp),
@@ -431,8 +433,8 @@ fun VoxOutlinedField(
             unfocusedIndicatorColor = Color.Transparent,
             focusedTextColor = VoxM3OnSurface,
             unfocusedTextColor = VoxM3OnSurface,
-            focusedLabelColor = VoxM3OnSurfaceVariant,
-            unfocusedLabelColor = VoxM3OnSurfaceVariant,
+            focusedLabelColor = if (isError) errorColor else VoxM3OnSurfaceVariant,
+            unfocusedLabelColor = if (isError) errorColor else VoxM3OnSurfaceVariant,
             cursorColor = VoxM3Primary
         )
     )
@@ -482,4 +484,3 @@ fun SocialLoginButton(
         }
     }
 }
-

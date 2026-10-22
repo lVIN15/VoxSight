@@ -1,5 +1,6 @@
 package com.cit.kaido.voxsight.ui.screens.profile
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,7 @@ import androidx.compose.foundation.verticalScroll
 @Composable
 fun ProfileScreen(
     username: String,
+    profilePictureBase64: String? = null,
     onBackClicked: () -> Unit,
     onLogoutClicked: () -> Unit,
     onMyMusicSheetsClicked: () -> Unit = {},
@@ -54,13 +57,25 @@ fun ProfileScreen(
     onEditProfileClicked: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var isPremium by remember {
         mutableStateOf(com.cit.kaido.voxsight.util.PremiumManager.isUserPremium(context))
     }
+    var activeProfilePicture by remember(profilePictureBase64) {
+        mutableStateOf(profilePictureBase64 ?: prefs.getString("logged_in_profile_picture", null))
+    }
 
     androidx.compose.runtime.LaunchedEffect(username) {
         isPremium = com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, username = username)
+        val syncedPic = prefs.getString("logged_in_profile_picture", null)
+        if (!syncedPic.isNullOrBlank()) {
+            activeProfilePicture = syncedPic
+        }
+    }
+
+    val avatarBitmap = remember(activeProfilePicture) {
+        decodeBase64ToImageBitmap(activeProfilePicture)
     }
 
     val topPurple = Color(0xFF38036B)
@@ -115,12 +130,23 @@ fun ProfileScreen(
                             .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Profile Picture",
-                            tint = Color.LightGray,
-                            modifier = Modifier.size(60.dp)
-                        )
+                        if (avatarBitmap != null) {
+                            Image(
+                                bitmap = avatarBitmap,
+                                contentDescription = "Profile Picture",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile Picture",
+                                tint = Color.LightGray,
+                                modifier = Modifier.size(60.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(20.dp))

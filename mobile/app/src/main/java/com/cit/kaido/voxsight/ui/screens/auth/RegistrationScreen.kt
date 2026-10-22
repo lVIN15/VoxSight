@@ -64,12 +64,15 @@ fun RegistrationScreen(
     onSignInClicked: () -> Unit,
     onGoogleSignInClicked: () -> Unit = {},
     onFacebookSignInClicked: () -> Unit = {},
+    serverEmailError: String? = null,
+    onClearServerEmailError: () -> Unit = {},
     onSignUpClicked: (name: String, email: String, password: String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf<String?>(null) }
+    val activeEmailError = emailError ?: serverEmailError
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -249,20 +252,25 @@ fun RegistrationScreen(
                 value = email,
                 onValueChange = {
                     email = it
+                    if (serverEmailError != null) {
+                        onClearServerEmailError()
+                    }
                     if (emailError != null && isValidEmail(it)) {
                         emailError = null
                     }
                 },
                 label = "Email Address",
                 placeholder = "name@example.com",
-                keyboardType = KeyboardType.Email
+                keyboardType = KeyboardType.Email,
+                isError = activeEmailError != null
             )
-            if (emailError != null) {
+            if (activeEmailError != null) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = emailError!!,
+                    text = activeEmailError,
                     color = Color(0xFFD32F2F),
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 8.dp),
@@ -356,6 +364,7 @@ fun RegistrationScreen(
                             ).show()
                         } else {
                             emailError = null
+                            onClearServerEmailError()
                             onSignUpClicked(name, email.trim(), password)
                         }
                     },
@@ -412,4 +421,3 @@ fun RegistrationScreen(
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
-

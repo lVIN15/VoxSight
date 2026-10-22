@@ -15,7 +15,9 @@ data class UserPremiumRow(
     @SerialName("is_premium")
     val isPremium: Boolean? = null,
     @SerialName("upload_credits")
-    val uploadCredits: Int? = null
+    val uploadCredits: Int? = null,
+    @SerialName("profile_picture")
+    val profilePicture: String? = null
 )
 
 @Serializable
@@ -224,6 +226,9 @@ object PremiumManager {
                 if (row?.uploadCredits != null) {
                     saveLocalCredits(context, row.uploadCredits, resolvedUsername, resolvedEmail)
                 }
+                if (!row?.profilePicture.isNullOrBlank()) {
+                    prefs.edit().putString("logged_in_profile_picture", row?.profilePicture).apply()
+                }
 
                 val remotePremium = row?.isPremium == true
                 if (remotePremium) {
@@ -253,6 +258,7 @@ object PremiumManager {
             .remove(KEY_IS_PREMIUM)
             .remove(KEY_UPLOAD_CREDITS)
             .remove("logged_in_email")
+            .remove("logged_in_profile_picture")
             .apply()
     }
 }

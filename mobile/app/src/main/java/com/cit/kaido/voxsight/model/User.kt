@@ -13,5 +13,7 @@ data class User(
     @SerialName("account_created")
     val accountCreated: String? = null,
     @SerialName("last_login")
-    val lastLogin: String? = null
+    val lastLogin: String? = null,
+    @SerialName("profile_picture")
+    val profilePicture: String? = null
 )

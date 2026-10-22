@@ -177,10 +177,16 @@ fun AppNavigation() {
                                 }
 
                                 val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-                                prefs.edit()
-                                    .putString("logged_in_username", matchedUser.username)
-                                    .putString("logged_in_email", matchedUser.email)
-                                    .apply()
+                                prefs.edit().apply {
+                                    putString("logged_in_username", matchedUser.username)
+                                    putString("logged_in_email", matchedUser.email)
+                                    if (!matchedUser.profilePicture.isNullOrBlank()) {
+                                        putString("logged_in_profile_picture", matchedUser.profilePicture)
+                                    } else {
+                                        remove("logged_in_profile_picture")
+                                    }
+                                    apply()
+                                }
                                 com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, matchedUser.username, matchedUser.email)
 
                                 withContext(Dispatchers.Main) {
@@ -207,6 +213,7 @@ fun AppNavigation() {
         composable("register") {
             val context = androidx.compose.ui.platform.LocalContext.current
             val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            var serverEmailError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
 
             val initiateFacebookLogin = FacebookLoginHandler(
                 onSuccess = { email, name ->
@@ -232,7 +239,10 @@ fun AppNavigation() {
                     }
                 },
                 onFacebookSignInClicked = initiateFacebookLogin,
+                serverEmailError = serverEmailError,
+                onClearServerEmailError = { serverEmailError = null },
                 onSignUpClicked = { name, email, password ->
+                    serverEmailError = null
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
                             // Salted BCrypt password hashing (cost factor 12)
@@ -255,6 +265,7 @@ fun AppNavigation() {
                             prefs.edit()
                                 .putString("logged_in_username", name)
                                 .putString("logged_in_email", email.trim())
+                                .remove("logged_in_profile_picture")
                                 .apply()
                             com.cit.kaido.voxsight.util.PremiumManager.initializeNewUserCredits(context, name, email.trim())
                             
@@ -265,8 +276,18 @@ fun AppNavigation() {
                                 }
                             }
                         } catch (e: Exception) {
+                            val errorMsg = e.message.orEmpty()
+                            val isDuplicateEmail = errorMsg.contains("User_email_key", ignoreCase = true) ||
+                                errorMsg.contains("duplicate key", ignoreCase = true) ||
+                                errorMsg.contains("already exists", ignoreCase = true) ||
+                                errorMsg.contains("23505")
+
                             withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                if (isDuplicateEmail) {
+                                    serverEmailError = "Email already exists"
+                                } else {
+                                    android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
                     }
@@ -304,12 +325,17 @@ fun AppNavigation() {
             val context = androidx.compose.ui.platform.LocalContext.current
             val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
             val username = prefs.getString("logged_in_username", "Guest User") ?: "Guest User"
+            val profilePicture = prefs.getString("logged_in_profile_picture", null)
 
             ProfileScreen(
                 username = username,
+                profilePictureBase64 = profilePicture,
                 onBackClicked = { navController.popBackStack() },
                 onLogoutClicked = {
-                    prefs.edit().remove("logged_in_username").apply()
+                    prefs.edit()
+                        .remove("logged_in_username")
+                        .remove("logged_in_profile_picture")
+                        .apply()
                     com.cit.kaido.voxsight.util.PremiumManager.clearActiveSessionPremium(context)
                     // Navigate back to landing and clear the backstack
                     navController.navigate("landing") {
@@ -351,18 +377,71 @@ fun AppNavigation() {
 
         composable("edit_profile") {
             val context = androidx.compose.ui.platform.LocalContext.current
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
             val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
             val username = prefs.getString("logged_in_username", "Guest User") ?: "Guest User"
+            val email = prefs.getString("logged_in_email", null)
+            val currentProfilePicture = prefs.getString("logged_in_profile_picture", null)
 
             com.cit.kaido.voxsight.ui.screens.profile.EditProfileScreen(
                 currentName = username,
+                currentProfilePictureBase64 = currentProfilePicture,
                 onBackClicked = { navController.popBackStack() },
-                onSaveClicked = { newName ->
-                    if (newName.isNotBlank()) {
-                        prefs.edit().putString("logged_in_username", newName).apply()
-                        android.widget.Toast.makeText(context, "Profile updated!", android.widget.Toast.LENGTH_SHORT).show()
+                onSaveClicked = { newName, newProfilePicture ->
+                    val trimmedName = newName.trim()
+                    if (trimmedName.isNotBlank()) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val client = com.cit.kaido.voxsight.network.Supabase.client
+                                if (!email.isNullOrBlank()) {
+                                    client.postgrest["User"].update(
+                                        { set("username", trimmedName) }
+                                    ) {
+                                        filter { eq("email", email) }
+                                    }
+                                    if (!newProfilePicture.isNullOrBlank()) {
+                                        client.postgrest["User"].update(
+                                            { set("profile_picture", newProfilePicture) }
+                                        ) {
+                                            filter { eq("email", email) }
+                                        }
+                                    }
+                                } else {
+                                    client.postgrest["User"].update(
+                                        { set("username", trimmedName) }
+                                    ) {
+                                        filter { eq("username", username) }
+                                    }
+                                    if (!newProfilePicture.isNullOrBlank()) {
+                                        client.postgrest["User"].update(
+                                            { set("profile_picture", newProfilePicture) }
+                                        ) {
+                                            filter { eq("username", trimmedName) }
+                                        }
+                                    }
+                                }
+
+                                prefs.edit().apply {
+                                    putString("logged_in_username", trimmedName)
+                                    if (!newProfilePicture.isNullOrBlank()) {
+                                        putString("logged_in_profile_picture", newProfilePicture)
+                                    }
+                                    apply()
+                                }
+
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Profile updated!", android.widget.Toast.LENGTH_SHORT).show()
+                                    navController.popBackStack()
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Failed to update profile: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    } else {
+                        navController.popBackStack()
                     }
-                    navController.popBackStack()
                 }
             )
         }
@@ -762,15 +841,24 @@ private suspend fun handleSocialLoginSuccess(
         }
     }
     
+    val resolvedUsername = users.firstOrNull()?.username?.takeIf { it.isNotBlank() } ?: name
+    val resolvedProfilePicture = users.firstOrNull()?.profilePicture
+
     val prefs = context.getSharedPreferences("voxsight_prefs", android.content.Context.MODE_PRIVATE)
-    prefs.edit()
-        .putString("logged_in_username", name)
-        .putString("logged_in_email", email)
-        .apply()
-    com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, name, email)
+    prefs.edit().apply {
+        putString("logged_in_username", resolvedUsername)
+        putString("logged_in_email", email)
+        if (!resolvedProfilePicture.isNullOrBlank()) {
+            putString("logged_in_profile_picture", resolvedProfilePicture)
+        } else {
+            remove("logged_in_profile_picture")
+        }
+        apply()
+    }
+    com.cit.kaido.voxsight.util.PremiumManager.syncFromSupabase(context, resolvedUsername, email)
 
     withContext(Dispatchers.Main) {
-        android.widget.Toast.makeText(context, "Welcome, $name!", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, "Welcome, $resolvedUsername!", android.widget.Toast.LENGTH_SHORT).show()
         navController.navigate("upload") {
             popUpTo("landing") { inclusive = true }
         }
