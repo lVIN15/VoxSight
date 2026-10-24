@@ -12,9 +12,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -46,62 +46,58 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ripple
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import com.cit.kaido.voxsight.ui.tour.AppUserGuideDialog
-import com.cit.kaido.voxsight.ui.tour.TourPreferences
-import com.cit.kaido.voxsight.ui.tour.TourStep
-import com.cit.kaido.voxsight.ui.tour.SpotlightShapeType
-import com.cit.kaido.voxsight.ui.tour.rememberTourState
-import com.cit.kaido.voxsight.ui.tour.spotlightTarget
-import com.cit.kaido.voxsight.ui.tour.SpotlightTourOverlay
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.cit.kaido.voxsight.network.ApiClient
-import com.cit.kaido.voxsight.network.OmrResponse
-import com.cit.kaido.voxsight.network.OmrAnalysisResponse
 import com.cit.kaido.voxsight.R
+import com.cit.kaido.voxsight.network.ApiClient
+import com.cit.kaido.voxsight.network.OmrAnalysisResponse
+import com.cit.kaido.voxsight.network.OmrResponse
 import com.cit.kaido.voxsight.storage.LocalScoreManager
 import com.cit.kaido.voxsight.storage.LocalScoreMetadata
 import com.cit.kaido.voxsight.ui.components.VoxErrorDialog
 import com.cit.kaido.voxsight.ui.components.VoxErrorDialogData
 import com.cit.kaido.voxsight.ui.components.resolveErrorDialogData
 import com.cit.kaido.voxsight.ui.screens.camera.SheetMusicScannerScreen
-import com.cit.kaido.voxsight.ui.update.AppUpdateManager
-import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
 import com.cit.kaido.voxsight.ui.screens.practice.readMusicXmlText
-import com.cit.kaido.voxsight.util.ScoreValidator
+import com.cit.kaido.voxsight.ui.screens.profile.UploadCreditCoinImage
+import com.cit.kaido.voxsight.ui.screens.profile.decodeBase64ToImageBitmap
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
@@ -114,6 +110,16 @@ import com.cit.kaido.voxsight.ui.theme.VoxPurplePrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextPrimary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSecondary
 import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
+import com.cit.kaido.voxsight.ui.tour.AppUserGuideDialog
+import com.cit.kaido.voxsight.ui.tour.SpotlightShapeType
+import com.cit.kaido.voxsight.ui.tour.SpotlightTourOverlay
+import com.cit.kaido.voxsight.ui.tour.TourPreferences
+import com.cit.kaido.voxsight.ui.tour.TourStep
+import com.cit.kaido.voxsight.ui.tour.rememberTourState
+import com.cit.kaido.voxsight.ui.tour.spotlightTarget
+import com.cit.kaido.voxsight.ui.update.AppUpdateManager
+import com.cit.kaido.voxsight.util.PremiumManager
+import com.cit.kaido.voxsight.util.ScoreValidator
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +157,7 @@ fun UploadScoreScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val prefs = remember { context.getSharedPreferences("voxsight_prefs", Context.MODE_PRIVATE) }
 
     // ── Processing state ────────────────────────────────────────
     val uploadStatus by UploadManager.uploadStatus.collectAsState()
@@ -159,9 +166,26 @@ fun UploadScoreScreen(
     val processingFileName = UploadManager.pendingFileName ?: ""
     val isProcessing = uploadStatus == UploadStatus.PROCESSING
     val isReady = uploadStatus == UploadStatus.READY
-    
+
+    var uploadCredits by remember {
+        mutableIntStateOf(PremiumManager.getUploadCredits(context))
+    }
+    var profilePictureBase64 by remember {
+        mutableStateOf(prefs.getString("logged_in_profile_picture", null))
+    }
+
     var activeErrorDialog by remember { mutableStateOf<VoxErrorDialogData?>(null) }
-    
+    val backgroundUploadError by UploadManager.activeErrorFlow.collectAsState()
+
+    androidx.compose.runtime.LaunchedEffect(backgroundUploadError) {
+        val err = backgroundUploadError
+        if (!err.isNullOrBlank()) {
+            activeErrorDialog = resolveErrorDialogData(err)
+            UploadManager.activeErrorFlow.value = null
+            UploadManager.activeError = null
+        }
+    }
+
     // Auto-navigate to review as soon as uploadStatus becomes READY
     androidx.compose.runtime.LaunchedEffect(uploadStatus) {
         if (uploadStatus == UploadStatus.READY) {
@@ -178,7 +202,7 @@ fun UploadScoreScreen(
             }
         }
     }
-    
+
     var allowMusicXmlBypass by remember { mutableStateOf(false) }
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
@@ -194,15 +218,14 @@ fun UploadScoreScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
-    // ── Reload scores every time the screen is resumed ────────────
-    // DisposableEffect + LifecycleEventObserver: triggers on ON_RESUME so the list
-    // always refreshes when the user navigates back from the review screen,
-    // preventing stale in-memory state and duplicate entries.
+    // ── Reload scores & credits every time the screen is resumed ─
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ApiClient.init(context)
+                uploadCredits = PremiumManager.getUploadCredits(context)
+                profilePictureBase64 = prefs.getString("logged_in_profile_picture", null)
                 coroutineScope.launch {
                     val saved = LocalScoreManager.loadSavedScores(context)
                     recentScores.clear()
@@ -218,6 +241,9 @@ fun UploadScoreScreen(
                             )
                         }
                     )
+                    PremiumManager.syncFromSupabase(context)
+                    uploadCredits = PremiumManager.getUploadCredits(context)
+                    profilePictureBase64 = prefs.getString("logged_in_profile_picture", null)
                 }
             }
         }
@@ -227,7 +253,6 @@ fun UploadScoreScreen(
         }
     }
 
-
     /** Camera capture result — maps to ImageCaptureService.captureImage() */
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -236,7 +261,7 @@ fun UploadScoreScreen(
             allowMusicXmlBypass = false
             selectedScore = null
             lastParsedScore = null
-            
+
             onImageCaptured(
                 context = context,
                 imageUri = pendingCameraUri!!,
@@ -481,6 +506,9 @@ fun UploadScoreScreen(
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
             TopBar(
+                uploadCredits = uploadCredits,
+                profilePictureBase64 = profilePictureBase64,
+                onCreditsClick = onNavigateToShop,
                 onProfileClick = onNavigateToProfile,
                 onGuideClick = { uploadTourState.reset() },
                 profileModifier = Modifier.spotlightTarget(uploadTourState, "profile_button")
@@ -545,7 +573,7 @@ fun UploadScoreScreen(
             }
 
             val runIfUpToDate: (() -> Unit) -> Unit = { action ->
-                if (com.cit.kaido.voxsight.util.PremiumManager.getUploadCredits(context) <= 0) {
+                if (PremiumManager.getUploadCredits(context) <= 0) {
                     showOutOfCreditsDialog = true
                 } else {
                     coroutineScope.launch {
@@ -602,6 +630,43 @@ fun UploadScoreScreen(
                 },
                 modifier = Modifier.spotlightTarget(uploadTourState, "import_file")
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ===== Upload Credit Consumption Note =====
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    UploadCreditCoinImage(
+                        contentDescription = "Upload Credit",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "1 Upload Credit",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = VoxPurplePrimary
+                    )
+                    Text(
+                        text = " will be consumed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = VoxTextSecondary
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "upon successful digitization.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VoxTextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -749,14 +814,21 @@ fun UploadScoreScreen(
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Top bar with VoxSight logo, guide icon, and profile avatar.
+ * Top bar with VoxSight logo, guide icon, Upload Credit counter pill, and profile avatar.
  */
 @Composable
 private fun TopBar(
+    uploadCredits: Int,
+    profilePictureBase64: String? = null,
+    onCreditsClick: () -> Unit = {},
     onProfileClick: () -> Unit,
     onGuideClick: () -> Unit = {},
     profileModifier: Modifier = Modifier
 ) {
+    val avatarBitmap = remember(profilePictureBase64) {
+        decodeBase64ToImageBitmap(profilePictureBase64)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -781,17 +853,63 @@ private fun TopBar(
             modifier = Modifier.weight(1f)
         )
 
-        // Guide Icon
-        IconButton(onClick = onGuideClick) {
+        // Guide / Tour Icon
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .clickable { onGuideClick() },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Outlined.HelpOutline,
                 contentDescription = "User Guide",
                 tint = VoxPurplePrimary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // Upload Credit Counter Pill (between Tour icon and Profile icon)
+        Row(
+            modifier = Modifier
+                .height(34.dp)
+                .clip(CircleShape)
+                .background(VoxPurpleIconBg)
+                .border(1.dp, VoxCardStroke, CircleShape)
+                .clickable { onCreditsClick() }
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            UploadCreditCoinImage(
+                contentDescription = "Upload Credits",
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = "x $uploadCredits",
+                color = VoxPurplePrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(18.dp)
+                    .background(VoxPurplePrimary.copy(alpha = 0.25f))
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Buy Upload Credits",
+                tint = VoxPurplePrimary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
 
         // Profile Avatar
         Box(
@@ -802,12 +920,23 @@ private fun TopBar(
                 .clickable { onProfileClick() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Person,
-                contentDescription = stringResource(R.string.cd_profile_avatar),
-                tint = VoxPurplePrimary,
-                modifier = Modifier.size(20.dp)
-            )
+            if (avatarBitmap != null) {
+                Image(
+                    bitmap = avatarBitmap,
+                    contentDescription = stringResource(R.string.cd_profile_avatar),
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.Person,
+                    contentDescription = stringResource(R.string.cd_profile_avatar),
+                    tint = VoxPurplePrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
@@ -1282,8 +1411,6 @@ fun deriveTitleFromFileName(fileName: String): String {
 private fun checkUnsupportedMusicXml(xml: String): String? {
     return ScoreValidator.checkUnsupportedMusicXml(xml)
 }
-
-
 
 private fun formatTimeLabel(context: Context, timestamp: Long): String {
     val diff = System.currentTimeMillis() - timestamp

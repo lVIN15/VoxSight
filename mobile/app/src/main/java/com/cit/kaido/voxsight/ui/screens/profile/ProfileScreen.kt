@@ -224,8 +224,12 @@ fun ProfileScreen(
 
             ProfileCard(
                 title = "Get Upload Credits",
-                icon = Lucide.Crown,
-                iconColor = orangeDark,
+                customIcon = {
+                    UploadCreditCoinImage(
+                        contentDescription = "Get Upload Credits",
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
                 onClick = onUpgradeToPremiumClicked
             )
 
@@ -503,8 +507,9 @@ fun StreakCalendar() {
 fun ProfileCard(
     title: String,
     titleColor: Color = Color(0xFF1E1E1E),
-    icon: ImageVector,
-    iconColor: Color,
+    icon: ImageVector? = null,
+    iconColor: Color = Color.Unspecified,
+    customIcon: (@Composable () -> Unit)? = null,
     showArrow: Boolean = true,
     onClick: () -> Unit
 ) {
@@ -515,12 +520,16 @@ fun ProfileCard(
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = iconColor,
-            modifier = Modifier.size(24.dp)
-        )
+        if (customIcon != null) {
+            customIcon()
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconColor,
+                modifier = Modifier.size(24.dp)
+            )
+        }
         
         Spacer(modifier = Modifier.width(16.dp))
         

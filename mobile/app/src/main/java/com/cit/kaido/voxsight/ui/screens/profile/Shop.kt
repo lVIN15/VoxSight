@@ -1,7 +1,9 @@
 package com.cit.kaido.voxsight.ui.screens.profile
 
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,22 +22,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cit.kaido.voxsight.R
 import com.cit.kaido.voxsight.network.CreateCheckoutSessionRequest
 import com.cit.kaido.voxsight.network.PaymongoClient
 import com.cit.kaido.voxsight.util.PremiumManager
@@ -348,14 +352,14 @@ fun ShopScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "VoxSight Premium",
+                        text = "VoxSight Premium (Monthly)",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = textDark
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "- 50 Upload Credits",
+                        text = "- 50 Upload Credits given per month",
                         fontSize = 14.sp,
                         color = Color(0xFF2B2B30)
                     )
@@ -564,182 +568,126 @@ private fun CreditPackRowCard(
     }
 }
 
+private var cachedUploadCreditBitmap: ImageBitmap? = null
+
 /**
- * Renders the 4 tiers of glossy gold music credit coins shown in the Credit Shop design.
+ * Safely decodes and renders `R.drawable.upload_credits` without triggering density-upscaling OOMs.
+ */
+@Composable
+fun UploadCreditCoinImage(
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
+    if (LocalInspectionMode.current) {
+        Image(
+            painter = painterResource(id = R.drawable.upload_credits),
+            contentDescription = contentDescription,
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+        )
+        return
+    }
+
+    val context = LocalContext.current
+    val imageBitmap = remember {
+        cachedUploadCreditBitmap ?: run {
+            val options = BitmapFactory.Options().apply {
+                inScaled = false
+                inSampleSize = 4
+            }
+            BitmapFactory.decodeResource(context.resources, R.drawable.upload_credits, options)
+                ?.asImageBitmap()
+                ?.also { cachedUploadCreditBitmap = it }
+        }
+    }
+
+    if (imageBitmap != null) {
+        Image(
+            bitmap = imageBitmap,
+            contentDescription = contentDescription,
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+        )
+    }
+}
+
+/**
+ * Renders the 4 tiers of upload credit coins using `R.drawable.upload_credits`.
  */
 @Composable
 private fun CreditCoinIllustration(
     tier: Int,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-
+    Box(modifier = modifier) {
         when (tier) {
             1 -> {
-                // Single large centered gold coin with eighth note
-                drawGoldCoin(
-                    center = Offset(w * 0.50f, h * 0.50f),
-                    radius = w * 0.42f,
-                    symbol = CoinSymbol.MUSIC_NOTE
+                // Single large centered upload_credits coin
+                UploadCreditCoinImage(
+                    contentDescription = "10 Upload Credits",
+                    modifier = Modifier
+                        .size(46.dp)
+                        .align(Alignment.Center)
                 )
             }
             2 -> {
-                // Two overlapping coins (back-left + front-right with note)
-                drawGoldCoin(
-                    center = Offset(w * 0.36f, h * 0.46f),
-                    radius = w * 0.32f,
-                    symbol = CoinSymbol.NONE
+                // Two overlapping upload_credits coins
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(35.dp)
+                        .offset(x = 2.dp, y = 7.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.58f, h * 0.54f),
-                    radius = w * 0.34f,
-                    symbol = CoinSymbol.MUSIC_NOTE
+                UploadCreditCoinImage(
+                    contentDescription = "30 Upload Credits",
+                    modifier = Modifier
+                        .size(37.dp)
+                        .offset(x = 15.dp, y = 12.dp)
                 )
             }
             3 -> {
-                // Three diagonal cascading coins (bottom-left to top-right)
-                drawGoldCoin(
-                    center = Offset(w * 0.33f, h * 0.65f),
-                    radius = w * 0.27f,
-                    symbol = CoinSymbol.NONE
+                // Three diagonal cascading upload_credits coins
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .offset(x = 2.dp, y = 20.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.46f, h * 0.51f),
-                    radius = w * 0.28f,
-                    symbol = CoinSymbol.NONE
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(31.dp)
+                        .offset(x = 11.dp, y = 12.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.60f, h * 0.37f),
-                    radius = w * 0.29f,
-                    symbol = CoinSymbol.MUSIC_NOTE
+                UploadCreditCoinImage(
+                    contentDescription = "50 Upload Credits",
+                    modifier = Modifier
+                        .size(32.dp)
+                        .offset(x = 20.dp, y = 4.dp)
                 )
             }
             else -> {
-                // Four clustered coins (100 credits pile)
-                drawGoldCoin(
-                    center = Offset(w * 0.32f, h * 0.56f),
-                    radius = w * 0.27f,
-                    symbol = CoinSymbol.NONE
+                // Four clustered upload_credits coins (100 credits pile)
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(29.dp)
+                        .offset(x = 2.dp, y = 15.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.44f, h * 0.66f),
-                    radius = w * 0.27f,
-                    symbol = CoinSymbol.NONE
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(29.dp)
+                        .offset(x = 12.dp, y = 22.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.58f, h * 0.60f),
-                    radius = w * 0.28f,
-                    symbol = CoinSymbol.NONE
+                UploadCreditCoinImage(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .offset(x = 22.dp, y = 17.dp)
                 )
-                drawGoldCoin(
-                    center = Offset(w * 0.52f, h * 0.38f),
-                    radius = w * 0.29f,
-                    symbol = CoinSymbol.EMBLEM_BAR
+                UploadCreditCoinImage(
+                    contentDescription = "100 Upload Credits",
+                    modifier = Modifier
+                        .size(32.dp)
+                        .offset(x = 11.dp, y = 3.dp)
                 )
             }
         }
-    }
-}
-
-private enum class CoinSymbol {
-    NONE,
-    MUSIC_NOTE,
-    EMBLEM_BAR
-}
-
-private fun DrawScope.drawGoldCoin(
-    center: Offset,
-    radius: Float,
-    symbol: CoinSymbol
-) {
-    // Soft drop shadow
-    drawCircle(
-        color = Color(0x3392400E),
-        radius = radius * 1.04f,
-        center = Offset(center.x + radius * 0.04f, center.y + radius * 0.08f)
-    )
-
-    // Outer metallic gold rim
-    drawCircle(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFFFFF3A1),
-                Color(0xFFFBBF24),
-                Color(0xFFD97706)
-            ),
-            start = Offset(center.x - radius, center.y - radius),
-            end = Offset(center.x + radius, center.y + radius)
-        ),
-        radius = radius,
-        center = center
-    )
-
-    // Inner coin face
-    val innerRadius = radius * 0.82f
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color(0xFFFFEA79),
-                Color(0xFFF59E0B),
-                Color(0xFFD97706)
-            ),
-            center = Offset(center.x - innerRadius * 0.25f, center.y - innerRadius * 0.25f),
-            radius = innerRadius * 1.35f
-        ),
-        radius = innerRadius,
-        center = center
-    )
-
-    // Subtle inner ring highlight
-    drawCircle(
-        color = Color(0x66FFFBEB),
-        radius = innerRadius,
-        center = center,
-        style = Stroke(width = radius * 0.05f)
-    )
-
-    val emblemColor = Color(0xFF5C2D0C)
-    when (symbol) {
-        CoinSymbol.MUSIC_NOTE -> {
-            // Eighth note head
-            val noteHeadCenter = Offset(center.x - radius * 0.08f, center.y + radius * 0.18f)
-            drawCircle(
-                color = emblemColor,
-                radius = radius * 0.14f,
-                center = noteHeadCenter
-            )
-            // Stem
-            val stemX = noteHeadCenter.x + radius * 0.10f
-            val stemTopY = center.y - radius * 0.28f
-            drawLine(
-                color = emblemColor,
-                start = Offset(stemX, noteHeadCenter.y),
-                end = Offset(stemX, stemTopY),
-                strokeWidth = radius * 0.09f,
-                cap = StrokeCap.Round
-            )
-            // Flag
-            drawLine(
-                color = emblemColor,
-                start = Offset(stemX, stemTopY),
-                end = Offset(stemX + radius * 0.20f, stemTopY + radius * 0.12f),
-                strokeWidth = radius * 0.09f,
-                cap = StrokeCap.Round
-            )
-        }
-        CoinSymbol.EMBLEM_BAR -> {
-            val barWidth = radius * 0.18f
-            val barHeight = radius * 0.48f
-            drawRoundRect(
-                color = emblemColor,
-                topLeft = Offset(center.x - barWidth / 2f, center.y - barHeight / 2f),
-                size = Size(barWidth, barHeight),
-                cornerRadius = CornerRadius(barWidth * 0.3f, barWidth * 0.3f)
-            )
-        }
-        CoinSymbol.NONE -> Unit
     }
 }
 
