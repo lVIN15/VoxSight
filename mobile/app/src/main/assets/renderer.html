@@ -40,8 +40,6 @@
             position: absolute;
             top: 12px;
             left: 16px;
-            width: calc(100% - 32px);
-            height: calc(100% - 24px);
             pointer-events: none;
             z-index: 10;
         }
@@ -1177,8 +1175,13 @@
          */
         function resizeCanvas() {
             const osmdDiv = document.getElementById('osmd-render');
-            canvas.width = osmdDiv.offsetWidth;
-            canvas.height = osmdDiv.offsetHeight;
+            if (!osmdDiv) return;
+            const w = osmdDiv.offsetWidth;
+            const h = osmdDiv.offsetHeight;
+            canvas.width = w;
+            canvas.height = h;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
         }
 
         /**
@@ -1248,6 +1251,32 @@
                 }
             }
 
+            // Detect pickup measure (anacrusis) in measure 0
+            var m0MaxQuarters = 0;
+            for (let p = 0; p < xmlParts.length; p++) {
+                var pMeas0 = xmlParts[p].getElementsByTagName('measure')[0];
+                if (pMeas0) {
+                    var m0Div = 1;
+                    var dEl = pMeas0.getElementsByTagName('divisions')[0];
+                    if (dEl) {
+                        var dVal = parseInt(dEl.textContent.trim(), 10);
+                        if (!isNaN(dVal) && dVal > 0) m0Div = dVal;
+                    }
+                    var m0Time = 0;
+                    for (let c = 0; c < pMeas0.childNodes.length; c++) {
+                        var nd = pMeas0.childNodes[c];
+                        if (nd.nodeType !== 1) continue;
+                        if (nd.tagName === 'note' && nd.getElementsByTagName('chord').length === 0) {
+                            var durEl = nd.getElementsByTagName('duration')[0];
+                            var d = durEl ? (parseInt(durEl.textContent.trim(), 10) || 0) : 0;
+                            m0Time += d;
+                        }
+                    }
+                    var q = m0Div > 0 ? (m0Time / m0Div) : 0;
+                    if (q > m0MaxQuarters) m0MaxQuarters = q;
+                }
+            }
+
             var measureStartQuarters = [];
             var prevailingBeats = 4, prevailingBeatType = 4;
             var accumulatedQuarters = 0;
@@ -1258,6 +1287,9 @@
                 }
                 measureStartQuarters.push(accumulatedQuarters);
                 var nominalQuarters = prevailingBeats * (4.0 / prevailingBeatType);
+                if (m === 0 && m0MaxQuarters > 0 && m0MaxQuarters < nominalQuarters) {
+                    nominalQuarters = m0MaxQuarters;
+                }
                 accumulatedQuarters += nominalQuarters;
             }
 
@@ -1616,18 +1648,59 @@
                     }
                     var gNote = gn.gNote;
 
+                    var vf = null;
+                    if (gNote.vfnote && gNote.vfnote.length > 0) vf = gNote.vfnote[0];
+                    else if (gNote.parentVoiceEntry && gNote.parentVoiceEntry.vfnote && gNote.parentVoiceEntry.vfnote.length > 0) {
+                        vf = gNote.parentVoiceEntry.vfnote[0];
+                    }
+                    var vfG = null;
+                    if (vf) {
+                        if (typeof vf.getSVGGElement === 'function') vfG = vf.getSVGGElement();
+                        else if (vf.getAttribute && typeof vf.getAttribute === 'function') vfG = vf.getAttribute('el');
+                        else if (vf.elem) vfG = vf.elem;
+                    }
                     var domEls = getSvgElements(gNote);
-                    var sx = 0, sy = 0, sw = 16, sh = 20;
+                    if (!vfG && domEls.length > 0) vfG = domEls[0];
+
+                    var targetNh = null;
+                    if (vfG && vfG.querySelectorAll) {
+                        var nhs = Array.from(vfG.querySelectorAll('.vf-notehead, [class*="notehead"]'));
+                        if (nhs.length === 0) {
+                            var paths = Array.from(vfG.querySelectorAll('path:not(.vf-stem):not(.vf-flag)'));
+                            if (paths.length > 0) nhs = paths;
+                        }
+                        if (nhs.length > 1) {
+                            nhs.sort(function(a, b) {
+                                return b.getBoundingClientRect().top - a.getBoundingClientRect().top;
+                            });
+                            var nhIdx = (typeof gNote.vfnoteIndex === 'number') ? gNote.vfnoteIndex : 0;
+                            targetNh = nhs[Math.min(nhIdx, nhs.length - 1)] || nhs[0];
+                        } else if (nhs.length === 1) {
+                            targetNh = nhs[0];
+                        }
+                    }
+
+                    var sx = 0, sy = 0, sw = 16, sh = 16;
                     var foundDom = false;
 
-                    if (domEls.length > 0 && domEls[0]) {
+                    if (targetNh) {
                         try {
-                            var rect = domEls[0].getBoundingClientRect();
+                            var nhRect = targetNh.getBoundingClientRect();
+                            var containerRect = renderDiv.getBoundingClientRect();
+                            sx = (nhRect.left - containerRect.left) + renderDiv.scrollLeft;
+                            sy = (nhRect.top - containerRect.top) + renderDiv.scrollTop;
+                            sw = nhRect.width > 0 ? nhRect.width : 16;
+                            sh = nhRect.height > 0 ? nhRect.height : 12;
+                            foundDom = true;
+                        } catch (e) { }
+                    } else if (vfG) {
+                        try {
+                            var rect = vfG.getBoundingClientRect();
                             var containerRect = renderDiv.getBoundingClientRect();
                             sx = (rect.left - containerRect.left) + renderDiv.scrollLeft;
                             sy = (rect.top - containerRect.top) + renderDiv.scrollTop;
                             sw = rect.width > 0 ? rect.width : 16;
-                            sh = rect.height > 0 ? rect.height : 20;
+                            sh = rect.height > 0 ? rect.height : 16;
                             foundDom = true;
                         } catch (e) { }
                     }
@@ -1788,11 +1861,11 @@
                     highlightCtx.save();
                     highlightCtx.beginPath();
 
-                    // Draw a soft glowing ellipse roughly the size of the note
+                    // Draw a soft glowing ellipse centered directly on the notehead
                     const cx = x + width / 2;
                     const cy = y + height / 2;
-                    const rx = width / 1.5;
-                    const ry = height / 1.5;
+                    const rx = Math.max(9, (width / 2) + 3);
+                    const ry = Math.max(7, (height / 2) + 3);
 
                     highlightCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
 
@@ -2905,7 +2978,7 @@
                 const newHash = computeLayoutHash();
                 if (newHash !== layoutHash && !window.__vx_is_internal_render) {
                     layoutHash = newHash;
-                    extractNoteCoordinates();
+                    buildNoteMap();
                     updateStatus('Layout changed — re-extracted coordinates');
 
                     if (window.VoxSightBridge) {

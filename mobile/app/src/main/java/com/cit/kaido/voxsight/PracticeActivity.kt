@@ -286,7 +286,7 @@ class PracticeActivity : AppCompatActivity(),
     private fun renderScore() {
         val xml = musicXml ?: return
         val encoded = android.util.Base64.encodeToString(xml.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
-        webView.evaluateJavascript("loadScoreBase64('$encoded');", null)
+        webView.evaluateJavascript("loadScoreBase64('$encoded', 480);", null)
         isRendered = true
         Log.i(TAG, "Score sent to OSMD renderer via Base64")
     }

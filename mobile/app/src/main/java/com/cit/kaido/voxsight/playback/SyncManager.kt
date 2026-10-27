@@ -136,40 +136,15 @@ class SyncManager {
         if (currentLayoutHash == null) return  // No valid layout
 
         val highlights = mutableListOf<NoteHighlightData>()
-        var foundMatches = 0
         for (eventId in activeEventIds) {
             val coord = coordinateMap[eventId]
-            if (coord != null && highlightMode != HighlightMode.DISABLED) {
+            if (coord != null) {
                 highlights.add(NoteHighlightData(eventId, coord.x, coord.y, coord.width, coord.height))
-                foundMatches++
             }
         }
 
         if (highlights.isNotEmpty()) {
             listener?.onHighlightNotes(highlights)
-        }
-        
-        if (foundMatches < activeEventIds.size) {
-            // Mapping miss — degrade confidence monotonically
-            successfulMappings = (successfulMappings - (activeEventIds.size - foundMatches)).coerceAtLeast(0)
-            if (totalMappings > 0) {
-                val rawConfidence = successfulMappings.toFloat() / totalMappings.toFloat()
-                syncConfidence = rawConfidence.coerceIn(0f, 1f)
-            }
-
-            Log.d(TAG, "Missing coordinates for some events (confidence: $syncConfidence)")
-            listener?.onSyncConfidenceChanged(syncConfidence)
-
-            // Re-evaluate highlight mode based on degraded confidence
-            val oldMode = highlightMode
-            highlightMode = when {
-                syncConfidence >= 0.70f -> HighlightMode.NOTE_LEVEL
-                syncConfidence >= 0.30f -> HighlightMode.MEASURE_LEVEL
-                else -> HighlightMode.DISABLED
-            }
-            if (oldMode != highlightMode) {
-                listener?.onHighlightModeChanged(highlightMode)
-            }
         }
     }
 
@@ -195,6 +170,24 @@ class SyncManager {
      * @param osmdElements Raw note elements extracted from OSMD
      * @param layoutHash The layout hash for this render
      */
+    private fun isVoiceCompatible(eventVoice: String, elemPart: String): Boolean {
+        val ev = eventVoice.uppercase().trim()
+        val ep = elemPart.uppercase().trim()
+        if (ev == ep) return true
+        if (ep == "TUTTI" || ep == "ALL" || ep == "UNISON_ALL") {
+            return ev != "OTHER" && ev != "OTHERS" && ev != "PIANO"
+        }
+        if (ep in setOf("UNISON_TB", "TB") && (ev.startsWith("T") || ev.startsWith("B") || ev.contains("TENOR") || ev.contains("BASS"))) return true
+        if (ep in setOf("UNISON_SA", "SA") && (ev.startsWith("S") || ev.startsWith("A") || ev.contains("SOPRANO") || ev.contains("ALTO"))) return true
+        if (ep in setOf("UNISON_S1S2", "S1S2") && (ev.startsWith("S") || ev.contains("SOPRANO"))) return true
+        if (ep in setOf("UNISON_A1A2", "A1A2") && (ev.startsWith("A") || ev.contains("ALTO"))) return true
+        if (ep in setOf("UNISON_T1T2", "T1T2") && (ev.startsWith("T") || ev.contains("TENOR"))) return true
+        if (ep in setOf("UNISON_B1B2", "B1B2") && (ev.startsWith("B") || ev.contains("BASS"))) return true
+        val evInitial = ev.firstOrNull()?.toString() ?: ""
+        val epInitial = ep.firstOrNull()?.toString() ?: ""
+        return evInitial.isNotEmpty() && evInitial == epInitial
+    }
+
     fun buildMapping(
         events: EventStream,
         osmdElements: List<OsmdNoteElement>,
@@ -207,7 +200,15 @@ class SyncManager {
         val matchResults = ArrayList<MatchResult>()
 
         val activeEvents = events.filter { !it.isRest }
-        val usedOsmdIds = HashSet<Int>()
+        val osmdAssignedEvent = HashMap<Int, MusicalEvent>()
+
+        fun isCandidateAvailable(elemId: Int, event: MusicalEvent): Boolean {
+            val assigned = osmdAssignedEvent[elemId] ?: return true
+            // Allow sharing if it's the same measure and same pitch (unison, Tutti, shared chord notehead)
+            return assigned.measureIndex == event.measureIndex &&
+                    assigned.pitchMidi == event.pitchMidi &&
+                    kotlin.math.abs(assigned.tickPosition - event.tickPosition) <= 240
+        }
 
         // Sort events strictly chronologically (Measure, Beat/Tick, Staff, Voice, Pitch descending)
         val sortedEvents = activeEvents.sortedWith(
@@ -244,28 +245,16 @@ class SyncManager {
                 val sOsmd = (staffOsmd[staffIdx] ?: emptyList())
                     .sortedWith(compareBy<OsmdNoteElement>({ it.x }, { -it.midiNote }))
 
-                // PASS 1: Exact SATB Voice + Exact Pitch in chronological visual order on this staff
+                // PASS 1: Compatible SATB Voice + Exact Pitch in chronological visual order on this staff
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
-                    val eventUpper = event.satbVoice.uppercase()
-                    val eventPart = when {
-                        eventUpper.startsWith("SOLO") -> "SOLO"
-                        eventUpper.startsWith("OTHER") -> "OTHERS"
-                        else -> event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
-                    }
                     val candidate = sOsmd.firstOrNull { elem ->
-                        val elemUpper = elem.part.uppercase()
-                        val elemPart = when {
-                            elemUpper.startsWith("SOLO") -> "SOLO"
-                            elemUpper.startsWith("OTHER") -> "OTHERS"
-                            else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
-                        }
-                        !usedOsmdIds.contains(elem.id) &&
-                        (elem.part.equals(event.satbVoice, ignoreCase = true) || elemPart == eventPart) &&
+                        isCandidateAvailable(elem.id, event) &&
+                        isVoiceCompatible(event.satbVoice, elem.part) &&
                         elem.midiNote == event.pitchMidi
                     }
                     if (candidate != null) {
-                        usedOsmdIds.add(candidate.id)
+                        osmdAssignedEvent[candidate.id] = event
                         coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
                     }
                 }
@@ -274,36 +263,24 @@ class SyncManager {
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
                     val candidate = sOsmd.firstOrNull { elem ->
-                        !usedOsmdIds.contains(elem.id) &&
+                        isCandidateAvailable(elem.id, event) &&
                         elem.midiNote == event.pitchMidi
                     }
                     if (candidate != null) {
-                        usedOsmdIds.add(candidate.id)
+                        osmdAssignedEvent[candidate.id] = event
                         coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
                     }
                 }
 
-                // PASS 3: Exact SATB Voice positional 1-to-1 match on this staff
+                // PASS 3: Compatible Voice positional match on this staff
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
-                    val eventUpper = event.satbVoice.uppercase()
-                    val eventPart = when {
-                        eventUpper.startsWith("SOLO") -> "SOLO"
-                        eventUpper.startsWith("OTHER") -> "OTHERS"
-                        else -> event.satbVoice.firstOrNull()?.toString()?.uppercase() ?: "S"
-                    }
                     val candidate = sOsmd.firstOrNull { elem ->
-                        val elemUpper = elem.part.uppercase()
-                        val elemPart = when {
-                            elemUpper.startsWith("SOLO") -> "SOLO"
-                            elemUpper.startsWith("OTHER") -> "OTHERS"
-                            else -> elem.part.firstOrNull()?.toString()?.uppercase() ?: "S"
-                        }
-                        !usedOsmdIds.contains(elem.id) &&
-                        (elem.part.equals(event.satbVoice, ignoreCase = true) || elemPart == eventPart)
+                        isCandidateAvailable(elem.id, event) &&
+                        isVoiceCompatible(event.satbVoice, elem.part)
                     }
                     if (candidate != null) {
-                        usedOsmdIds.add(candidate.id)
+                        osmdAssignedEvent[candidate.id] = event
                         coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
                     }
                 }
@@ -311,54 +288,54 @@ class SyncManager {
                 // PASS 4: Positional 1-to-1 match on this staff
                 for (event in sEvents) {
                     if (coords.containsKey(event.eventId)) continue
-                    val candidate = sOsmd.firstOrNull { elem -> !usedOsmdIds.contains(elem.id) }
+                    val candidate = sOsmd.firstOrNull { elem -> isCandidateAvailable(elem.id, event) }
                     if (candidate != null) {
-                        usedOsmdIds.add(candidate.id)
+                        osmdAssignedEvent[candidate.id] = event
                         coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
                     }
                 }
             }
         }
 
-        // PASS 3: Global Nearby Measure Index (+/- 1) + Same Staff + Same Pitch
+        // PASS 5: Global Nearby Measure Index (+/- 1) + Same Staff + Same Pitch
         for (event in sortedEvents) {
             if (coords.containsKey(event.eventId)) continue
             val eventStaffIdx = if (event.partId > 1 && event.staffId <= 1) event.partId - 1 else if (event.staffId > 0) event.staffId - 1 else (event.partId - 1).coerceAtLeast(0)
             val candidate = osmdElements.firstOrNull { elem ->
-                !usedOsmdIds.contains(elem.id) &&
+                isCandidateAvailable(elem.id, event) &&
                 kotlin.math.abs(elem.measureIndex - event.measureIndex) <= 1 &&
                 elem.staffIdx == eventStaffIdx &&
                 elem.midiNote == event.pitchMidi
             }
             if (candidate != null) {
-                usedOsmdIds.add(candidate.id)
+                osmdAssignedEvent[candidate.id] = event
                 coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
             }
         }
 
-        // PASS 4: Same Measure Index + Same Pitch (Staff Fallback)
+        // PASS 6: Same Measure Index + Same Pitch (Staff Fallback)
         for (event in sortedEvents) {
             if (coords.containsKey(event.eventId)) continue
             val candidate = osmdElements.firstOrNull { elem ->
-                !usedOsmdIds.contains(elem.id) &&
+                isCandidateAvailable(elem.id, event) &&
                 elem.measureIndex == event.measureIndex &&
                 elem.midiNote == event.pitchMidi
             }
             if (candidate != null) {
-                usedOsmdIds.add(candidate.id)
+                osmdAssignedEvent[candidate.id] = event
                 coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
             }
         }
 
-        // PASS 5: Global Pitch Match (Chronological order)
+        // PASS 7: Global Pitch Match (Chronological order)
         for (event in sortedEvents) {
             if (coords.containsKey(event.eventId)) continue
             val candidate = osmdElements.firstOrNull { elem ->
-                !usedOsmdIds.contains(elem.id) &&
+                isCandidateAvailable(elem.id, event) &&
                 elem.midiNote == event.pitchMidi
             }
             if (candidate != null) {
-                usedOsmdIds.add(candidate.id)
+                osmdAssignedEvent[candidate.id] = event
                 coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
             }
         }
@@ -374,28 +351,18 @@ class SyncManager {
         for (event in activeEvents) {
             val isMatched = coords.containsKey(event.eventId)
             val groupOsmd = osmdByTickPitchGroup["t${event.tickPosition}-m${event.pitchMidi}"]
-                ?: osmdElements.filter { it.measureIndex == event.measureIndex && it.midiNote == event.pitchMidi }
-            val isDuplicate = groupOsmd.size > 1
+            val isDuplicate = (groupOsmd?.size ?: 0) > 1
             matchResults.add(MatchResult(event.eventId, isMatched, isDuplicate))
         }
 
         val matchedPairs = matchResults.count { it.matched }
         val duplicateMatches = matchResults.count { it.duplicateMatch }
 
-        val denominator = maxOf(totalEvents, totalOsmdNodes)
-        val rawConfidence = if (denominator > 0) {
-            (matchedPairs.toFloat() - duplicateMatches.toFloat() * 0.5f) / denominator.toFloat()
+        val rawConfidence = if (totalEvents > 0) {
+            matchedPairs.toFloat() / totalEvents.toFloat()
         } else 0f
 
-        val nodesPerEvent = matchResults.groupBy { it.eventId }
-            .map { it.value.size.toFloat() }
-        val npeVariance = if (nodesPerEvent.size > 1) {
-            val mean = nodesPerEvent.average().toFloat()
-            nodesPerEvent.map { (it - mean) * (it - mean) }.average().toFloat()
-        } else 0f
-        val structurePenalty = (npeVariance * 0.1f).coerceAtMost(0.15f)
-
-        syncConfidence = (rawConfidence - structurePenalty).coerceIn(0f, 1f)
+        syncConfidence = rawConfidence.coerceIn(0f, 1f)
         totalMappings = totalEvents
         successfulMappings = matchedPairs
 
@@ -408,7 +375,7 @@ class SyncManager {
 
         Log.i(TAG, "BuildMapping completed: layout=$layoutHash, events=$totalEvents, osmd=$totalOsmdNodes, " +
                 "matched=$matchedPairs, duplicates=$duplicateMatches, rawConf=$rawConfidence, " +
-                "penalty=$structurePenalty, finalConf=$syncConfidence, mode=$highlightMode")
+                "finalConf=$syncConfidence, mode=$highlightMode")
 
         listener?.onSyncConfidenceChanged(syncConfidence)
         listener?.onHighlightModeChanged(highlightMode)
