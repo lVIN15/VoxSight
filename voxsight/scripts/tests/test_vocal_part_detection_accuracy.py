@@ -221,6 +221,93 @@ def test_open_satb_bass_divisi_isolation():
             os.remove(p)
 
 
+def test_stem_aware_condensed_voices():
+    """Verify that stem directions (stem up/down) take precedence over pitch cutoffs:
+    1. Low Soprano (F4 < 69) with stem up stays Soprano 'S' instead of flipping to Alto.
+    2. Low Tenor (Eb3 < 53) with stem up stays Tenor 'T' instead of flipping to Bass.
+    3. Single note on Staff 2 with stem down stays Bass 'B' instead of becoming UNISON_TB.
+    """
+    print("\n--- Test 6: Stem-Aware Condensed 2-Staff Classification ---")
+    xml_stem = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Choir</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><staves>2</staves></attributes>
+      <!-- Staff 1: Low Soprano F4 (MIDI 65 < 69) with stem UP -->
+      <note>
+        <pitch><step>F</step><octave>4</octave></pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <stem>up</stem>
+        <staff>1</staff>
+        <lyric><text>Glo-</text></lyric>
+      </note>
+      <backup><duration>1</duration></backup>
+      <!-- Staff 2: Low Tenor Eb3 (MIDI 51 < 53) with stem UP -->
+      <note>
+        <pitch><step>E</step><alter>-1</alter><octave>3</octave></pitch>
+        <duration>1</duration>
+        <voice>3</voice>
+        <stem>up</stem>
+        <staff>2</staff>
+      </note>
+    </measure>
+    <measure number="2">
+      <attributes><divisions>1</divisions></attributes>
+      <!-- Staff 1 polyphony: S (stem up) and A (stem down) -->
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <stem>up</stem>
+        <staff>1</staff>
+      </note>
+      <backup><duration>1</duration></backup>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>1</duration>
+        <voice>2</voice>
+        <stem>down</stem>
+        <staff>1</staff>
+      </note>
+      <backup><duration>1</duration></backup>
+      <!-- Staff 2: Single note with explicit stem DOWN (Bass). Must NOT become UNISON_TB! -->
+      <note>
+        <pitch><step>C</step><octave>3</octave></pitch>
+        <duration>1</duration>
+        <voice>4</voice>
+        <stem>down</stem>
+        <staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".musicxml", delete=False, encoding="utf-8") as f:
+        f.write(xml_stem)
+        p = f.name
+    try:
+        res = satb_analyzer.analyze(p)
+        events_m1 = [e for e in res["events"] if e["measure_number"] == 1]
+        events_m2 = [e for e in res["events"] if e["measure_number"] == 2]
+
+        m1_voices = {e["staff_id"]: e["satb_voice"] for e in events_m1}
+        print(f"  Measure 1 voices: {m1_voices}")
+        assert m1_voices[1] == "S", f"Expected Low Soprano F4 to be 'S' due to stem UP, got {m1_voices[1]}"
+        assert m1_voices[2] == "T", f"Expected Low Tenor Eb3 to be 'T' due to stem UP, got {m1_voices[2]}"
+
+        m2_s2_voices = [e["satb_voice"] for e in events_m2 if e["staff_id"] == 2]
+        print(f"  Measure 2 Staff 2 voices: {m2_s2_voices}")
+        assert m2_s2_voices == ["B"], f"Expected Staff 2 stem-down note to be 'B' (not UNISON_TB), got {m2_s2_voices}"
+        print("  [PASS] Test 6: Stem-aware SATB correctly classified low Soprano, low Tenor, and stem-down Bass.")
+    finally:
+        if os.path.exists(p):
+            os.remove(p)
+
+
 def main():
     print("==================================================================")
     print("STARTING VOCAL-PART DETECTION ACCURACY REGRESSION SUITE")
@@ -230,6 +317,7 @@ def main():
     test_open_satb_divisi_isolation()
     test_condensed_2staff_four_parts_no_false_divisi()
     test_open_satb_bass_divisi_isolation()
+    test_stem_aware_condensed_voices()
     print("\n==================================================================")
     print("ALL VOCAL-PART DETECTION TESTS PASSED (100% SUCCESS RATE)")
     print("==================================================================")
@@ -237,3 +325,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

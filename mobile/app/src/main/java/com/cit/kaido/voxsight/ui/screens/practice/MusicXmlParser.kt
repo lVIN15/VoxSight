@@ -234,8 +234,6 @@ internal fun computeUniversalVocalPartMap(
     scoreTitle: String? = null
 ): Map<Int, VocalPartRole> {
     val result = mutableMapOf<Int, VocalPartRole>()
-    val isAwit = (scoreTitle ?: "").contains("Awit ng Paghahangad", ignoreCase = true) ||
-        (scoreTitle ?: "").contains("Paghahangad", ignoreCase = true)
 
     data class PartMetadata(
         val index: Int,
@@ -259,8 +257,7 @@ internal fun computeUniversalVocalPartMap(
             0.0
         }
         val hasFClef = (partHasFClefMap[idx] == true) || (avgMidi in 1.0..56.9)
-        val isExplicitSolo = listOf("solo", "cantor", "leader", "descant", "baritone").any { pName.contains(it) } ||
-            (isAwit && totalParts == 5 && idx == 5)
+        val isExplicitSolo = listOf("solo", "cantor", "leader", "descant", "baritone").any { pName.contains(it) }
         val isAccomp = listOf("piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings").any { pName.contains(it) }
         val isSop = pName.contains("soprano") || pName == "s" || pName.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(pName)
         val isAlt = pName.contains("alto") || pName == "a" || pName.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(pName)
@@ -732,29 +729,12 @@ fun parseMusicXmlScoreFromText(
             scoreTitle = resolvedTitle
         )
 
-        // Compile a measure-level choral lyric timeline across all parts
-        // In shared-staff or standard choral scores, lyrics are often engraved under Staff 1 (Soprano/Alto)
-        // and omitted from Staff 2 (Tenor/Bass), or placed only on the root chord note.
-        val measureLyricPool = mutableMapOf<Int, MutableMap<Int, String>>() // measureIndex -> (startTimeDivisions -> lyric)
-        partMeasuresMap.values.forEach { measuresInPart ->
-            measuresInPart.forEachIndexed { mIdx, measure ->
-                val mPool = measureLyricPool.getOrPut(mIdx) { mutableMapOf() }
-                measure.notes.forEach { note ->
-                    val lyr = note.lyric?.trim()
-                    if (!lyr.isNullOrBlank() && !mPool.containsKey(note.startTimeDivisions)) {
-                        mPool[note.startTimeDivisions] = lyr
-                    }
-                }
-            }
-        }
-
         partMeasuresMap.entries.sortedBy { it.key }.forEach { entry ->
             val partIndex = entry.key
             val originalMeasuresInPart = entry.value
 
             val adjustedMeasures = originalMeasuresInPart.mapIndexed { mIdx, measure ->
                 val notesByTime = measure.notes.groupBy { it.startTimeDivisions }
-                val mPool = measureLyricPool[mIdx] ?: emptyMap()
 
                 val adjustedNotes = measure.notes.map { note ->
                     val group = notesByTime[note.startTimeDivisions] ?: listOf(note)
@@ -820,9 +800,8 @@ fun parseMusicXmlScoreFromText(
                     }
 
                     // Choral & Chord Lyric association:
-                    // Inherit from chord group or cross-part measure pool at this onset
-                    val chordLyric = group.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric
-                        ?: mPool[note.startTimeDivisions]
+                    // Inherit strictly within chord group of same part (never cross-part into Accompaniment or other parts)
+                    val chordLyric = if (!note.isRest) group.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric else null
                     val resolvedLyric = if (note.lyric.isNullOrBlank()) chordLyric else note.lyric
 
                     val chordStem = group.firstOrNull { !it.stem.isNullOrBlank() }?.stem
@@ -1027,8 +1006,6 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int, scoreT
     val eventsList = mutableListOf<MusicalEvent>()
     var eventIndex = 0
     val safeTpq = if (tpq > 0) tpq else 1
-    val isAwit = (scoreTitle ?: "").contains("Awit ng Paghahangad", ignoreCase = true) ||
-        (scoreTitle ?: "").contains("Paghahangad", ignoreCase = true)
 
     parts.forEach { part ->
         val nameLower = part.name.lowercase()
@@ -1038,9 +1015,8 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int, scoreT
         } else {
             0.0
         }
-        val isSoloPart = nameLower.contains("baritone") ||
-            (isAwit && (nameLower.contains("solo") || nameLower.contains("cantor") || part.id == 5 || (parts.size == 5 && parts.indexOf(part) == 4))) ||
-            ((nameLower.contains("solo") || nameLower.contains("cantor")) && avgMidi in 1.0..59.9)
+        val isSoloPart = nameLower.contains("baritone") || nameLower.contains("solo") ||
+            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant")
 
         part.notes.forEach { note ->
             val isCondensedSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||

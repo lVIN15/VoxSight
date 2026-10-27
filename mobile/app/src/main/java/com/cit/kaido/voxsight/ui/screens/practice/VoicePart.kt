@@ -410,23 +410,8 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
         result.add(VoicePart.Bass)
     }
 
-    val isAwit = score.title.contains("Awit ng Paghahangad", ignoreCase = true) ||
-        score.title.contains("Paghahangad", ignoreCase = true)
-    var hasBaritoneSolo = isAwit && (hasSolo || score.parts.size == 5)
-    if (score.parts.any { it.name.contains("baritone", ignoreCase = true) }) hasBaritoneSolo = true
-    if (score.notes.any { it.customVoiceStr?.contains("BARITONE", ignoreCase = true) == true }) hasBaritoneSolo = true
-    if (score.parts.any { p ->
-        val pLow = p.name.lowercase()
-        (pLow.contains("solo") || pLow.contains("cantor")) &&
-        p.notes.filter { !it.isRest }.let { nr ->
-            nr.isNotEmpty() && nr.map {
-                val base = when (it.step.take(1).uppercase()) {
-                    "C" -> 0; "D" -> 2; "E" -> 4; "F" -> 5; "G" -> 7; "A" -> 9; "B" -> 11; else -> 0
-                }
-                base + it.alter + (it.octave + 1) * 12
-            }.average() in 1.0..59.9
-        }
-    }) hasBaritoneSolo = true
+    val hasBaritoneSolo = score.parts.any { it.name.contains("baritone", ignoreCase = true) } ||
+        score.notes.any { it.customVoiceStr?.contains("BARITONE", ignoreCase = true) == true }
 
     if (hasBaritoneSolo) {
         result.add(VoicePart.BaritoneSolo)

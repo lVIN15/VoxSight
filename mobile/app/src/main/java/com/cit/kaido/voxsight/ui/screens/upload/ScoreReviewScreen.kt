@@ -626,9 +626,6 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
     var eventIndex = 0
     val tpq = score.divisions
 
-    val isAwit = score.title.contains("Awit ng Paghahangad", ignoreCase = true) ||
-        score.title.contains("Paghahangad", ignoreCase = true)
-
     score.parts.forEach { part ->
         val nameLower = part.name.lowercase()
         val nonRestNotes = part.notes.filter { !it.isRest }
@@ -637,9 +634,8 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
         } else {
             0.0
         }
-        val isBaritoneSoloPart = nameLower.contains("baritone") ||
-            (isAwit && (nameLower.contains("solo") || nameLower.contains("cantor") || part.id == 5 || (score.parts.size == 5 && score.parts.indexOf(part) == 4))) ||
-            ((nameLower.contains("solo") || nameLower.contains("cantor")) && avgMidi in 1.0..59.9)
+        val isBaritoneSoloPart = nameLower.contains("baritone") || nameLower.contains("solo") ||
+            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant")
 
         val isCondensedSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||
             nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower == "sa"
@@ -671,8 +667,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     "UNISON_T1T2", "T1T2" -> "TENOR 1 / 2"
                     "UNISON_B1B2", "B1B2" -> "BASS 1 / 2"
                     "TUTTI", "UNISON_ALL", "ALL" -> "TUTTI"
-                    "BARITONE SOLO", "BARITONE_SOLO", "BARITONE" -> "BARITONE SOLO"
-                    "5", "SOLO" -> if (isBaritoneSoloPart) "BARITONE SOLO" else "SOLO"
+                    "BARITONE SOLO", "BARITONE_SOLO", "BARITONE", "5", "SOLO" -> "SOLO"
                     "6", "OTHERS", "OTHER" -> "OTHERS"
                     else -> note.customVoiceStr
                 }
@@ -681,7 +676,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     2 -> "ALTO"
                     3 -> "TENOR"
                     4 -> "BASS"
-                    5 -> if (isBaritoneSoloPart) "BARITONE SOLO" else "SOLO"
+                    5 -> "SOLO"
                     6 -> "OTHERS"
                     else -> "SOPRANO"
                 }

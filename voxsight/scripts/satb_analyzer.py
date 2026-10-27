@@ -772,6 +772,7 @@ def prescan_musicxml(root: ET.Element) -> tuple:
                     else:
                         tie_type = None
 
+                    stem_txt = elem.findtext('stem', '').strip().lower()
                     voice_txt = elem.findtext('voice', '1').strip()
                     staff_txt = elem.findtext('staff', '1').strip()
                     try:
@@ -800,6 +801,7 @@ def prescan_musicxml(root: ET.Element) -> tuple:
                         "is_grace": is_grace,
                         "is_chord": is_chord,
                         "tie_type": tie_type,
+                        "stem": stem_txt,
                         "voice": voice_txt,
                         "staff": staff_int,
                         "source_note_id": source_note_id,
@@ -1125,7 +1127,7 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
          Staff 1 single note when Staff 2 has 2+ notes -> UNISON_SA
        - Distinct staves are never falsely merged into TUTTI.
     """
-    vocal_notes = [e for e in raw_events if not e.get('is_rest', False) and e.get('satb_voice') not in ('Solo', 'Others', 'UNKNOWN')]
+    vocal_notes = [e for e in raw_events if not e.get('is_rest', False) and e.get('satb_voice') not in ('Solo', 'SOLO', 'Baritone Solo', 'BARITONE SOLO', 'Others', 'UNKNOWN')]
     if not vocal_notes:
         return
 
@@ -1218,11 +1220,15 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
                 s1_notes = staves_at_tick[1]
                 s2_notes = staves_at_tick[2]
                 if len(s1_notes) >= 2 and len(s2_notes) == 1:
-                    if s2_notes[0].get('satb_voice') in ('T', 'B'):
-                        s2_notes[0]['satb_voice'] = 'UNISON_TB'
+                    s2_stem = s2_notes[0].get('stem', '')
+                    if not s2_stem or s2_stem in ('none', 'unspecified', 'nostem'):
+                        if s2_notes[0].get('satb_voice') in ('T', 'B'):
+                            s2_notes[0]['satb_voice'] = 'UNISON_TB'
                 elif len(s2_notes) >= 2 and len(s1_notes) == 1:
-                    if s1_notes[0].get('satb_voice') in ('S', 'A'):
-                        s1_notes[0]['satb_voice'] = 'UNISON_SA'
+                    s1_stem = s1_notes[0].get('stem', '')
+                    if not s1_stem or s1_stem in ('none', 'unspecified', 'nostem'):
+                        if s1_notes[0].get('satb_voice') in ('S', 'A'):
+                            s1_notes[0]['satb_voice'] = 'UNISON_SA'
 
 
 def analyze(xml_path: str) -> dict:
@@ -1293,7 +1299,7 @@ def analyze(xml_path: str) -> dict:
     except Exception as scan_err:
         log.warn(f"Pre-scan of XML instrument/staves metadata skipped: {scan_err}")
 
-    # Extract score title and check for Awit ng Paghahangad
+    # Extract score title
     score_title = ""
     try:
         if score.metadata and getattr(score.metadata, "title", None):
@@ -1307,14 +1313,10 @@ def analyze(xml_path: str) -> dict:
             if not score_title:
                 for cw in root_elem.findall(".//credit-words"):
                     if cw.text:
-                        cwt = cw.text.lower()
-                        if "awit ng paghahangad" in cwt or "paghahangad" in cwt or "borela" in cwt:
-                            score_title = cwt
-                            break
+                        score_title = cw.text.lower()
+                        break
     except Exception as t_err:
         log.warn(f"Error extracting score title: {t_err}")
-
-    is_awit = "awit ng paghahangad" in score_title or "paghahangad" in score_title or "borela" in score_title
 
     # ─── Step 1-3: Extensible zone ────────────────────────────────────
     parts = list(score.parts)
@@ -1371,10 +1373,7 @@ def analyze(xml_path: str) -> dict:
             is_accomp = True
 
         is_solo = any(re.search(rf"\b{re.escape(kw)}\b", combined_name) for kw in SOLO_KEYWORDS) and not is_accomp
-        is_baritone_solo = "baritone" in combined_name or (
-            (is_solo or (is_awit and (p_idx == 4 or part_count == 5))) and
-            ("baritone" in combined_name or is_awit)
-        )
+        is_baritone_solo = "baritone" in combined_name and (is_solo or not is_accomp)
 
         has_lyrics = p_lyrics > 0
         is_vocal = (is_vocal_part_name(combined_name) or has_lyrics or is_solo or is_baritone_solo) and not is_accomp
@@ -1524,6 +1523,14 @@ def analyze(xml_path: str) -> dict:
                     is_chord = element.isChord
                     sig = compute_voice_signature(staff_id, pitch_midi, staff_pitch_range)
 
+                    stem_dir = ""
+                    if hasattr(note_obj, 'stemDirection') and note_obj.stemDirection:
+                        stem_dir = str(note_obj.stemDirection).lower()
+                    if (not stem_dir or stem_dir in ('none', 'nostem', 'unspecified')) and hasattr(element, 'stemDirection') and element.stemDirection:
+                        stem_dir = str(element.stemDirection).lower()
+                    if stem_dir in ('nostem', 'none', 'unspecified'):
+                        stem_dir = ""
+
                     if part_category in ("Baritone Solo", "BARITONE SOLO"):
                         satb_voice = "Baritone Solo"
                         satb_confidence = 1.0
@@ -1558,6 +1565,7 @@ def analyze(xml_path: str) -> dict:
                         "is_rest": False,
                         "is_chord_member": is_chord,
                         "tie_type": tie_type,
+                        "stem": stem_dir,
                         "voice_signature": sig,
                         "satb_voice": satb_voice,
                         "satb_confidence": satb_confidence,
@@ -1572,7 +1580,7 @@ def analyze(xml_path: str) -> dict:
     # ─── Global Melodic & Vertical Voice Assignment Optimization ─────
     try:
         # Only optimize choral SATB events (skip Solo, Others, and UNKNOWN to preserve them 1:1)
-        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "Baritone Solo", "Others", "UNKNOWN"]]
+        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "SOLO", "Baritone Solo", "BARITONE SOLO", "Others", "UNKNOWN"]]
 
         by_tick = {}
         for e in non_rests:
@@ -1602,36 +1610,51 @@ def analyze(xml_path: str) -> dict:
                         default_v = mapping.get(choral_rank, "B" if pitch < 60 else "S")
                         v_scores[default_v] = 1.0
                     else:
+                        stem = tn.get("stem", "")
                         if staff_id == 1:
                             if len(staff_notes) >= 2:
                                 if rank == 0:
-                                    v_scores["S"] = 0.9
-                                    v_scores["A"] = 0.1
+                                    v_scores["S"] = 0.95
+                                    v_scores["A"] = 0.05
                                 else:
-                                    v_scores["S"] = 0.1
-                                    v_scores["A"] = 0.9
+                                    v_scores["S"] = 0.05
+                                    v_scores["A"] = 0.95
                             else:
-                                if pitch >= 69:
-                                    v_scores["S"] = 0.8
-                                    v_scores["A"] = 0.2
+                                if stem == "up":
+                                    v_scores["S"] = 0.95
+                                    v_scores["A"] = 0.05
+                                elif stem == "down":
+                                    v_scores["A"] = 0.95
+                                    v_scores["S"] = 0.05
                                 else:
-                                    v_scores["S"] = 0.2
-                                    v_scores["A"] = 0.8
+                                    if pitch >= 69:
+                                        v_scores["S"] = 0.8
+                                        v_scores["A"] = 0.2
+                                    else:
+                                        v_scores["S"] = 0.2
+                                        v_scores["A"] = 0.8
                         else:
                             if len(staff_notes) >= 2:
                                 if rank == 0:
-                                    v_scores["T"] = 0.9
-                                    v_scores["B"] = 0.1
+                                    v_scores["T"] = 0.95
+                                    v_scores["B"] = 0.05
                                 else:
-                                    v_scores["T"] = 0.1
-                                    v_scores["B"] = 0.9
+                                    v_scores["T"] = 0.05
+                                    v_scores["B"] = 0.95
                             else:
-                                if pitch >= 53:
-                                    v_scores["T"] = 0.8
-                                    v_scores["B"] = 0.2
+                                if stem == "up":
+                                    v_scores["T"] = 0.95
+                                    v_scores["B"] = 0.05
+                                elif stem == "down":
+                                    v_scores["B"] = 0.95
+                                    v_scores["T"] = 0.05
                                 else:
-                                    v_scores["T"] = 0.2
-                                    v_scores["B"] = 0.8
+                                    if pitch >= 53:
+                                        v_scores["T"] = 0.8
+                                        v_scores["B"] = 0.2
+                                    else:
+                                        v_scores["T"] = 0.2
+                                        v_scores["B"] = 0.8
 
                     c_scores = {v: 0.5 for v in "SATB"}
                     for v in "SATB":

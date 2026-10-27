@@ -13,6 +13,7 @@ voxsight/test_*.py
 voxsight/scratch_*.py
 voxsight/scratch_*.js
 *.apk
+*.bak*
 documentation/STD.pdf
 documentation/VoxSight_STD_Audit_Report.pdf
 documentation/VoxSight_STD_Updated_Review.pdf

@@ -383,25 +383,9 @@
             var vocalPartMap = new Array(total);
             var claimedRoles = {};
 
-            var docTitle = '';
-            try {
-                var titleEl = doc.querySelector('work-title') || doc.querySelector('movement-title');
-                if (titleEl) docTitle = (titleEl.textContent || '').trim().toLowerCase();
-                if (!docTitle) {
-                    var cwList = doc.querySelectorAll('credit-words');
-                    for (var cwi = 0; cwi < cwList.length; cwi++) {
-                        var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
-                        if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
-                            docTitle = cwt; break;
-                        }
-                    }
-                }
-            } catch(e) {}
-            var isAwitDoc = docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1;
-
             // Pass 1: Explicit Solo and Accompaniment
             meta.forEach(function(m) {
-                if (m.isExplicitSolo || (isAwitDoc && m.index === 4)) {
+                if (m.isExplicitSolo) {
                     vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5 };
                 } else if (m.isAccomp) {
                     vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
@@ -472,25 +456,6 @@
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
         function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
             var isPartSolo = false;
-            var isAwitScore = false;
-            if (xmlDoc) {
-                try {
-                    var titleEl = (typeof xmlDoc.querySelector === 'function') ? (xmlDoc.querySelector('work-title') || xmlDoc.querySelector('movement-title')) : null;
-                    var docTitle = titleEl ? (titleEl.textContent || '').trim().toLowerCase() : '';
-                    if (!docTitle && typeof xmlDoc.querySelectorAll === 'function') {
-                        var cwList = xmlDoc.querySelectorAll('credit-words');
-                        for (var cwi = 0; cwi < cwList.length; cwi++) {
-                            var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
-                            if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
-                                docTitle = cwt; break;
-                            }
-                        }
-                    }
-                    if (docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1) {
-                        isAwitScore = true;
-                    }
-                } catch(e) {}
-            }
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
                     var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
@@ -507,7 +472,7 @@
                             if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') { hasFClef = true; break; }
                         }
                         var isSoloNamed = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return comb.indexOf(w) !== -1; });
-                        if (comb.indexOf('baritone') !== -1 || isSoloNamed || (isAwitScore && partIdx === 4)) {
+                        if (comb.indexOf('baritone') !== -1 || isSoloNamed) {
                             isPartSolo = true;
                         }
                     }
@@ -571,7 +536,7 @@
             }
 
             // Priority 2: Inspect declared Part Name / Abbreviation from <score-part>
-            if (isPartSolo || (isAwitScore && partIdx === 4)) {
+            if (isPartSolo) {
                 return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
             }
             if (xmlDoc && typeof partIdx === 'number') {
@@ -868,8 +833,8 @@
                 drawSlurs: true,
                 drawCredits: false,
                 drawFingerings: true,
-                drawDynamics: false,
-                drawOrnaments: false,
+                drawDynamics: true,
+                drawOrnaments: true,
                 drawingParameters: 'default',
                 coloringEnabled: true,
                 colorStemsLikeNoteheads: true,
@@ -925,15 +890,6 @@
 
             // Client-side defense: strip any remaining <credit>...</credit> blocks
             cleaned = cleaned.replace(/<credit[\s\S]*?<\/credit>/gi, '');
-
-            // Client-side defense: strip <dynamics>...</dynamics> from directions
-            cleaned = cleaned.replace(/<dynamics[\s\S]*?<\/dynamics>/gi, '');
-
-            // Client-side defense: strip <ornaments>...</ornaments> from notations
-            cleaned = cleaned.replace(/<ornaments[\s\S]*?<\/ornaments>/gi, '');
-
-            // Client-side defense: strip <sound dynamics="..."/> attribute
-            cleaned = cleaned.replace(/(<sound\b[^>]*)\s+dynamics="[^"]*"/gi, '$1');
 
             return cleaned;
         }

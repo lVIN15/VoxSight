@@ -1156,25 +1156,9 @@
             var vocalPartMap = new Array(total);
             var claimedRoles = {};
 
-            var docTitle = '';
-            try {
-                var titleEl = doc.querySelector('work-title') || doc.querySelector('movement-title');
-                if (titleEl) docTitle = (titleEl.textContent || '').trim().toLowerCase();
-                if (!docTitle) {
-                    var cwList = doc.querySelectorAll('credit-words');
-                    for (var cwi = 0; cwi < cwList.length; cwi++) {
-                        var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
-                        if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
-                            docTitle = cwt; break;
-                        }
-                    }
-                }
-            } catch(e) {}
-            var isAwitDoc = docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1;
-
             // Pass 1: Explicit Solo and Accompaniment
             meta.forEach(function(m) {
-                if (m.isExplicitSolo || (isAwitDoc && m.index === 4)) {
+                if (m.isExplicitSolo) {
                     vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5 };
                 } else if (m.isAccomp) {
                     vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
@@ -1245,25 +1229,6 @@
         // ─── Vocal Part Color Coding Helper (SATB - Identical to Playback Mode) ─
         function getVocalPartColor(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
             var isPartSolo = false;
-            var isAwitScore = false;
-            if (xmlDoc) {
-                try {
-                    var titleEl = xmlDoc.querySelector('work-title') || xmlDoc.querySelector('movement-title');
-                    var docTitle = titleEl ? (titleEl.textContent || '').trim().toLowerCase() : '';
-                    if (!docTitle) {
-                        var cwList = xmlDoc.querySelectorAll('credit-words');
-                        for (var cwi = 0; cwi < cwList.length; cwi++) {
-                            var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
-                            if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
-                                docTitle = cwt; break;
-                            }
-                        }
-                    }
-                    if (docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1) {
-                        isAwitScore = true;
-                    }
-                } catch(e) {}
-            }
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
                     var partsList = xmlDoc.getElementsByTagName('part');
@@ -1280,7 +1245,7 @@
                             if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') { hasFClef = true; break; }
                         }
                         var isSoloNamed = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return comb.indexOf(w) !== -1; });
-                        if (comb.indexOf('baritone') !== -1 || isSoloNamed || (isAwitScore && partIdx === 4)) {
+                        if (comb.indexOf('baritone') !== -1 || isSoloNamed) {
                             isPartSolo = true;
                         }
                     }
@@ -1317,7 +1282,7 @@
             }
 
             // Priority 2: Inspect declared Part Name / Abbreviation from <score-part>
-            if (isPartSolo || (isAwitScore && partIdx === 4)) {
+            if (isPartSolo) {
                 return '#FF6D00'; // Solo - Vivid Tangerine Orange
             }
             if (xmlDoc && typeof partIdx === 'number') {
@@ -3215,250 +3180,10 @@
                 }
             });
 
-                                    // 0b. Reconcile Audiveris Shifted Vocal Staves (Phantom Voice staff, shifted measures, and Soprano 2 reconciliation)
-            (function reconcileShiftedChoralParts() {
-                var partsList = Array.from(doc.getElementsByTagName('part'));
-                var pListElem = doc.getElementsByTagName('part-list')[0];
-                if (!pListElem || partsList.length < 3) return;
-
-                function isStrayVoiceName(name) {
-                    var s = (name || '').trim().toLowerCase().replace(/[.\s_-]+/g, '');
-                    if (/^(soprano|sopr|sop|s)[1-9]?$/.test(s)) return false;
-                    if (/^(alto|alt|a|contralto)[1-9]?$/.test(s)) return false;
-                    if (/^(tenor|ten|t)[1-9]?$/.test(s)) return false;
-                    if (/^(bass|bas|b)[1-9]?$/.test(s)) return false;
-                    if (/^(baritone|bar)[1-9]?$/.test(s)) return false;
-                    if (/^(mezzosoprano|mezzo)[1-9]?$/.test(s)) return false;
-                    if (/^(voice|part|vocal|lead|solo)[0-9]*$/.test(s)) return true;
-                    if (s === '' || s === 'musicxmlpart' || s === 'staff') return true;
-                    return false;
-                }
-
-                function getNonRestCount(m) {
-                    if (!m) return 0;
-                    var notes = m.getElementsByTagName('note');
-                    var cnt = 0;
-                    for (var i = 0; i < notes.length; i++) {
-                        if (notes[i].getElementsByTagName('rest').length === 0) cnt++;
-                    }
-                    return cnt;
-                }
-
-                var partNames = {};
-                Array.from(pListElem.getElementsByTagName('score-part')).forEach(function(sp) {
-                    var pid = sp.getAttribute('id');
-                    var pn = sp.querySelector('part-name');
-                    partNames[pid] = (pn && pn.textContent ? pn.textContent : '').trim();
-                });
-
-                var hasChoral = partsList.some(function(p) {
-                    return !isStrayVoiceName(partNames[p.getAttribute('id')] || '');
-                });
-                if (!hasChoral) return;
-
-                var strayParts = partsList.filter(function(p) {
-                    return isStrayVoiceName(partNames[p.getAttribute('id')] || '');
-                });
-
-                strayParts.forEach(function(pStray) {
-                    var strayId = pStray.getAttribute('id');
-                    var strayMeasures = Array.from(pStray.getElementsByTagName('measure'));
-                    var spStray = doc.querySelector("score-part[id='" + strayId + "']");
-
-                    var choralCandidates = Array.from(doc.getElementsByTagName('part')).filter(function(p) {
-                        return p !== pStray && !isStrayVoiceName(partNames[p.getAttribute('id')] || '');
-                    });
-
-                    var hasSoprano2 = choralCandidates.some(function(c) {
-                        var nm = (partNames[c.getAttribute('id')] || '').toLowerCase();
-                        return /(?:soprano|sop|s)\s*2\b/i.test(nm);
-                    });
-
-                    // 1. Merge missing notes into best candidate choral staff (strictly prefer Soprano 2, NEVER Soprano 1 when S2 exists)
-                    var bestTarget = null;
-                    var maxCovered = 0;
-
-                    choralCandidates.forEach(function(pCand) {
-                        var candMeasures = Array.from(pCand.getElementsByTagName('measure'));
-                        var missingCovered = 0;
-                        var maxLen = Math.min(strayMeasures.length, candMeasures.length);
-                        for (var m = 0; m < maxLen; m++) {
-                            var vNotes = getNonRestCount(strayMeasures[m]);
-                            var cNotes = getNonRestCount(candMeasures[m]);
-                            if (vNotes > 0 && cNotes === 0) {
-                                missingCovered++;
-                            }
-                        }
-
-                        var candName = (partNames[pCand.getAttribute('id')] || '').toLowerCase();
-                        var isSop2 = /(?:soprano|sop|s)\s*2\b/i.test(candName);
-                        var isAlt2 = /(?:alto|a)\s*2\b/i.test(candName);
-                        var isSop1 = !isSop2 && candName.indexOf('sop') !== -1;
-
-                        var weighted = missingCovered * 10;
-                        if (isSop2) {
-                            weighted += 100; // Top priority: Soprano 2!
-                        } else if (isAlt2) {
-                            weighted += 60;
-                        } else if (isSop1) {
-                            if (hasSoprano2) {
-                                weighted = 0; // Strictly forbid merging stray voice notes into Soprano 1 when Soprano 2 exists!
-                            } else {
-                                weighted += 5;
-                            }
-                        }
-
-                        if (missingCovered > 0 && weighted > maxCovered) {
-                            maxCovered = weighted;
-                            bestTarget = pCand;
-                        }
-                    });
-
-                    if (bestTarget && maxCovered > 0) {
-                        console.log('[cleanMusicXmlDom] Merging missing measures from stray voice ' + strayId + ' into ' + bestTarget.getAttribute('id') + ' (' + partNames[bestTarget.getAttribute('id')] + ')');
-                        var candMeasures = Array.from(bestTarget.getElementsByTagName('measure'));
-                        var maxLen = Math.min(strayMeasures.length, candMeasures.length);
-                        for (var m = 0; m < maxLen; m++) {
-                            var vNotes = getNonRestCount(strayMeasures[m]);
-                            var cNotes = getNonRestCount(candMeasures[m]);
-                            if (vNotes > 0 && cNotes === 0) {
-                                var cloned = strayMeasures[m].cloneNode(true);
-                                var origNum = candMeasures[m].getAttribute('number') || (m + 1).toString();
-                                cloned.setAttribute('number', origNum);
-                                bestTarget.replaceChild(cloned, candMeasures[m]);
-                                candMeasures[m] = cloned;
-                            }
-                        }
-                    }
-
-                    // 2. UNCONDITIONALLY REMOVE THE STRAY VOICE PART (not necessary in choral score)
-                    console.log('[cleanMusicXmlDom] Purging unneeded stray voice part ' + strayId);
-                    if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
-                    if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
-                });
-            })();
-
-            // 0c. Harmonize Key Signatures Across Choral Ensemble (Page 17 Measure 59 key change fix)
-            (function harmonizeKeySignatures() {
-                var parts = Array.from(doc.getElementsByTagName('part'));
-                if (parts.length < 2) return;
-
-                var measureNumbers = new Set();
-                parts.forEach(function(p) {
-                    var ms = p.getElementsByTagName('measure');
-                    for (var i = 0; i < ms.length; i++) {
-                        var num = ms[i].getAttribute('number');
-                        if (num) measureNumbers.add(num);
-                    }
-                });
-
-                measureNumbers.forEach(function(mNum) {
-                    var keyElements = [];
-                    var fifthsCounts = {};
-                    parts.forEach(function(p) {
-                        var m = p.querySelector("measure[number='" + mNum + "']");
-                        if (m) {
-                            var k = m.querySelector('attributes > key, key');
-                            if (k) {
-                                var fEl = k.querySelector('fifths');
-                                if (fEl) {
-                                    var fVal = (fEl.textContent || '').trim();
-                                    fifthsCounts[fVal] = (fifthsCounts[fVal] || 0) + 1;
-                                    keyElements.push({ part: p, measure: m, key: k, fifths: fVal });
-                                }
-                            }
-                        }
-                    });
-
-                    if (keyElements.length === 0) return;
-
-                    var majorityFifths = null;
-                    var maxCount = -1;
-                    Object.keys(fifthsCounts).forEach(function(f) {
-                        if (fifthsCounts[f] > maxCount) {
-                            maxCount = fifthsCounts[f];
-                            majorityFifths = f;
-                        }
-                    });
-
-                    if (majorityFifths === null) return;
-
-                    parts.forEach(function(p) {
-                        var m = p.querySelector("measure[number='" + mNum + "']");
-                        if (!m) return;
-                        var attrs = m.querySelector('attributes');
-                        var k = m.querySelector('attributes > key, key');
-
-                        if (k) {
-                            var fEl = k.querySelector('fifths');
-                            if (fEl && (fEl.textContent || '').trim() !== majorityFifths) {
-                                fEl.textContent = majorityFifths;
-                            }
-                            var cancelEl = k.querySelector('cancel');
-                            if (cancelEl) {
-                                cancelEl.parentNode.removeChild(cancelEl);
-                            }
-                        } else if (keyElements.length >= Math.ceil(parts.length / 2)) {
-                            if (!attrs) {
-                                attrs = doc.createElement('attributes');
-                                m.insertBefore(attrs, m.firstChild);
-                            }
-                            var newKey = doc.createElement('key');
-                            var newFifths = doc.createElement('fifths');
-                            newFifths.textContent = majorityFifths;
-                            newKey.appendChild(newFifths);
-                            var newMode = doc.createElement('mode');
-                            newMode.textContent = 'major';
-                            newKey.appendChild(newMode);
-                            attrs.appendChild(newKey);
-                        }
-                    });
-                });
-            })();
-
-            // 0d. Fix Bass Cadence Whole Notes (Page 5 Measure 19: Bass whole note must be below staff, not inside staff)
-            (function fixBassCadenceWholeNotes() {
-                var pListElem = doc.getElementsByTagName('part-list')[0];
-                if (!pListElem) return;
-                var parts = Array.from(doc.getElementsByTagName('part'));
-
-                var bassParts = parts.filter(function(p) {
-                    var sp = pListElem.querySelector("score-part[id='" + p.getAttribute('id') + "']");
-                    var name = (sp && sp.querySelector('part-name') ? sp.querySelector('part-name').textContent : '').toLowerCase();
-                    var hasFClef = Array.from(p.querySelectorAll('clef > sign')).some(function(s) {
-                        return (s.textContent || '').trim().toUpperCase() === 'F';
-                    });
-                    return hasFClef || /\b(bass|b)\b/i.test(name);
-                });
-
-                bassParts.forEach(function(pBass) {
-                    var measures = Array.from(pBass.getElementsByTagName('measure'));
-                    measures.forEach(function(m) {
-                        var mNum = m.getAttribute('number');
-                        var notes = Array.from(m.getElementsByTagName('note'));
-                        notes.forEach(function(n) {
-                            var typeEl = n.querySelector('type');
-                            var isWhole = (typeEl && (typeEl.textContent || '').trim() === 'whole');
-                            if (isWhole || mNum === '19') {
-                                var pitch = n.querySelector('pitch');
-                                if (pitch) {
-                                    var stepEl = pitch.querySelector('step');
-                                    var octEl = pitch.querySelector('octave');
-                                    var step = stepEl ? (stepEl.textContent || '').trim().toUpperCase() : '';
-                                    var oct = octEl ? parseInt((octEl.textContent || '').trim(), 10) : 4;
-
-                                    if (mNum === '19') {
-                                        if (stepEl) stepEl.textContent = 'F';
-                                        if (octEl) octEl.textContent = '2';
-                                    } else if (isWhole && step === 'F' && oct >= 3) {
-                                        if (octEl) octEl.textContent = '2';
-                                    }
-                                }
-                            }
-                        });
-                    });
-                });
-            })();
+            // Neutralized: Preserve Audiveris authentic parts, key signatures, and pitches without mutation
+            (function reconcileShiftedChoralParts() {})();
+            (function harmonizeKeySignatures() {})();
+            (function fixBassCadenceWholeNotes() {})();
 
             // 1. Remove misplaced credit/copyright/annotation lyrics
             var creditKeywords = ['prepared', 'arranged by', 'arr.', 'composed by', 'music by', 'words by', 'lyrics by', 'copyright', 'all rights reserved', 'freely distributed', 'duplicated', 'performed', 'recorded', 'edition', 'published by', 'printed in', 'jedscott', '.com', '.org', '.net', 'http', 'www.', 'page '];
