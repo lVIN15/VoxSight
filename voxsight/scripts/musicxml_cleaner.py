@@ -292,43 +292,32 @@ def reconcile_choral_parts(root: ET.Element) -> bool:
     for p_stray in stray_parts:
         stray_id = p_stray.get('id')
         stray_m = p_stray.findall('measure')
-        stray_total_notes = sum(get_non_rest_note_count(m) for m in stray_m)
         sp_stray = p_list_elem.find(f"./score-part[@id='{stray_id}']")
-
-        if stray_total_notes == 0:
-            root.remove(p_stray)
-            if sp_stray is not None:
-                p_list_elem.remove(sp_stray)
-            changed = True
-            continue
 
         choral_candidates = [p for p in parts if p is not p_stray and not is_stray_voice_name(part_names.get(p.get('id'), ''))]
 
-        # 1. Complementary merge
+        # 1. Merge missing notes into best candidate choral staff (e.g. Soprano 2)
         best_target = None
-        best_score = -1
+        max_covered = 0
 
         for p_cand in choral_candidates:
             cand_m = p_cand.findall('measure')
             missing_covered = 0
-            conflicts = 0
             for idx in range(min(len(stray_m), len(cand_m))):
                 v_notes = get_non_rest_note_count(stray_m[idx])
                 c_notes = get_non_rest_note_count(cand_m[idx])
                 if v_notes > 0 and c_notes == 0:
                     missing_covered += 1
-                elif v_notes > 0 and c_notes > 0:
-                    conflicts += 1
 
-            if conflicts == 0 and missing_covered > 0:
-                score = missing_covered * 10
-                cand_name = part_names.get(p_cand.get('id'), '').lower()
-                if 'sop' in cand_name: score += 5
-                if score > best_score:
-                    best_score = score
-                    best_target = p_cand
+            cand_name = part_names.get(p_cand.get('id'), '').lower()
+            weighted = missing_covered * 10
+            if 'sop' in cand_name: weighted += 5
 
-        if best_target is not None:
+            if missing_covered > 0 and weighted > max_covered:
+                max_covered = weighted
+                best_target = p_cand
+
+        if best_target is not None and max_covered > 0:
             cand_m = best_target.findall('measure')
             for idx in range(min(len(stray_m), len(cand_m))):
                 v_notes = get_non_rest_note_count(stray_m[idx])
@@ -342,82 +331,11 @@ def reconcile_choral_parts(root: ET.Element) -> bool:
                     best_target.insert(target_idx, cloned_m)
                     cand_m[idx] = cloned_m
 
-            root.remove(p_stray)
-            if sp_stray is not None:
-                p_list_elem.remove(sp_stray)
-            changed = True
-            continue
-
-        # 2. 3-Way Shift Reconcile
-        split_idx = -1
-        for m_idx in range(len(stray_m)):
-            if get_non_rest_note_count(stray_m[m_idx]) > 0:
-                split_idx = m_idx
-                break
-                
-        if split_idx > 0 and get_non_rest_note_count(stray_m[0]) == 0:
-            p_tail = None
-            for p_cand in choral_candidates:
-                cand_m = p_cand.findall('measure')
-                n_before = sum(get_non_rest_note_count(cand_m[m]) for m in range(min(split_idx, len(cand_m))))
-                n_after = sum(get_non_rest_note_count(cand_m[m]) for m in range(split_idx, len(cand_m)))
-                if n_before > 0 and n_after == 0:
-                    p_tail = p_cand
-                    break
-                    
-            p_mid = None
-            for p_cand in choral_candidates:
-                if p_cand is p_tail: continue
-                c_name = part_names.get(p_cand.get('id'), '').lower()
-                if 'sop' in c_name:
-                    p_mid = p_cand
-                    break
-                    
-            if p_tail is not None and p_mid is not None:
-                p_tail_m = p_tail.findall('measure')
-                p_mid_m = p_mid.findall('measure')
-                max_m = max(len(p_tail_m), len(p_mid_m), len(stray_m))
-                for m in range(split_idx, max_m):
-                    m_tail = p_tail_m[m] if m < len(p_tail_m) else None
-                    m_mid = p_mid_m[m] if m < len(p_mid_m) else None
-                    m_stray = stray_m[m] if m < len(stray_m) else None
-                    
-                    if m_tail is not None and m_mid is not None:
-                        cloned_mid = copy.deepcopy(m_mid)
-                        cloned_mid.set('number', m_tail.get('number', str(m + 1)))
-                        t_idx = list(p_tail).index(m_tail)
-                        p_tail.remove(m_tail)
-                        p_tail.insert(t_idx, cloned_mid)
-                        p_tail_m[m] = cloned_mid
-                        
-                    if m_mid is not None and m_stray is not None:
-                        cloned_stray = copy.deepcopy(m_stray)
-                        cloned_stray.set('number', m_mid.get('number', str(m + 1)))
-                        m_idx_elem = list(p_mid).index(m_mid)
-                        p_mid.remove(m_mid)
-                        p_mid.insert(m_idx_elem, cloned_stray)
-                        p_mid_m[m] = cloned_stray
-                        
-                root.remove(p_stray)
-                if sp_stray is not None:
-                    p_list_elem.remove(sp_stray)
-                changed = True
-                continue
-
-        # 3. Lone soprano voice renaming
-        sop_parts = [p for p in choral_candidates if 'sop' in part_names.get(p.get('id'), '').lower()]
-        if len(sop_parts) == 1 and sp_stray is not None:
-            pn = sp_stray.find('part-name')
-            if pn is not None: pn.text = 'Soprano 2'
-            pa = sp_stray.find('part-abbreviation')
-            if pa is not None: pa.text = 'S2'
-            sp1 = p_list_elem.find(f"./score-part[@id='{sop_parts[0].get('id')}']")
-            if sp1 is not None:
-                pn1 = sp1.find('part-name')
-                if pn1 is not None: pn1.text = 'Soprano 1'
-                pa1 = sp1.find('part-abbreviation')
-                if pa1 is not None: pa1.text = 'S1'
-            changed = True
+        # 2. Unconditionally remove the stray voice part
+        root.remove(p_stray)
+        if sp_stray is not None:
+            p_list_elem.remove(sp_stray)
+        changed = True
 
     return changed
 

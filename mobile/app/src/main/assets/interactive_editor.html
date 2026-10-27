@@ -3093,7 +3093,7 @@
                 }
             });
 
-                        // 0b. Reconcile Audiveris Shifted Vocal Staves (Phantom Voice staff, shifted measures, and Soprano 2 reconciliation)
+                                    // 0b. Reconcile Audiveris Shifted Vocal Staves (Phantom Voice staff, shifted measures, and Soprano 2 reconciliation)
             (function reconcileShiftedChoralParts() {
                 var partsList = Array.from(doc.getElementsByTagName('part'));
                 var pListElem = doc.getElementsByTagName('part-list')[0];
@@ -3141,56 +3141,40 @@
                 strayParts.forEach(function(pStray) {
                     var strayId = pStray.getAttribute('id');
                     var strayMeasures = Array.from(pStray.getElementsByTagName('measure'));
-                    var strayTotalNotes = 0;
-                    for (var i = 0; i < strayMeasures.length; i++) {
-                        strayTotalNotes += getNonRestCount(strayMeasures[i]);
-                    }
-
                     var spStray = doc.querySelector("score-part[id='" + strayId + "']");
-
-                    // If stray part has 0 notes across the piece, purge it
-                    if (strayTotalNotes === 0) {
-                        if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
-                        if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
-                        return;
-                    }
 
                     var choralCandidates = Array.from(doc.getElementsByTagName('part')).filter(function(p) {
                         return p !== pStray && !isStrayVoiceName(partNames[p.getAttribute('id')] || '');
                     });
 
-                    // 1. Complementary Merge Check: A choral part has only rests where pStray has notes, and 0 conflicts
+                    // 1. Merge missing notes into best candidate choral staff (e.g. Soprano 2)
                     var bestTarget = null;
-                    var bestScore = -1;
+                    var maxCovered = 0;
 
                     choralCandidates.forEach(function(pCand) {
                         var candMeasures = Array.from(pCand.getElementsByTagName('measure'));
                         var missingCovered = 0;
-                        var conflicts = 0;
                         var maxLen = Math.min(strayMeasures.length, candMeasures.length);
                         for (var m = 0; m < maxLen; m++) {
                             var vNotes = getNonRestCount(strayMeasures[m]);
                             var cNotes = getNonRestCount(candMeasures[m]);
                             if (vNotes > 0 && cNotes === 0) {
                                 missingCovered++;
-                            } else if (vNotes > 0 && cNotes > 0) {
-                                conflicts++;
                             }
                         }
 
-                        if (conflicts === 0 && missingCovered > 0) {
-                            var score = missingCovered * 10;
-                            var candName = (partNames[pCand.getAttribute('id')] || '').toLowerCase();
-                            if (candName.indexOf('sop') !== -1) score += 5;
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestTarget = pCand;
-                            }
+                        var candName = (partNames[pCand.getAttribute('id')] || '').toLowerCase();
+                        var weighted = missingCovered * 10;
+                        if (candName.indexOf('sop') !== -1) weighted += 5;
+
+                        if (missingCovered > 0 && weighted > maxCovered) {
+                            maxCovered = weighted;
+                            bestTarget = pCand;
                         }
                     });
 
-                    if (bestTarget) {
-                        console.log('[cleanMusicXmlDom] Merging complementary stray voice ' + strayId + ' into ' + bestTarget.getAttribute('id') + ' (' + partNames[bestTarget.getAttribute('id')] + ')');
+                    if (bestTarget && maxCovered > 0) {
+                        console.log('[cleanMusicXmlDom] Merging missing measures from stray voice ' + strayId + ' into ' + bestTarget.getAttribute('id') + ' (' + partNames[bestTarget.getAttribute('id')] + ')');
                         var candMeasures = Array.from(bestTarget.getElementsByTagName('measure'));
                         var maxLen = Math.min(strayMeasures.length, candMeasures.length);
                         for (var m = 0; m < maxLen; m++) {
@@ -3204,101 +3188,12 @@
                                 candMeasures[m] = cloned;
                             }
                         }
-
-                        if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
-                        if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
-                        return;
                     }
 
-                    // 2. 3-Way Shift Reconcile (Voice has notes after splitIdx, S1 has notes throughout, S2 has rests after splitIdx)
-                    var splitIdx = -1;
-                    for (var m = 0; m < strayMeasures.length; m++) {
-                        if (getNonRestCount(strayMeasures[m]) > 0) {
-                            splitIdx = m;
-                            break;
-                        }
-                    }
-                    if (splitIdx > 0 && getNonRestCount(strayMeasures[0]) === 0) {
-                        var p_tail = null;
-                        for (var idx = 0; idx < choralCandidates.length; idx++) {
-                            var pi = choralCandidates[idx];
-                            var piMeasures = Array.from(pi.getElementsByTagName('measure'));
-                            var nBefore = 0;
-                            for (var m = 0; m < Math.min(splitIdx, piMeasures.length); m++) {
-                                nBefore += getNonRestCount(piMeasures[m]);
-                            }
-                            var nAfter = 0;
-                            for (var m = splitIdx; m < piMeasures.length; m++) {
-                                nAfter += getNonRestCount(piMeasures[m]);
-                            }
-                            if (nBefore > 0 && nAfter === 0) {
-                                p_tail = pi;
-                                break;
-                            }
-                        }
-
-                        var p_mid = null;
-                        for (var idx = 0; idx < choralCandidates.length; idx++) {
-                            if (choralCandidates[idx] === p_tail) continue;
-                            var pName = (partNames[choralCandidates[idx].getAttribute('id')] || '').toLowerCase();
-                            if (pName.indexOf('sop') !== -1 || pName.indexOf('voice') !== -1) {
-                                p_mid = choralCandidates[idx];
-                                break;
-                            }
-                        }
-
-                        if (p_tail && p_mid) {
-                            console.log('[cleanMusicXmlDom] Reconciling 3-way shifted stray voice ' + strayId + ' at split ' + splitIdx);
-                            var p_tail_m = Array.from(p_tail.getElementsByTagName('measure'));
-                            var p_mid_m = Array.from(p_mid.getElementsByTagName('measure'));
-                            var maxM = Math.max(p_tail_m.length, p_mid_m.length, strayMeasures.length);
-                            for (var m = splitIdx; m < maxM; m++) {
-                                var m_tail = (m < p_tail_m.length) ? p_tail_m[m] : null;
-                                var m_mid = (m < p_mid_m.length) ? p_mid_m[m] : null;
-                                var m_stray = (m < strayMeasures.length) ? strayMeasures[m] : null;
-
-                                var m_mid_clone = m_mid ? m_mid.cloneNode(true) : null;
-                                var m_stray_clone = m_stray ? m_stray.cloneNode(true) : null;
-
-                                if (m_tail && m_mid_clone) {
-                                    m_mid_clone.setAttribute('number', m_tail.getAttribute('number') || (m + 1).toString());
-                                    p_tail.replaceChild(m_mid_clone, m_tail);
-                                }
-                                if (m_mid && m_stray_clone) {
-                                    m_stray_clone.setAttribute('number', m_mid.getAttribute('number') || (m + 1).toString());
-                                    p_mid.replaceChild(m_stray_clone, m_mid);
-                                }
-                            }
-
-                            if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
-                            if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
-                            return;
-                        }
-                    }
-
-                    // 3. Rename stray Voice if only 1 Soprano exists
-                    var sopCandidates = choralCandidates.filter(function(p) {
-                        return (partNames[p.getAttribute('id')] || '').toLowerCase().indexOf('sop') !== -1;
-                    });
-                    if (sopCandidates.length === 1 && spStray) {
-                        var pn = spStray.querySelector('part-name');
-                        if (!pn) { pn = doc.createElement('part-name'); spStray.appendChild(pn); }
-                        pn.textContent = 'Soprano 2';
-                        var pa = spStray.querySelector('part-abbreviation');
-                        if (!pa) { pa = doc.createElement('part-abbreviation'); spStray.appendChild(pa); }
-                        pa.textContent = 'S2';
-
-                        var sp1 = doc.querySelector("score-part[id='" + sopCandidates[0].getAttribute('id') + "']");
-                        if (sp1) {
-                            var pn1 = sp1.querySelector('part-name');
-                            if (!pn1) { pn1 = doc.createElement('part-name'); sp1.appendChild(pn1); }
-                            pn1.textContent = 'Soprano 1';
-                            var pa1 = sp1.querySelector('part-abbreviation');
-                            if (!pa1) { pa1 = doc.createElement('part-abbreviation'); sp1.appendChild(pa1); }
-                            pa1.textContent = 'S1';
-                        }
-                        console.log('[cleanMusicXmlDom] Renamed lone stray voice ' + strayId + ' to Soprano 2');
-                    }
+                    // 2. UNCONDITIONALLY REMOVE THE STRAY VOICE PART (not necessary in choral score)
+                    console.log('[cleanMusicXmlDom] Purging unneeded stray voice part ' + strayId);
+                    if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
+                    if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
                 });
             })();
 
@@ -4022,7 +3917,7 @@
                 var scoreParts = Array.from(pList.getElementsByTagName('score-part'));
                 if (scoreParts.length <= 1) return;
 
-                                // Safety purge of empty stray parts
+                                                // Unconditional purge of any stray or voice parts in choral scores
                 var allParts = Array.from(doc.getElementsByTagName('part'));
                 var hasAuthenticChoral = allParts.some(function(p) {
                     var sp = doc.querySelector("score-part[id='" + p.getAttribute('id') + "']");
@@ -4033,17 +3928,11 @@
                     allParts.forEach(function(p) {
                         var pid = p.getAttribute('id');
                         var sp = doc.querySelector("score-part[id='" + pid + "']");
-                        var name = (sp && sp.querySelector('part-name') ? sp.querySelector('part-name').textContent : '').trim();
-                        if (getVoiceOrderRank(name) >= 100) {
-                            var notes = p.getElementsByTagName('note');
-                            var nonRest = 0;
-                            for (var i = 0; i < notes.length; i++) {
-                                if (notes[i].getElementsByTagName('rest').length === 0) nonRest++;
-                            }
-                            if (nonRest === 0) {
-                                if (p.parentNode) p.parentNode.removeChild(p);
-                                if (sp && sp.parentNode) sp.parentNode.removeChild(sp);
-                            }
+                        var name = (sp && sp.querySelector('part-name') ? sp.querySelector('part-name').textContent : '').trim().toLowerCase();
+                        if (name.indexOf('voice') !== -1 || isStrayVoiceName(name)) {
+                            console.log('[sortChoralParts] Purging unneeded voice part ' + pid + ' (' + name + ')');
+                            if (p.parentNode) p.parentNode.removeChild(p);
+                            if (sp && sp.parentNode) sp.parentNode.removeChild(sp);
                         }
                     });
                 }
