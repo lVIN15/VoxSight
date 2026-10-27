@@ -133,15 +133,17 @@ fun resolveErrorDialogData(rawError: String): VoxErrorDialogData {
         }
 
         lower.contains("network error") || lower.contains("timeout") ||
-        lower.contains("connect") || lower.contains("503") || lower.contains("502") || lower.contains("504") -> {
+        lower.contains("connect") || lower.contains("503") || lower.contains("502") || lower.contains("504") ||
+        lower.contains("unable to resolve host") || lower.contains("no address associated") ||
+        lower.contains("unknownhost") || lower.contains("no internet connection") -> {
             VoxErrorDialogData(
-                title = "Connection Problem",
-                message = "Unable to communicate with the VoxSight transcription server. The service may be busy or unreachable.",
+                title = "No Internet Connection",
+                message = "Unable to reach the server. Please check your Wi-Fi or mobile data connection and try again.",
                 details = listOf(
-                    "Check if Wi-Fi or mobile data is connected",
-                    "The server may be processing another score"
+                    "Verify Wi-Fi or mobile data is enabled and active",
+                    "Check if your device is in Airplane Mode or SOS Only"
                 ),
-                actionableTip = "Tip: Verify your internet connection and tap retry in a few moments.",
+                actionableTip = "Tip: Reconnect to the internet and tap retry.",
                 category = ErrorCategory.NETWORK_CONNECTION,
                 primaryButtonText = "RETRY"
             )

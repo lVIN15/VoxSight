@@ -346,10 +346,16 @@ object UploadManager {
                 activeProgressJob = null
                 ScoreUploadService.stop(appContext)
 
-                val err = if (e is java.io.InterruptedIOException || e.message?.contains("timeout", ignoreCase = true) == true) {
-                    "Connection timed out. Please verify your connection and try again."
-                } else {
-                    "Upload Error: ${e.message}"
+                val err = when {
+                    e is java.net.UnknownHostException || e.message?.contains("Unable to resolve host", ignoreCase = true) == true -> {
+                        "No internet connection. Please check your Wi-Fi or mobile data and try again."
+                    }
+                    e is java.io.InterruptedIOException || e.message?.contains("timeout", ignoreCase = true) == true -> {
+                        "Connection timed out. Please verify your connection and try again."
+                    }
+                    else -> {
+                        "Upload Error: ${e.message ?: "An unexpected error occurred."}"
+                    }
                 }
                 activeError = err
                 activeErrorFlow.value = err
