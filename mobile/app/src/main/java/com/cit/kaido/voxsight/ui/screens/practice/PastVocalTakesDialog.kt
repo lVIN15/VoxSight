@@ -71,6 +71,7 @@ fun PastVocalTakesDialog(
         mutableStateOf(ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle))
     }
     var activePlayingFile by remember { mutableStateOf<File?>(null) }
+    var summaryDialogTake by remember { mutableStateOf<Pair<ScoreRecordingItem, Int>?>(null) }
 
     val player = remember { PerformanceAudioPlayer() }
 
@@ -225,6 +226,9 @@ fun PastVocalTakesDialog(
                                     }
                                     ScoreRecordingManager.deleteRecording(item.file)
                                     recordings = ScoreRecordingManager.getRecordings(context, scoreId = scoreId, scoreTitle = scoreTitle)
+                                },
+                                onViewSummary = {
+                                    summaryDialogTake = Pair(item, recordings.size - index)
                                 }
                             )
                         }
@@ -251,6 +255,14 @@ fun PastVocalTakesDialog(
             }
         }
     }
+
+    summaryDialogTake?.let { (takeItem, takeNum) ->
+        TakeSummaryFeedbackDialog(
+            item = takeItem,
+            takeNumber = takeNum,
+            onDismiss = { summaryDialogTake = null }
+        )
+    }
 }
 
 @Composable
@@ -265,7 +277,8 @@ private fun TakeCardItem(
     onPlayPause: () -> Unit,
     onSeek: (Int) -> Unit,
     onSpeedChange: (Float) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onViewSummary: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier
@@ -315,7 +328,7 @@ private fun TakeCardItem(
                             color = Color(0xFF191C20)
                         )
                         item.accuracyPercentage?.let { acc ->
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             val accColor = when {
                                 acc >= 80 -> Color(0xFF2E7D32)
                                 acc >= 60 -> Color(0xFFE65100)
@@ -337,13 +350,65 @@ private fun TakeCardItem(
                                 )
                             }
                         }
+                        item.accuracyDelta?.let { delta ->
+                            Spacer(modifier = Modifier.width(5.dp))
+                            val isPositive = delta > 0
+                            val isNegative = delta < 0
+                            val deltaColor = when {
+                                isPositive -> Color(0xFF2E7D32)
+                                isNegative -> Color(0xFFC62828)
+                                else -> Color.Gray
+                            }
+                            val deltaText = when {
+                                isPositive -> "+$delta% ↗"
+                                isNegative -> "$delta% ↘"
+                                else -> "0% ="
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(deltaColor.copy(alpha = 0.12f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = deltaText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.sp
+                                    ),
+                                    color = deltaColor
+                                )
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.formattedDate,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = Color.Gray
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.formattedDate,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = Color.Gray
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(VoxPurplePrimary.copy(alpha = 0.08f))
+                                .clickable { onViewSummary() }
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "View Summary",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                color = VoxPurplePrimary
+                            )
+                        }
+                    }
                 }
 
                 // Delete Button

@@ -195,7 +195,41 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
         if (file != null && file.exists()) {
             val summary = getSessionSummary()
             val acc = summary.accuracyPercentage.toInt()
-            val finalFile = com.cit.kaido.voxsight.storage.ScoreRecordingManager.tagRecordingFileWithAccuracy(file, acc)
+            val activeSatb = _pitchAttempts.value.firstOrNull {
+                it.satbVoice != com.cit.kaido.voxsight.model.SATBVoice.UNKNOWN
+            }?.satbVoice?.name
+
+            val summaryData = com.cit.kaido.voxsight.storage.TakeSummaryData(
+                accuracyPercentage = summary.accuracyPercentage,
+                totalNotesAttempted = summary.totalNotesAttempted,
+                correctNotes = summary.correctNotes,
+                averageDeviationCents = summary.averageDeviationCents,
+                satbVoice = activeSatb,
+                vocalHighlightHighest = summary.vocalHighlight?.highestNote,
+                vocalHighlightLowest = summary.vocalHighlight?.lowestNote,
+                problematicNotes = summary.problematicNotes.map {
+                    com.cit.kaido.voxsight.storage.ProblematicNoteData(
+                        noteName = it.noteName,
+                        averageDeviation = it.averageDeviation,
+                        isSharp = it.isSharp
+                    )
+                },
+                topProblematicMeasure = summary.topProblematicMeasure?.let {
+                    com.cit.kaido.voxsight.storage.ProblematicMeasureData(
+                        measureNumber = it.measureNumber,
+                        mistakeCount = it.mistakeCount,
+                        totalNotes = it.totalNotes,
+                        isSharp = it.isSharp,
+                        averageDeviation = it.averageDeviation
+                    )
+                }
+            )
+
+            val finalFile = com.cit.kaido.voxsight.storage.ScoreRecordingManager.tagRecordingFileWithAccuracy(
+                file,
+                acc,
+                summaryData
+            )
             lastRecordingFile = finalFile
         } else {
             lastRecordingFile = file
