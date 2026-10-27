@@ -126,6 +126,78 @@
             transform: scale(0.92);
         }
 
+        /* Floating Page Navigator (For multi-page scores) */
+        #page-controls {
+            position: fixed;
+            bottom: 38px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid #E0D4ED;
+            border-radius: 999px;
+            padding: 4px 10px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 16px rgba(91, 45, 142, 0.18);
+            z-index: 150;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .page-nav-btn {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border: none;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-size: 16px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.15s ease;
+            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.25);
+            flex-shrink: 0;
+        }
+
+        .page-nav-btn:disabled {
+            background: #E0D4ED;
+            color: #A38EC3;
+            cursor: not-allowed;
+            opacity: 0.6;
+            box-shadow: none;
+        }
+
+        .page-nav-btn:not(:disabled):hover {
+            background: #7C3AED;
+            transform: scale(1.08);
+        }
+
+        .page-nav-btn:not(:disabled):active {
+            background: #3E1A63;
+            transform: scale(0.92);
+        }
+
+        #page-indicator {
+            font-size: 12px;
+            font-weight: 600;
+            color: #1A1A2E;
+            white-space: nowrap;
+            padding: 0 4px;
+            cursor: pointer;
+        }
+
+        #page-indicator b {
+            color: #5B2D8E;
+            font-weight: 800;
+        }
+
         /* Loading overlay */
         .loading-overlay {
             position: fixed;
@@ -388,6 +460,13 @@
         <button class="stepper-close" onclick="closeMultiRestPanel()" title="Close">✕</button>
     </div>
 
+    <!-- Floating Page Navigator (For multi-page scores) -->
+    <div id="page-controls">
+        <button id="btn-prev-page" class="page-nav-btn" onclick="prevPage()" title="Previous Page">‹</button>
+        <span id="page-indicator" onclick="promptPageJump()" title="Tap to jump to page">Page <b id="current-page-num">1</b> of <span id="total-pages-num">1</span></span>
+        <button id="btn-next-page" class="page-nav-btn" onclick="nextPage()" title="Next Page">›</button>
+    </div>
+
     <div id="status-bar">
         <span id="status-text">Ready</span>
         <span id="editor-hint">Tap notes to edit</span>
@@ -412,6 +491,8 @@
         // multiRestMeasures: array of mapped multimeasure rests for hit-testing & editing
         let multiRestMeasures = [];
         let selectedMultiRest = null;
+        let scorePageRanges = [];
+        let currentPage = 1;
 
         const scoreContainer = document.getElementById('score-container');
         const renderDiv = document.getElementById('osmd-render');
@@ -424,8 +505,9 @@
             osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
                 backend: 'svg',
                 autoResize: false,
+                pageFormat: 'Endless',
+                newPageFromXML: false,
                 newSystemFromXML: true,
-                newPageFromXML: true,
                 drawTitle: true,
                 drawComposer: true,
                 drawPartNames: true,
@@ -445,10 +527,176 @@
             if (osmd.rules) {
                 osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
                 osmd.rules.RenderMultipleRestMeasures = true;
+                osmd.rules.BetweenStaffDistance = 5.0;
+                osmd.rules.StaffDistance = 6.0;
+                osmd.rules.MinimumStaffDistance = 4.0;
             }
             highlightCtx = canvas.getContext('2d');
             updateStatus('Editor Ready');
         }
+
+        // ─── Score Pagination & Chunked Rendering Helpers ────────────────────
+        function extractPageMeasureRanges(doc) {
+            if (!doc) return [{ page: 1, startMeasureIndex: 0, endMeasureIndex: 0, startMeasureNumber: 1, endMeasureNumber: 1 }];
+            var parts = Array.from(doc.getElementsByTagName('part'));
+            if (parts.length === 0) return [{ page: 1, startMeasureIndex: 0, endMeasureIndex: 0, startMeasureNumber: 1, endMeasureNumber: 1 }];
+
+            var firstPart = parts[0];
+            var measures = Array.from(firstPart.getElementsByTagName('measure'));
+            if (measures.length === 0) return [{ page: 1, startMeasureIndex: 0, endMeasureIndex: 0, startMeasureNumber: 1, endMeasureNumber: 1 }];
+
+            var pages = [];
+            var curPageStartIdx = 0;
+            var curPageNum = 1;
+            var hasExplicitPages = false;
+
+            for (var mIdx = 0; mIdx < measures.length; mIdx++) {
+                var mElem = measures[mIdx];
+                var printElem = mElem.querySelector('print');
+                var isNewPage = false;
+
+                if (printElem) {
+                    var newPageAttr = printElem.getAttribute('new-page');
+                    var pageNumAttr = printElem.getAttribute('page-number');
+                    if (newPageAttr === 'yes' || (pageNumAttr && parseInt(pageNumAttr, 10) > curPageNum)) {
+                        isNewPage = true;
+                        hasExplicitPages = true;
+                    }
+                }
+
+                if (isNewPage && mIdx > 0) {
+                    var startMNum = parseInt(measures[curPageStartIdx].getAttribute('number') || String(curPageStartIdx + 1), 10);
+                    var endMNum = parseInt(measures[mIdx - 1].getAttribute('number') || String(mIdx), 10);
+                    pages.push({
+                        page: curPageNum,
+                        startMeasureIndex: curPageStartIdx,
+                        endMeasureIndex: mIdx - 1,
+                        startMeasureNumber: isNaN(startMNum) ? (curPageStartIdx + 1) : startMNum,
+                        endMeasureNumber: isNaN(endMNum) ? mIdx : endMNum
+                    });
+                    curPageNum++;
+                    curPageStartIdx = mIdx;
+                }
+            }
+
+            var finalStartMNum = parseInt(measures[curPageStartIdx].getAttribute('number') || String(curPageStartIdx + 1), 10);
+            var finalEndMNum = parseInt(measures[measures.length - 1].getAttribute('number') || String(measures.length), 10);
+            pages.push({
+                page: curPageNum,
+                startMeasureIndex: curPageStartIdx,
+                endMeasureIndex: measures.length - 1,
+                startMeasureNumber: isNaN(finalStartMNum) ? (curPageStartIdx + 1) : finalStartMNum,
+                endMeasureNumber: isNaN(finalEndMNum) ? measures.length : finalEndMNum
+            });
+
+            // Chunk unpaginated long scores into 8-measure pages to avoid WebView freeze
+            if (!hasExplicitPages && measures.length > 12) {
+                pages = [];
+                var CHUNK_SIZE = 8;
+                curPageNum = 1;
+                for (var i = 0; i < measures.length; i += CHUNK_SIZE) {
+                    var endI = Math.min(i + CHUNK_SIZE - 1, measures.length - 1);
+                    var sNum = parseInt(measures[i].getAttribute('number') || String(i + 1), 10);
+                    var eNum = parseInt(measures[endI].getAttribute('number') || String(endI + 1), 10);
+                    pages.push({
+                        page: curPageNum++,
+                        startMeasureIndex: i,
+                        endMeasureIndex: endI,
+                        startMeasureNumber: isNaN(sNum) ? (i + 1) : sNum,
+                        endMeasureNumber: isNaN(eNum) ? (endI + 1) : eNum
+                    });
+                }
+            }
+
+            return pages;
+        }
+
+        function renderCurrentPage() {
+            if (!osmd || !scorePageRanges || scorePageRanges.length === 0) return;
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > scorePageRanges.length) currentPage = scorePageRanges.length;
+
+            var pageInfo = scorePageRanges[currentPage - 1];
+            if (scorePageRanges.length > 1 && pageInfo) {
+                osmd.rules.MinMeasureToDrawIndex = pageInfo.startMeasureIndex;
+                osmd.rules.MaxMeasureToDrawIndex = pageInfo.endMeasureIndex;
+                osmd.rules.MinMeasureToDrawNumber = pageInfo.startMeasureNumber;
+                osmd.rules.MaxMeasureToDrawNumber = pageInfo.endMeasureNumber;
+            } else {
+                osmd.rules.MinMeasureToDrawIndex = 0;
+                osmd.rules.MaxMeasureToDrawIndex = Number.MAX_VALUE;
+                osmd.rules.MinMeasureToDrawNumber = 0;
+                osmd.rules.MaxMeasureToDrawNumber = Number.MAX_VALUE;
+            }
+
+            osmd.render();
+            resizeCanvas();
+            buildNoteMap();
+            updatePageControlsUI();
+
+            if (selectedNoteId !== null && noteMap.has(selectedNoteId)) {
+                drawHighlight(selectedNoteId);
+            } else {
+                clearHighlights();
+            }
+        }
+
+        function goToPage(page) {
+            if (page < 1 || page > scorePageRanges.length) return;
+            currentPage = page;
+            renderCurrentPage();
+            if (scoreContainer) scoreContainer.scrollTop = 0;
+        }
+
+        function nextPage() {
+            if (currentPage < scorePageRanges.length) {
+                goToPage(currentPage + 1);
+            }
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                goToPage(currentPage - 1);
+            }
+        }
+
+        function promptPageJump() {
+            if (scorePageRanges.length <= 1) return;
+            var target = prompt('Go to page (1-' + scorePageRanges.length + '):', String(currentPage));
+            if (target) {
+                var p = parseInt(target, 10);
+                if (!isNaN(p) && p >= 1 && p <= scorePageRanges.length) {
+                    goToPage(p);
+                }
+            }
+        }
+
+        function updatePageControlsUI() {
+            var pageControls = document.getElementById('page-controls');
+            var curPageEl = document.getElementById('current-page-num');
+            var totalPagesEl = document.getElementById('total-pages-num');
+            var prevBtn = document.getElementById('btn-prev-page');
+            var nextBtn = document.getElementById('btn-next-page');
+
+            if (!pageControls) return;
+
+            if (scorePageRanges.length > 1) {
+                pageControls.style.display = 'flex';
+                if (curPageEl) curPageEl.textContent = String(currentPage);
+                if (totalPagesEl) totalPagesEl.textContent = String(scorePageRanges.length);
+                if (prevBtn) prevBtn.disabled = (currentPage <= 1);
+                if (nextBtn) nextBtn.disabled = (currentPage >= scorePageRanges.length);
+            } else {
+                pageControls.style.display = 'none';
+            }
+        }
+
+        window.goToPage = goToPage;
+        window.nextPage = nextPage;
+        window.prevPage = prevPage;
+        window.promptPageJump = promptPageJump;
+        window.getCurrentPage = function() { return currentPage; };
+        window.getTotalPages = function() { return scorePageRanges.length; };
 
         // ─── Helper: DFS to find all GraphicalNote objects (proven approach from renderer.html) ──
         function findGraphicalNotes(obj, visited, results) {
@@ -636,6 +884,9 @@
 
                     // Stamp stable IDs on XML notes that don't already have one.
                     stampNoteIds();
+
+                    scorePageRanges = extractPageMeasureRanges(xmlDoc);
+                    currentPage = 1;
                 }
 
                 // Strip data-vx-id attributes before passing to OSMD.
@@ -646,13 +897,10 @@
 
                 await osmd.load(cleanXml);
                 osmd.zoom = currentZoom;
-                osmd.render();
-
-                resizeCanvas();
-                buildNoteMap();
+                renderCurrentPage();
 
                 loadingOverlay.classList.add('hidden');
-                updateStatus('Score loaded – ' + noteMap.size + ' elements – tap to edit');
+                updateStatus('Score loaded – ' + noteMap.size + ' elements on page – tap to edit');
 
                 // Re-draw selection highlight if a note was previously selected
                 if (selectedNoteId !== null) {
@@ -3077,20 +3325,38 @@
             var parts = doc.getElementsByTagName('part');
             if (!partList || parts.length < 2) return;
 
-            var nameMap = {
-                's': 'Soprano', 'sop': 'Soprano', 'sopr': 'Soprano', 'soprano': 'Soprano',
-                'a': 'Alto', 'alt': 'Alto', 'alto': 'Alto',
-                't': 'Tenor', 'ten': 'Tenor', 'tenor': 'Tenor',
-                'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass'
-            };
-
-            var tier1Names = new Set(['s', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto', 's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto', 'women', 'treble', 's1', 's2', 'a1', 'a2']);
-            var tier2Names = new Set(['t', 'ten', 'tenor', 'b', 'bas', 'bass', 't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass', 'men', 't1', 't2', 'b1', 'b2']);
+            function normalizeChoralPartName(rawName) {
+                if (!rawName) return '';
+                var sClean = rawName.trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                var m = sClean.match(/^(soprano|sopr|sop|s)([1-4]?)$/);
+                if (m) return m[2] ? ('Soprano ' + m[2]) : 'Soprano';
+                m = sClean.match(/^(alto|alt|a|contralto)([1-4]?)$/);
+                if (m) return m[2] ? ('Alto ' + m[2]) : 'Alto';
+                m = sClean.match(/^(tenor|ten|t)([1-4]?)$/);
+                if (m) return m[2] ? ('Tenor ' + m[2]) : 'Tenor';
+                m = sClean.match(/^(bass|bas|b)([1-4]?)$/);
+                if (m) return m[2] ? ('Bass ' + m[2]) : 'Bass';
+                m = sClean.match(/^(baritone|bar)([1-4]?)$/);
+                if (m) return m[2] ? ('Baritone ' + m[2]) : 'Baritone';
+                if (/^(sa|sopranoalto)$/.test(sClean)) return 'Soprano / Alto';
+                if (/^(tb|tenorbass)$/.test(sClean)) return 'Tenor / Bass';
+                return rawName;
+            }
 
             function getChoralTier(n) {
-                var s = (n || '').trim().toLowerCase();
-                if (tier1Names.has(s)) return 1;
-                if (tier2Names.has(s)) return 2;
+                if (!n) return 0;
+                var s = n.trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                if (/^(soprano|sopr|sop|s)[1-4]?$/.test(s) ||
+                    /^(alto|alt|a|contralto|mezzo|mezzosoprano)[1-4]?$/.test(s) ||
+                    /^(sa|sopranoalto|women|treble)[1-4]?$/.test(s)) {
+                    return 1;
+                }
+                if (/^(tenor|ten|t)[1-4]?$/.test(s) ||
+                    /^(baritone|bar)[1-4]?$/.test(s) ||
+                    /^(bass|bas|b)[1-4]?$/.test(s) ||
+                    /^(tb|tenorbass|men)[1-4]?$/.test(s)) {
+                    return 2;
+                }
                 return 0;
             }
 
@@ -3137,7 +3403,7 @@
                 var sp = doc.querySelector("score-part[id='" + pid + "']");
                 var rawName = (sp && sp.getElementsByTagName('part-name')[0]) ? sp.getElementsByTagName('part-name')[0].textContent.trim() : pid;
                 var rawAbbr = (sp && sp.getElementsByTagName('part-abbreviation')[0]) ? sp.getElementsByTagName('part-abbreviation')[0].textContent.trim() : rawName;
-                var normName = nameMap[rawName.toLowerCase()] || rawName;
+                var normName = normalizeChoralPartName(rawName);
                 var tier = getChoralTier(rawName);
 
                 var nameLower = rawName.toLowerCase();
@@ -3205,7 +3471,8 @@
             }
 
             // Strategy B: Position-based Universal Solo Detection (when Audiveris labels everything "Voice")
-            if (!partInfo.some(function(info) { return info.isSolo; })) {
+            var hasChoralParts = partInfo.some(function(info) { return info.tier >= 1 && info.tier <= 4; });
+            if (!hasChoralParts && !partInfo.some(function(info) { return info.isSolo; })) {
                 var nonAccompParts = partInfo.filter(function(info) { return !info.isAccomp; });
                 var measureActiveParts = {};
                 nonAccompParts.forEach(function(info) {
@@ -3369,6 +3636,11 @@
 
                         // Never merge a Solo part with a non-Solo part, or an Accompaniment with a Vocal part
                         if (p1.isSolo !== p2.isSolo || p1.isAccomp !== p2.isAccomp) continue;
+
+                        // NEVER merge distinct named voice parts (e.g. Soprano 1 vs Soprano 2, Alto 1 vs Alto 2, Tenor vs Bass)!
+                        if (p1.normName.toLowerCase() !== p2.normName.toLowerCase()) {
+                            if (p1.tier > 0 || p2.tier > 0) continue;
+                        }
 
                         var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || (partInfo.length === 8 && j === i + 4);
                         if (nameMatch) {

@@ -784,8 +784,9 @@
             osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(renderDiv, {
                 backend: 'svg',
                 autoResize: false,
+                pageFormat: 'Endless',
+                newPageFromXML: false,
                 newSystemFromXML: true,
-                newPageFromXML: true,
                 drawTitle: true,
                 drawComposer: true,
                 drawPartNames: true,
@@ -811,6 +812,9 @@
                 osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
                 osmd.rules.RenderMultipleRestMeasures = true;
                 osmd.rules.DrawCredits = false;
+                osmd.rules.BetweenStaffDistance = 5.0;
+                osmd.rules.StaffDistance = 6.0;
+                osmd.rules.MinimumStaffDistance = 4.0;
             }
 
             highlightCtx = canvas.getContext('2d');
@@ -2162,20 +2166,38 @@
             var parts = doc.getElementsByTagName('part');
             if (!partList || parts.length < 2) return;
 
-            var nameMap = {
-                's': 'Soprano', 'sop': 'Soprano', 'sopr': 'Soprano', 'soprano': 'Soprano',
-                'a': 'Alto', 'alt': 'Alto', 'alto': 'Alto',
-                't': 'Tenor', 'ten': 'Tenor', 'tenor': 'Tenor',
-                'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass'
-            };
-
-            var tier1Names = new Set(['s', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto', 's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto', 'women', 'treble', 's1', 's2', 'a1', 'a2']);
-            var tier2Names = new Set(['t', 'ten', 'tenor', 'b', 'bas', 'bass', 't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass', 'men', 't1', 't2', 'b1', 'b2']);
+            function normalizeChoralPartName(rawName) {
+                if (!rawName) return '';
+                var sClean = rawName.trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                var m = sClean.match(/^(soprano|sopr|sop|s)([1-4]?)$/);
+                if (m) return m[2] ? ('Soprano ' + m[2]) : 'Soprano';
+                m = sClean.match(/^(alto|alt|a|contralto)([1-4]?)$/);
+                if (m) return m[2] ? ('Alto ' + m[2]) : 'Alto';
+                m = sClean.match(/^(tenor|ten|t)([1-4]?)$/);
+                if (m) return m[2] ? ('Tenor ' + m[2]) : 'Tenor';
+                m = sClean.match(/^(bass|bas|b)([1-4]?)$/);
+                if (m) return m[2] ? ('Bass ' + m[2]) : 'Bass';
+                m = sClean.match(/^(baritone|bar)([1-4]?)$/);
+                if (m) return m[2] ? ('Baritone ' + m[2]) : 'Baritone';
+                if (/^(sa|sopranoalto)$/.test(sClean)) return 'Soprano / Alto';
+                if (/^(tb|tenorbass)$/.test(sClean)) return 'Tenor / Bass';
+                return rawName;
+            }
 
             function getChoralTier(n) {
-                var s = (n || '').trim().toLowerCase();
-                if (tier1Names.has(s)) return 1;
-                if (tier2Names.has(s)) return 2;
+                if (!n) return 0;
+                var s = n.trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                if (/^(soprano|sopr|sop|s)[1-4]?$/.test(s) ||
+                    /^(alto|alt|a|contralto|mezzo|mezzosoprano)[1-4]?$/.test(s) ||
+                    /^(sa|sopranoalto|women|treble)[1-4]?$/.test(s)) {
+                    return 1;
+                }
+                if (/^(tenor|ten|t)[1-4]?$/.test(s) ||
+                    /^(baritone|bar)[1-4]?$/.test(s) ||
+                    /^(bass|bas|b)[1-4]?$/.test(s) ||
+                    /^(tb|tenorbass|men)[1-4]?$/.test(s)) {
+                    return 2;
+                }
                 return 0;
             }
 
@@ -2222,7 +2244,7 @@
                 var sp = doc.querySelector("score-part[id='" + pid + "']");
                 var rawName = (sp && sp.getElementsByTagName('part-name')[0]) ? sp.getElementsByTagName('part-name')[0].textContent.trim() : pid;
                 var rawAbbr = (sp && sp.getElementsByTagName('part-abbreviation')[0]) ? sp.getElementsByTagName('part-abbreviation')[0].textContent.trim() : rawName;
-                var normName = nameMap[rawName.toLowerCase()] || rawName;
+                var normName = normalizeChoralPartName(rawName);
                 var tier = getChoralTier(rawName);
 
                 var nameLower = rawName.toLowerCase();
@@ -2296,7 +2318,8 @@
             }
 
             // Strategy B: Position-based Universal Solo Detection (when Audiveris labels everything "Voice")
-            if (!partInfo.some(function(info) { return info.isSolo; })) {
+            var hasChoralParts = partInfo.some(function(info) { return info.tier >= 1 && info.tier <= 4; });
+            if (!hasChoralParts && !partInfo.some(function(info) { return info.isSolo; })) {
                 var nonAccompParts = partInfo.filter(function(info) { return !info.isAccomp; });
                 var measureActiveParts = {};
                 nonAccompParts.forEach(function(info) {
@@ -2448,18 +2471,23 @@
 
             var mergedPids = new Set();
             var mergePairs = [];
-            for (var i = 0; i < partInfo.length; i++) {
-                var p1 = partInfo[i];
-                if (mergedPids.has(p1.pid)) continue;
-                for (var j = i + 1; j < partInfo.length; j++) {
-                    var p2 = partInfo[j];
-                    if (mergedPids.has(p2.pid)) continue;
+            if (partInfo.length > 4) {
+                for (var i = 0; i < partInfo.length; i++) {
+                    var p1 = partInfo[i];
+                    if (mergedPids.has(p1.pid)) continue;
+                    for (var j = i + 1; j < partInfo.length; j++) {
+                        var p2 = partInfo[j];
+                        if (mergedPids.has(p2.pid)) continue;
 
-                    // Never merge a Solo part with a non-Solo part, or an Accompaniment with a Vocal part
-                    if (p1.isSolo !== p2.isSolo || p1.isAccomp !== p2.isAccomp) continue;
+                        // Never merge a Solo part with a non-Solo part, or an Accompaniment with a Vocal part
+                        if (p1.isSolo !== p2.isSolo || p1.isAccomp !== p2.isAccomp) continue;
 
-                    var tierMatch = (p1.tier !== 0 && p1.tier === p2.tier);
-                    var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || tierMatch || (partInfo.length === 8 && j === i + 4);
+                        // NEVER merge distinct named voice parts (e.g. Soprano 1 vs Soprano 2, Alto 1 vs Alto 2, Tenor vs Bass)!
+                        if (p1.normName.toLowerCase() !== p2.normName.toLowerCase()) {
+                            if (p1.tier > 0 || p2.tier > 0) continue;
+                        }
+
+                        var nameMatch = (p1.normName.toLowerCase() === p2.normName.toLowerCase()) || (partInfo.length === 8 && j === i + 4);
                     if (nameMatch) {
                         var n1 = p1.normName.toLowerCase();
                         var n2 = p2.normName.toLowerCase();
@@ -2489,6 +2517,8 @@
                         }
                     }
                 }
+            }
+
             }
 
             for (var i = 0; i < mergePairs.length; i++) {
