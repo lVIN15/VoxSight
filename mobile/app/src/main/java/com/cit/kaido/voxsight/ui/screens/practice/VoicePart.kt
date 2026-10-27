@@ -8,19 +8,20 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
 enum class VoicePart(val label: String, val shortLabel: String, val color: Color) {
-    Soprano("Soprano", "S.", Color(0xFFE91E63)),
-    Soprano1("Soprano 1", "S1", Color(0xFFFF1493)),
-    Soprano2("Soprano 2", "S2", Color(0xFFD50000)),
+    Soprano("Soprano", "S.", Color(0xFFE11D48)),
+    Soprano1("Soprano 1", "S1", Color(0xFFFB7185)),
+    Soprano2("Soprano 2", "S2", Color(0xFF881337)),
     Alto("Alto", "A.", Color(0xFF8E24AA)),
-    Alto1("Alto 1", "A1", Color(0xFFAB47BC)),
-    Alto2("Alto 2", "A2", Color(0xFF3F51B5)),
-    Tenor("Tenor", "T.", Color(0xFF1976D2)),
-    Tenor1("Tenor 1", "T1", Color(0xFF00BCD4)),
-    Tenor2("Tenor 2", "T2", Color(0xFF0D47A1)),
-    Bass("Bass", "B.", Color(0xFF2E7D32)),
-    Bass1("Bass 1", "B1", Color(0xFF7CB342)),
-    Bass2("Bass 2", "B2", Color(0xFF1B5E20)),
+    Alto1("Alto 1", "A1", Color(0xFFC084FC)),
+    Alto2("Alto 2", "A2", Color(0xFF4C1D95)),
+    Tenor("Tenor", "T.", Color(0xFF2563EB)),
+    Tenor1("Tenor 1", "T1", Color(0xFF0284C7)),
+    Tenor2("Tenor 2", "T2", Color(0xFF1E3A8A)),
+    Bass("Bass", "B.", Color(0xFF16A34A)),
+    Bass1("Bass 1", "B1", Color(0xFF65A30D)),
+    Bass2("Bass 2", "B2", Color(0xFF064E3B)),
     Solo("Solo", "Solo", Color(0xFFFF6D00)),
+    BaritoneSolo("Baritone Solo", "Bar. Solo", Color(0xFFFF6D00)),
     Others("Others", "Other", Color(0xFF546E7A));
 
     val apiCode: String
@@ -38,6 +39,7 @@ enum class VoicePart(val label: String, val shortLabel: String, val color: Color
             Bass1 -> "B1"
             Bass2 -> "B2"
             Solo -> "SOLO"
+            BaritoneSolo -> "BARITONE SOLO"
             Others -> "OTHERS"
         }
 }
@@ -47,9 +49,15 @@ fun VoicePart.toSATBVoice(): SATBVoice = when (this) {
     VoicePart.Alto, VoicePart.Alto1, VoicePart.Alto2 -> SATBVoice.ALTO
     VoicePart.Tenor, VoicePart.Tenor1, VoicePart.Tenor2 -> SATBVoice.TENOR
     VoicePart.Bass, VoicePart.Bass1, VoicePart.Bass2 -> SATBVoice.BASS
-    VoicePart.Solo -> SATBVoice.SOLO
+    VoicePart.Solo, VoicePart.BaritoneSolo -> SATBVoice.SOLO
     VoicePart.Others -> SATBVoice.OTHERS
 }
+
+val VoicePart.isSoloPart: Boolean
+    get() = this == VoicePart.Solo || this == VoicePart.BaritoneSolo
+
+val VoicePart.isSpecialOrSolo: Boolean
+    get() = this.isSoloPart || this == VoicePart.Others
 
 val SECTION_DIVISI_MAP: Map<String, Set<String>> = mapOf(
     "S" to setOf("S", "S1", "S2"),
@@ -111,6 +119,8 @@ fun isEventTargetForSinger(selectedPart: VoicePart, event: MusicalEvent): Boolea
     if (parts.contains(selectedKey)) {
         return true
     }
+    if (selectedPart == VoicePart.Solo && parts.contains("BARITONE SOLO")) return true
+    if (selectedPart == VoicePart.BaritoneSolo && (parts.contains("BARITONE SOLO") || parts.contains("SOLO"))) return true
 
     // 5. Parent Section Selection (User selected "Soprano" / "S")
     val allowedParts = SECTION_DIVISI_MAP[selectedKey]
@@ -184,20 +194,27 @@ fun isEventMatchingFocusOrPart(targetPart: String?, event: MusicalEvent): Boolea
 }
 
 fun getVoiceHexColor(partCode: String): String = when (partCode.trim().uppercase()) {
-    "S", "SOPRANO" -> "#E91E63"
-    "S1" -> "#FF1493"
-    "S2" -> "#D50000"
+    "S", "SOPRANO" -> "#E11D48"
+    "S1", "SOPRANO 1", "SOPRANO1" -> "#FB7185"
+    "S2", "SOPRANO 2", "SOPRANO2" -> "#881337"
     "A", "ALTO" -> "#8E24AA"
-    "A1" -> "#AB47BC"
-    "A2" -> "#3F51B5"
-    "T", "TENOR" -> "#1976D2"
-    "T1" -> "#00BCD4"
-    "T2" -> "#0D47A1"
-    "B", "BASS" -> "#4CAF50"
-    "B1" -> "#7CB342"
-    "B2" -> "#1B5E20"
-    "SOLO" -> "#FF6D00"
-    "OTHER", "OTHERS" -> "#607D8B"
+    "A1", "ALTO 1", "ALTO1" -> "#C084FC"
+    "A2", "ALTO 2", "ALTO2" -> "#4C1D95"
+    "T", "TENOR" -> "#2563EB"
+    "T1", "TENOR 1", "TENOR1" -> "#0284C7"
+    "T2", "TENOR 2", "TENOR2" -> "#1E3A8A"
+    "B", "BASS" -> "#16A34A"
+    "B1", "BASS 1", "BASS1" -> "#65A30D"
+    "B2", "BASS 2", "BASS2" -> "#064E3B"
+    "UNISON_SA", "SA" -> "#4F46E5"
+    "UNISON_TB", "TB" -> "#0D9488"
+    "UNISON_S1S2", "S1S2" -> "#E11D48"
+    "UNISON_A1A2", "A1A2" -> "#8E24AA"
+    "UNISON_T1T2", "T1T2" -> "#2563EB"
+    "UNISON_B1B2", "B1B2" -> "#16A34A"
+    "TUTTI", "UNISON_ALL", "ALL" -> "#CA8A04"
+    "SOLO", "BARITONE SOLO", "BARITONE_SOLO", "BARITONE", "TENOR SOLO", "SOPRANO SOLO", "ALTO SOLO", "BASS SOLO" -> "#FF6D00"
+    "OTHER", "OTHERS" -> "#546E7A"
     else -> "#6366f1"
 }
 
@@ -220,6 +237,13 @@ fun getHighlightColorForEvent(event: MusicalEvent, targetFocusPart: String?): St
 
     // Otherwise use note's own primary voice color
     val primaryPart = when {
+        parts.contains("UNISON_SA") || parts.contains("SA") -> "UNISON_SA"
+        parts.contains("UNISON_TB") || parts.contains("TB") -> "UNISON_TB"
+        parts.contains("UNISON_S1S2") || parts.contains("S1S2") -> "UNISON_S1S2"
+        parts.contains("UNISON_A1A2") || parts.contains("A1A2") -> "UNISON_A1A2"
+        parts.contains("UNISON_T1T2") || parts.contains("T1T2") -> "UNISON_T1T2"
+        parts.contains("UNISON_B1B2") || parts.contains("B1B2") -> "UNISON_B1B2"
+        parts.contains("TUTTI") || parts.contains("ALL") -> "TUTTI"
         parts.contains("B2") -> "B2"
         parts.contains("B1") -> "B1"
         parts.contains("B") -> "B"
@@ -232,6 +256,7 @@ fun getHighlightColorForEvent(event: MusicalEvent, targetFocusPart: String?): St
         parts.contains("S2") -> "S2"
         parts.contains("S1") -> "S1"
         parts.contains("S") -> "S"
+        parts.contains("BARITONE SOLO") -> "BARITONE SOLO"
         parts.contains("SOLO") -> "SOLO"
         parts.contains("OTHERS") || parts.contains("OTHER") -> "OTHER"
         else -> voice
@@ -262,7 +287,7 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
             val events: List<MusicalEvent>? = Gson().fromJson(score.eventsJson, eventType)
             events?.forEach { ev ->
                 val parts = ev.participatingParts
-                if (parts.contains("SOLO")) hasSolo = true
+                if (parts.contains("SOLO") || parts.contains("BARITONE SOLO")) hasSolo = true
                 if (parts.contains("OTHERS")) hasOthers = true
                 if (parts.contains("S")) hasSoprano = true
                 if (parts.contains("S1")) hasSoprano1 = true
@@ -306,7 +331,7 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
                 "UNISON_SA", "SA" -> { hasSoprano = true; hasAlto = true }
                 "UNISON_S1S2", "S1S2" -> { hasSoprano1 = true; hasSoprano2 = true }
                 "TUTTI", "UNISON_ALL", "ALL" -> { hasSoprano = true; hasAlto = true; hasTenor = true; hasBass = true }
-                "SOLO" -> hasSolo = true
+                "SOLO", "BARITONE SOLO", "BARITONE" -> hasSolo = true
                 "OTHERS", "OTHER" -> hasOthers = true
             }
         }
@@ -347,15 +372,14 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
         if (!hasTenor1 && !hasTenor2 && (nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower))) hasTenor = true
         if (!hasBass1 && !hasBass2 && (nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower))) hasBass = true
 
-        if (listOf("solo", "cantor", "leader", "descant").any { nameLower.contains(it) }) hasSolo = true
+        if (listOf("solo", "cantor", "leader", "descant", "baritone").any { nameLower.contains(it) }) hasSolo = true
         if (nameLower.contains("other")) hasOthers = true
     }
 
     val result = mutableListOf<VoicePart>()
 
     // Soprano Section
-    val isSopranoDivisi = hasSoprano1 && hasSoprano2
-    if (isSopranoDivisi) {
+    if (hasSoprano1 && hasSoprano2) {
         result.add(VoicePart.Soprano1)
         result.add(VoicePart.Soprano2)
     } else if (hasSoprano || hasSoprano1 || hasSoprano2) {
@@ -363,8 +387,7 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
     }
 
     // Alto Section
-    val isAltoDivisi = hasAlto1 && hasAlto2
-    if (isAltoDivisi) {
+    if (hasAlto1 && hasAlto2) {
         result.add(VoicePart.Alto1)
         result.add(VoicePart.Alto2)
     } else if (hasAlto || hasAlto1 || hasAlto2) {
@@ -372,8 +395,7 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
     }
 
     // Tenor Section
-    val isTenorDivisi = hasTenor1 && hasTenor2
-    if (isTenorDivisi) {
+    if (hasTenor1 && hasTenor2) {
         result.add(VoicePart.Tenor1)
         result.add(VoicePart.Tenor2)
     } else if (hasTenor || hasTenor1 || hasTenor2) {
@@ -381,15 +403,36 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
     }
 
     // Bass Section
-    val isBassDivisi = hasBass1 && hasBass2
-    if (isBassDivisi) {
+    if (hasBass1 && hasBass2) {
         result.add(VoicePart.Bass1)
         result.add(VoicePart.Bass2)
     } else if (hasBass || hasBass1 || hasBass2) {
         result.add(VoicePart.Bass)
     }
 
-    if (hasSolo) result.add(VoicePart.Solo)
+    val isAwit = score.title.contains("Awit ng Paghahangad", ignoreCase = true) ||
+        score.title.contains("Paghahangad", ignoreCase = true)
+    var hasBaritoneSolo = isAwit && (hasSolo || score.parts.size == 5)
+    if (score.parts.any { it.name.contains("baritone", ignoreCase = true) }) hasBaritoneSolo = true
+    if (score.notes.any { it.customVoiceStr?.contains("BARITONE", ignoreCase = true) == true }) hasBaritoneSolo = true
+    if (score.parts.any { p ->
+        val pLow = p.name.lowercase()
+        (pLow.contains("solo") || pLow.contains("cantor")) &&
+        p.notes.filter { !it.isRest }.let { nr ->
+            nr.isNotEmpty() && nr.map {
+                val base = when (it.step.take(1).uppercase()) {
+                    "C" -> 0; "D" -> 2; "E" -> 4; "F" -> 5; "G" -> 7; "A" -> 9; "B" -> 11; else -> 0
+                }
+                base + it.alter + (it.octave + 1) * 12
+            }.average() in 1.0..59.9
+        }
+    }) hasBaritoneSolo = true
+
+    if (hasBaritoneSolo) {
+        result.add(VoicePart.BaritoneSolo)
+    } else if (hasSolo) {
+        result.add(VoicePart.Solo)
+    }
     if (hasOthers) result.add(VoicePart.Others)
 
     // Fallback: Default to standard SATB

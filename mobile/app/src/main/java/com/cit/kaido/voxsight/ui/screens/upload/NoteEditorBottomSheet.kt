@@ -126,7 +126,10 @@ fun NoteEditorBottomSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             // 1. Voice Assignment Section (SATB, Divisi, Merged Unisons)
-            val activeToken = if (voiceCode.isNotBlank()) voiceCode.uppercase() else when (voiceId) {
+            val activeToken = if (voiceCode.isNotBlank()) {
+                val up = voiceCode.uppercase().trim()
+                if (up == "BARITONE_SOLO" || up == "BARITONE" || up.contains("BARITONE") || up.contains("SOLO")) "SOLO" else up
+            } else when (voiceId) {
                 1 -> "S"
                 2 -> "A"
                 3 -> "T"
@@ -137,7 +140,7 @@ fun NoteEditorBottomSheet(
             }
             val initialCategory = when {
                 activeToken in listOf("S1", "S2", "A1", "A2", "T1", "T2", "B1", "B2") -> "Divisi"
-                activeToken in listOf("UNISON_TB", "UNISON_SA", "UNISON_S1S2", "TUTTI") -> "Merged"
+                activeToken in listOf("UNISON_TB", "UNISON_SA", "TUTTI") -> "Merged"
                 activeToken in listOf("SOLO", "OTHERS") -> "Other"
                 else -> "Core"
             }
@@ -190,26 +193,25 @@ fun NoteEditorBottomSheet(
             data class VoiceOption(val code: String, val label: String, val color: Color)
             val options = when (selectedCategory) {
                 "Core" -> listOf(
-                    VoiceOption("S", "Soprano (S)", Color(0xFFE91E63)),
+                    VoiceOption("S", "Soprano (S)", Color(0xFFE11D48)),
                     VoiceOption("A", "Alto (A)", Color(0xFF8E24AA)),
-                    VoiceOption("T", "Tenor (T)", Color(0xFF1976D2)),
-                    VoiceOption("B", "Bass (B)", Color(0xFF2E7D32))
+                    VoiceOption("T", "Tenor (T)", Color(0xFF2563EB)),
+                    VoiceOption("B", "Bass (B)", Color(0xFF16A34A))
                 )
                 "Divisi" -> listOf(
-                    VoiceOption("S1", "S1", Color(0xFFFF1493)),
-                    VoiceOption("S2", "S2", Color(0xFFD50000)),
-                    VoiceOption("A1", "A1", Color(0xFFAB47BC)),
-                    VoiceOption("A2", "A2", Color(0xFF3F51B5)),
-                    VoiceOption("T1", "T1", Color(0xFF00BCD4)),
-                    VoiceOption("T2", "T2", Color(0xFF0D47A1)),
-                    VoiceOption("B1", "B1", Color(0xFF7CB342)),
-                    VoiceOption("B2", "B2", Color(0xFF1B5E20))
+                    VoiceOption("S1", "S1", Color(0xFFFB7185)),
+                    VoiceOption("S2", "S2", Color(0xFF881337)),
+                    VoiceOption("A1", "A1", Color(0xFFC084FC)),
+                    VoiceOption("A2", "A2", Color(0xFF4C1D95)),
+                    VoiceOption("T1", "T1", Color(0xFF0284C7)),
+                    VoiceOption("T2", "T2", Color(0xFF1E3A8A)),
+                    VoiceOption("B1", "B1", Color(0xFF65A30D)),
+                    VoiceOption("B2", "B2", Color(0xFF064E3B))
                 )
                 "Merged" -> listOf(
-                    VoiceOption("UNISON_TB", "T/B Unison", Color(0xFF00BFA5)),
-                    VoiceOption("UNISON_SA", "S/A Unison", Color(0xFFD81B60)),
-                    VoiceOption("UNISON_S1S2", "S1/S2 Unison", Color(0xFFFF80AB)),
-                    VoiceOption("TUTTI", "Tutti (All)", Color(0xFFFFB300))
+                    VoiceOption("UNISON_SA", "S/A Unison", Color(0xFF4F46E5)),
+                    VoiceOption("UNISON_TB", "T/B Unison", Color(0xFF0D9488)),
+                    VoiceOption("TUTTI", "Tutti (All)", Color(0xFFCA8A04))
                 )
                 else -> listOf(
                     VoiceOption("SOLO", "Solo Voice", Color(0xFFFF6D00)),

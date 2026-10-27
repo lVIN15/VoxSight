@@ -103,10 +103,10 @@ function runTest(name, fn) {
 // ─── Test 1: Legacy Numeric Codes (Numbers and Numeric Strings) ─────────
 runTest('TC-01: Legacy numeric codes (1-6) as integers and strings', () => {
     const expected = [
-        { code: 1, voice: 'SOPRANO', part: 'S', color: '#E91E63', partId: 1 },
+        { code: 1, voice: 'SOPRANO', part: 'S', color: '#E11D48', partId: 1 },
         { code: 2, voice: 'ALTO', part: 'A', color: '#8E24AA', partId: 2 },
-        { code: 3, voice: 'TENOR', part: 'T', color: '#1976D2', partId: 3 },
-        { code: 4, voice: 'BASS', part: 'B', color: '#2E7D32', partId: 4 },
+        { code: 3, voice: 'TENOR', part: 'T', color: '#2563EB', partId: 3 },
+        { code: 4, voice: 'BASS', part: 'B', color: '#16A34A', partId: 4 },
         { code: 5, voice: 'SOLO', part: 'SOLO', color: '#FF6D00', partId: 5 },
         { code: 6, voice: 'OTHERS', part: 'OTHERS', color: '#546E7A', partId: 6 },
     ];
@@ -131,10 +131,10 @@ runTest('TC-01: Legacy numeric codes (1-6) as integers and strings', () => {
 // ─── Test 2: Approved Canonical String Tokens ────────────────────────────
 runTest('TC-02: Approved canonical string tokens (S, A, T, B, Solo, Others)', () => {
     const expected = [
-        { token: 'S', voice: 'SOPRANO', part: 'S', color: '#E91E63', partId: 1 },
+        { token: 'S', voice: 'SOPRANO', part: 'S', color: '#E11D48', partId: 1 },
         { token: 'A', voice: 'ALTO', part: 'A', color: '#8E24AA', partId: 2 },
-        { token: 'T', voice: 'TENOR', part: 'T', color: '#1976D2', partId: 3 },
-        { token: 'B', voice: 'BASS', part: 'B', color: '#2E7D32', partId: 4 },
+        { token: 'T', voice: 'TENOR', part: 'T', color: '#2563EB', partId: 3 },
+        { token: 'B', voice: 'BASS', part: 'B', color: '#16A34A', partId: 4 },
         { token: 'Solo', voice: 'SOLO', part: 'SOLO', color: '#FF6D00', partId: 5 },
         { token: 'Others', voice: 'OTHERS', part: 'OTHERS', color: '#546E7A', partId: 6 },
     ];
@@ -164,13 +164,13 @@ runTest('TC-03: Mobile compatibility alias (OTHER)', () => {
 // ─── Test 4: Case & Surrounding Whitespace Normalization ──────────────────
 runTest('TC-04: Case insensitivity and whitespace tolerance', () => {
     const variations = [
-        { input: ' s ', expectedPart: 'S', expectedColor: '#E91E63' },
-        { input: 'SOPRANO', expectedPart: 'S', expectedColor: '#E91E63' },
-        { input: ' soprano ', expectedPart: 'S', expectedColor: '#E91E63' },
+        { input: ' s ', expectedPart: 'S', expectedColor: '#E11D48' },
+        { input: 'SOPRANO', expectedPart: 'S', expectedColor: '#E11D48' },
+        { input: ' soprano ', expectedPart: 'S', expectedColor: '#E11D48' },
         { input: 'a', expectedPart: 'A', expectedColor: '#8E24AA' },
         { input: ' ALTO ', expectedPart: 'A', expectedColor: '#8E24AA' },
-        { input: 't', expectedPart: 'T', expectedColor: '#1976D2' },
-        { input: 'b', expectedPart: 'B', expectedColor: '#2E7D32' },
+        { input: 't', expectedPart: 'T', expectedColor: '#2563EB' },
+        { input: 'b', expectedPart: 'B', expectedColor: '#16A34A' },
         { input: 'SOLO', expectedPart: 'SOLO', expectedColor: '#FF6D00' },
         { input: ' solo ', expectedPart: 'SOLO', expectedColor: '#FF6D00' },
         { input: 'others', expectedPart: 'OTHERS', expectedColor: '#546E7A' },
@@ -194,7 +194,7 @@ runTest('TC-05: Missing, null, empty, and whitespace-only attributes preserve Pr
     const resWhitespace = getVocalPartInfo(1, 0, 0, 4, null, '   ');
 
     assert.strictEqual(resNull.part, 'A', 'null customVoice must fall through to Priority 2 heuristic');
-    assert.strictEqual(resNull.color, '#9C27B0', 'null customVoice color mismatch');
+    assert.strictEqual(resNull.color, '#8E24AA', 'null customVoice color mismatch');
 
     assert.strictEqual(resUndefined.part, 'A', 'undefined customVoice must fall through');
     assert.strictEqual(resEmpty.part, 'A', 'empty string customVoice must fall through');
@@ -232,7 +232,7 @@ runTest('TC-07: Note extraction logic (line 1210) passes clean string tokens', (
     const extractedToken = extractCustomVoice('S');
     const res = getVocalPartInfo(1, 0, 0, 4, null, extractedToken);
     assert.strictEqual(res.part, 'S');
-    assert.strictEqual(res.color, '#E91E63');
+    assert.strictEqual(res.color, '#E11D48');
 });
 
 // ─── Test 8: Visual Focus Dimming Behavior for UNKNOWN Notes ──────────────
@@ -256,8 +256,8 @@ runTest('TC-08: Visual focus dimming simulation for UNKNOWN notes', () => {
     assert.strictEqual(unknownColorDuringOthers, '#80808026', 'Unknown note must dim during Others focus');
 
     // 3. Soprano note during Soprano focus
-    const sopranoColorDuringSoprano = simulateDimming('S', 'S', '#E91E63');
-    assert.strictEqual(sopranoColorDuringSoprano, '#E91E63', 'Soprano note must stay 100% vibrant');
+    const sopranoColorDuringSoprano = simulateDimming('S', 'S', '#E11D48');
+    assert.strictEqual(sopranoColorDuringSoprano, '#E11D48', 'Soprano note must stay 100% vibrant');
 
     // 4. Unknown note when no focus is active (currentVisualFocus = null)
     const unknownColorNoFocus = simulateDimming('UNKNOWN', null, '#808080');
@@ -268,25 +268,36 @@ runTest('TC-08: Visual focus dimming simulation for UNKNOWN notes', () => {
 runTest('TC-09: Unison and Divisi tokens resolution', () => {
     const resTB = getVocalPartInfo(1, 0, 0, 4, null, 'UNISON_TB');
     assert.strictEqual(resTB.part, 'UNISON_TB');
-    assert.strictEqual(resTB.color, '#00BFA5');
+    assert.strictEqual(resTB.color, '#0D9488');
     assert.strictEqual(JSON.stringify(resTB.participating), JSON.stringify(['T', 'B']));
 
     const resSA = getVocalPartInfo(1, 0, 0, 4, null, 'UNISON_SA');
     assert.strictEqual(resSA.part, 'UNISON_SA');
-    assert.strictEqual(resSA.color, '#D81B60');
+    assert.strictEqual(resSA.color, '#4F46E5');
     assert.strictEqual(JSON.stringify(resSA.participating), JSON.stringify(['S', 'A']));
 
     const resS1 = getVocalPartInfo(1, 0, 0, 4, null, 'S1');
     assert.strictEqual(resS1.part, 'S1');
-    assert.strictEqual(resS1.color, '#FF1493');
+    assert.strictEqual(resS1.color, '#FB7185');
 
     const resB2 = getVocalPartInfo(1, 0, 0, 4, null, 'B2');
     assert.strictEqual(resB2.part, 'B2');
-    assert.strictEqual(resB2.color, '#1B5E20');
+    assert.strictEqual(resB2.color, '#064E3B');
 
     const resTutti = getVocalPartInfo(1, 0, 0, 4, null, 'TUTTI');
     assert.strictEqual(resTutti.part, 'TUTTI');
-    assert.strictEqual(resTutti.color, '#FFB300');
+    assert.strictEqual(resTutti.color, '#CA8A04');
+
+    const resSolo = getVocalPartInfo(1, 0, 0, 4, null, 'SOLO');
+    assert.strictEqual(resSolo.part, 'SOLO');
+    assert.strictEqual(resSolo.color, '#FF6D00');
+
+    const resBariSolo = getVocalPartInfo(1, 0, 0, 4, null, 'BARITONE SOLO');
+    assert.strictEqual(resBariSolo.part, 'SOLO');
+    assert.strictEqual(resBariSolo.color, '#FF6D00');
+
+    const resS1S2 = getVocalPartInfo(1, 0, 0, 4, null, 'UNISON_S1S2');
+    assert.strictEqual(resS1S2.color, '#E11D48'); // Intra-family unison uses parent Soprano color!
 });
 
 // ─── Test 10: Multi-Part Visual Focus Highlighting ───────────────────────

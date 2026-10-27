@@ -329,7 +329,7 @@
                 var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
                 var combined = pName + " " + pAbbr;
 
-                var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combined.indexOf(w) !== -1; });
+                var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant', 'baritone solo', 'baritone'].some(function(w) { return combined.indexOf(w) !== -1; });
                 var isAccomp = ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'].some(function(w) { return combined.indexOf(w) !== -1; });
                 
                 var isSoprano = combined.indexOf('soprano') !== -1 || combined.trim() === 's' || combined.trim() === 's.' || /\bs\b/i.test(combined);
@@ -367,6 +367,7 @@
                     index: i,
                     pid: pid,
                     name: pName,
+                    combined: combined,
                     isExplicitSolo: isExplicitSolo,
                     isAccomp: isAccomp,
                     isSoprano: isSoprano,
@@ -382,12 +383,28 @@
             var vocalPartMap = new Array(total);
             var claimedRoles = {};
 
+            var docTitle = '';
+            try {
+                var titleEl = doc.querySelector('work-title') || doc.querySelector('movement-title');
+                if (titleEl) docTitle = (titleEl.textContent || '').trim().toLowerCase();
+                if (!docTitle) {
+                    var cwList = doc.querySelectorAll('credit-words');
+                    for (var cwi = 0; cwi < cwList.length; cwi++) {
+                        var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
+                        if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
+                            docTitle = cwt; break;
+                        }
+                    }
+                }
+            } catch(e) {}
+            var isAwitDoc = docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1;
+
             // Pass 1: Explicit Solo and Accompaniment
             meta.forEach(function(m) {
-                if (m.isExplicitSolo) {
-                    vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                if (m.isExplicitSolo || (isAwitDoc && m.index === 4)) {
+                    vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5 };
                 } else if (m.isAccomp) {
-                    vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                    vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
                 }
             });
 
@@ -395,16 +412,16 @@
             meta.forEach(function(m) {
                 if (vocalPartMap[m.index]) return;
                 if (m.isSoprano) {
-                    vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                     claimedRoles["SOPRANO"] = true;
                 } else if (m.isAlto) {
-                    vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
                     claimedRoles["ALTO"] = true;
                 } else if (m.isTenor) {
-                    vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                     claimedRoles["TENOR"] = true;
                 } else if (m.isBass) {
-                    vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                     claimedRoles["BASS"] = true;
                 }
             });
@@ -420,14 +437,14 @@
 
                 unassignedBass.forEach(function(m) {
                     if (!claimedRoles["BASS"]) {
-                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                         claimedRoles["BASS"] = true;
                     } else if (!claimedRoles["TENOR"]) {
-                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                         claimedRoles["TENOR"] = true;
                     } else {
                         var role = (m.avgMidi >= 55.0) ? "TENOR" : "BASS";
-                        var clr = (role === "TENOR") ? "#2196F3" : "#4CAF50";
+                        var clr = (role === "TENOR") ? "#2563EB" : "#16A34A";
                         var pId = (role === "TENOR") ? 3 : 4;
                         vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
                     }
@@ -435,14 +452,14 @@
 
                 unassignedTreble.forEach(function(m) {
                     if (!claimedRoles["SOPRANO"]) {
-                        vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                        vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                         claimedRoles["SOPRANO"] = true;
                     } else if (!claimedRoles["ALTO"]) {
-                        vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                        vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
                         claimedRoles["ALTO"] = true;
                     } else {
                         var role = (m.avgMidi >= 66.5) ? "SOPRANO" : "ALTO";
-                        var clr = (role === "SOPRANO") ? "#E91E63" : "#9C27B0";
+                        var clr = (role === "SOPRANO") ? "#E11D48" : "#8E24AA";
                         var pId = (role === "SOPRANO") ? 1 : 2;
                         vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
                     }
@@ -454,50 +471,94 @@
 
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
         function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
+            var isPartSolo = false;
+            var isAwitScore = false;
+            if (xmlDoc) {
+                try {
+                    var titleEl = (typeof xmlDoc.querySelector === 'function') ? (xmlDoc.querySelector('work-title') || xmlDoc.querySelector('movement-title')) : null;
+                    var docTitle = titleEl ? (titleEl.textContent || '').trim().toLowerCase() : '';
+                    if (!docTitle && typeof xmlDoc.querySelectorAll === 'function') {
+                        var cwList = xmlDoc.querySelectorAll('credit-words');
+                        for (var cwi = 0; cwi < cwList.length; cwi++) {
+                            var cwt = (cwList[cwi].textContent || '').trim().toLowerCase();
+                            if (cwt.indexOf('awit ng paghahangad') !== -1 || cwt.indexOf('paghahangad') !== -1 || cwt.indexOf('borela') !== -1) {
+                                docTitle = cwt; break;
+                            }
+                        }
+                    }
+                    if (docTitle.indexOf('awit ng paghahangad') !== -1 || docTitle.indexOf('paghahangad') !== -1 || docTitle.indexOf('borela') !== -1) {
+                        isAwitScore = true;
+                    }
+                } catch(e) {}
+            }
+            if (xmlDoc && typeof partIdx === 'number') {
+                try {
+                    var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
+                    if (partsList && partIdx >= 0 && partIdx < partsList.length) {
+                        var pElem = partsList[partIdx];
+                        var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                        var sp = (pid && typeof xmlDoc.querySelector === 'function') ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
+                        var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                        var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                        var comb = pName + " " + pAbbr;
+                        var hasFClef = false;
+                        var clefSigns = (pElem && typeof pElem.querySelectorAll === 'function') ? pElem.querySelectorAll('clef > sign') : [];
+                        for (var ci = 0; ci < clefSigns.length; ci++) {
+                            if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') { hasFClef = true; break; }
+                        }
+                        var isSoloNamed = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return comb.indexOf(w) !== -1; });
+                        if (comb.indexOf('baritone') !== -1 || isSoloNamed || (isAwitScore && partIdx === 4)) {
+                            isPartSolo = true;
+                        }
+                    }
+                } catch(e) {}
+            }
+
             // Priority 1: Explicit user override via data-vx-voice attribute
             if (customVoice !== null && customVoice !== undefined) {
                 var cv = String(customVoice).trim().toUpperCase();
                 if (cv !== "") {
                     switch (cv) {
                         case "1": case "S": case "SOPRANO":
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
+                            return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1, participating: ["S"] };
                         case "S1": case "SOPRANO1": case "SOPRANO 1":
-                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FB7185", partId: 11, participating: ["S1"] };
                         case "S2": case "SOPRANO2": case "SOPRANO 2":
-                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
+                            return { voice: "SOPRANO 2", part: "S2", color: "#881337", partId: 12, participating: ["S2"] };
                         case "2": case "A": case "ALTO":
                             return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] };
                         case "A1": case "ALTO1": case "ALTO 1":
-                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
+                            return { voice: "ALTO 1", part: "A1", color: "#C084FC", partId: 21, participating: ["A1"] };
                         case "A2": case "ALTO2": case "ALTO 2":
-                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
+                            return { voice: "ALTO 2", part: "A2", color: "#4C1D95", partId: 22, participating: ["A2"] };
                         case "3": case "T": case "TENOR":
-                            return { voice: "TENOR", part: "T", color: "#1976D2", partId: 3, participating: ["T"] };
+                            return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3, participating: ["T"] };
                         case "T1": case "TENOR1": case "TENOR 1":
-                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
+                            return { voice: "TENOR 1", part: "T1", color: "#0284C7", partId: 31, participating: ["T1"] };
                         case "T2": case "TENOR2": case "TENOR 2":
-                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
+                            return { voice: "TENOR 2", part: "T2", color: "#1E3A8A", partId: 32, participating: ["T2"] };
                         case "4": case "B": case "BASS":
-                            return { voice: "BASS", part: "B", color: "#2E7D32", partId: 4, participating: ["B"] };
+                            return { voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] };
                         case "B1": case "BASS1": case "BASS 1":
-                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
+                            return { voice: "BASS 1", part: "B1", color: "#65A30D", partId: 41, participating: ["B1"] };
                         case "B2": case "BASS2": case "BASS 2":
-                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
+                            return { voice: "BASS 2", part: "B2", color: "#064E3B", partId: 42, participating: ["B2"] };
                         case "UNISON_TB": case "TB":
-                            return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#00BFA5", partId: 34, participating: ["T", "B"] };
+                            return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#0D9488", partId: 34, participating: ["T", "B"] };
                         case "UNISON_SA": case "SA":
-                            return { voice: "SOPRANO / ALTO", part: "UNISON_SA", color: "#D81B60", partId: 12, participating: ["S", "A"] };
+                            return { voice: "SOPRANO / ALTO", part: "UNISON_SA", color: "#4F46E5", partId: 12, participating: ["S", "A"] };
                         case "UNISON_S1S2": case "S1S2":
-                            return { voice: "SOPRANO 1 / 2", part: "UNISON_S1S2", color: "#FF80AB", partId: 112, participating: ["S1", "S2"] };
+                            return { voice: "SOPRANO 1 / 2", part: "UNISON_S1S2", color: "#E11D48", partId: 112, participating: ["S1", "S2"] };
                         case "UNISON_A1A2": case "A1A2":
-                            return { voice: "ALTO 1 / 2", part: "UNISON_A1A2", color: "#CE93D8", partId: 212, participating: ["A1", "A2"] };
+                            return { voice: "ALTO 1 / 2", part: "UNISON_A1A2", color: "#8E24AA", partId: 212, participating: ["A1", "A2"] };
                         case "UNISON_T1T2": case "T1T2":
-                            return { voice: "TENOR 1 / 2", part: "UNISON_T1T2", color: "#80D8FF", partId: 312, participating: ["T1", "T2"] };
+                            return { voice: "TENOR 1 / 2", part: "UNISON_T1T2", color: "#2563EB", partId: 312, participating: ["T1", "T2"] };
                         case "UNISON_B1B2": case "B1B2":
-                            return { voice: "BASS 1 / 2", part: "UNISON_B1B2", color: "#B9F6CA", partId: 412, participating: ["B1", "B2"] };
+                            return { voice: "BASS 1 / 2", part: "UNISON_B1B2", color: "#16A34A", partId: 412, participating: ["B1", "B2"] };
                         case "TUTTI": case "UNISON_ALL": case "ALL":
-                            return { voice: "TUTTI", part: "TUTTI", color: "#FFB300", partId: 99, participating: ["ALL"] };
-                        case "5": case "SOLO":
+                            return { voice: "TUTTI", part: "TUTTI", color: "#CA8A04", partId: 99, participating: ["ALL"] };
+                        case "5": case "SOLO": case "BARITONE_SOLO": case "BARITONE SOLO": case "BARITONE":
+                        case "TENOR SOLO": case "SOPRANO SOLO": case "ALTO SOLO": case "BASS SOLO":
                             return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
                         case "6": case "OTHERS": case "OTHER":
                             return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6, participating: ["OTHERS"] };
@@ -510,24 +571,27 @@
             }
 
             // Priority 2: Inspect declared Part Name / Abbreviation from <score-part>
+            if (isPartSolo || (isAwitScore && partIdx === 4)) {
+                return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
+            }
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
-                    var partsList = xmlDoc.getElementsByTagName('part');
+                    var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
                     if (partsList && partIdx >= 0 && partIdx < partsList.length) {
                         var pElem = partsList[partIdx];
-                        var pid = pElem.getAttribute('id');
-                        var sp = pid ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
-                        var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
-                        var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                        var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                        var sp = (pid && typeof xmlDoc.querySelector === 'function') ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
+                        var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                        var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
                         var combinedStr = pName + " " + pAbbr;
 
-                        if (['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
+                        if (['baritone solo', 'baritone', 'solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
                             if (totalParts > 1) {
-                                return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                                return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
                             }
                         }
                         if (['piano', 'organ', 'keyboard', 'guitar', 'acc', 'accomp', 'orch', 'strings', 'other'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
-                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                            return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
                         }
 
                         // Composite / Condensed Part Check (e.g. "Soprano / Alto", "S/A", "Tenor / Bass", "T/B")
@@ -536,55 +600,55 @@
 
                         if (isCondensedSA) {
                             if (chordPos === 'bottom' || voiceNum === 2) {
-                                return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                                return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
                             }
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                            return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                         }
                         if (isCondensedTB) {
                             if (chordPos === 'bottom' || voiceNum === 2 || voiceNum === 4) {
-                                return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                                return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                             }
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                            return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                         }
 
                         // Explicit Divisi Part Names checked before generic section strings
                         if (combinedStr.indexOf('soprano 1') !== -1 || combinedStr === 's1' || combinedStr === 's 1') {
-                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FB7185", partId: 11, participating: ["S1"] };
                         }
                         if (combinedStr.indexOf('soprano 2') !== -1 || combinedStr === 's2' || combinedStr === 's 2') {
-                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
+                            return { voice: "SOPRANO 2", part: "S2", color: "#881337", partId: 12, participating: ["S2"] };
                         }
                         if (combinedStr.indexOf('alto 1') !== -1 || combinedStr === 'a1' || combinedStr === 'a 1') {
-                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
+                            return { voice: "ALTO 1", part: "A1", color: "#C084FC", partId: 21, participating: ["A1"] };
                         }
                         if (combinedStr.indexOf('alto 2') !== -1 || combinedStr === 'a2' || combinedStr === 'a 2') {
-                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
+                            return { voice: "ALTO 2", part: "A2", color: "#4C1D95", partId: 22, participating: ["A2"] };
                         }
                         if (combinedStr.indexOf('tenor 1') !== -1 || combinedStr === 't1' || combinedStr === 't 1') {
-                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
+                            return { voice: "TENOR 1", part: "T1", color: "#0284C7", partId: 31, participating: ["T1"] };
                         }
                         if (combinedStr.indexOf('tenor 2') !== -1 || combinedStr === 't2' || combinedStr === 't 2') {
-                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
+                            return { voice: "TENOR 2", part: "T2", color: "#1E3A8A", partId: 32, participating: ["T2"] };
                         }
                         if (combinedStr.indexOf('bass 1') !== -1 || combinedStr === 'b1' || combinedStr === 'b 1') {
-                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
+                            return { voice: "BASS 1", part: "B1", color: "#65A30D", partId: 41, participating: ["B1"] };
                         }
                         if (combinedStr.indexOf('bass 2') !== -1 || combinedStr === 'b2' || combinedStr === 'b 2') {
-                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
+                            return { voice: "BASS 2", part: "B2", color: "#064E3B", partId: 42, participating: ["B2"] };
                         }
 
                         // Pure Single-Voice Part Names (mutually guarded, including single-letter abbreviations)
                         if ((combinedStr.indexOf('soprano') !== -1 || /\bs\b/i.test(combinedStr) || combinedStr.trim() === 's' || combinedStr.trim() === 's.') && combinedStr.indexOf('alto') === -1) {
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
+                            return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1, participating: ["S"] };
                         }
                         if ((combinedStr.indexOf('alto') !== -1 || /\ba\b/i.test(combinedStr) || combinedStr.trim() === 'a' || combinedStr.trim() === 'a.') && combinedStr.indexOf('soprano') === -1) {
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2, participating: ["A"] };
+                            return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] };
                         }
                         if ((combinedStr.indexOf('tenor') !== -1 || /\bt\b/i.test(combinedStr) || combinedStr.trim() === 't' || combinedStr.trim() === 't.') && combinedStr.indexOf('bass') === -1) {
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3, participating: ["T"] };
+                            return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3, participating: ["T"] };
                         }
                         if ((combinedStr.indexOf('bass') !== -1 || /\bb\b/i.test(combinedStr) || combinedStr.trim() === 'b' || combinedStr.trim() === 'b.') && combinedStr.indexOf('tenor') === -1) {
-                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4, participating: ["B"] };
+                            return { voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] };
                         }
                     }
                 } catch (e) { }
@@ -605,11 +669,11 @@
             if (totalParts === 4) {
                 var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
                 switch (p) {
-                    case 0: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    case 1: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    case 2: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    case 3: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    default: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    case 0: return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
+                    case 1: return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                    case 2: return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
+                    case 3: return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    default: return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                 }
             }
 
@@ -619,37 +683,46 @@
                 var isStaff2 = (staffIdx === 1 || partIdx === 1);
 
                 if (isStaff1) {
-                    if (chordPos === 'bottom') return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    if (chordPos === 'top') return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    if (voiceNum === 2) return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    if (chordPos === 'bottom') return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                    if (chordPos === 'top') return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
+                    if (voiceNum === 2) return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                    return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                 } else if (isStaff2) {
-                    if (chordPos === 'bottom') return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    if (chordPos === 'top') return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    if (voiceNum === 2 || voiceNum === 4) return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    if (chordPos === 'bottom') return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    if (chordPos === 'top') return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
+                    if (voiceNum === 2 || voiceNum === 4) return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                 }
             }
 
             // Fallback based on voice number
             switch (voiceNum) {
-                case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                case 1: return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
+                case 2: return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                case 3: return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
+                case 4: return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                 case 5:
+                    // In 2-staff scores (or staffIdx === 1), voice 5 is Tenor (voice 1 on staff 2 in Sibelius)
+                    if (staffIdx === 1) return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                     if (xmlDoc && typeof partIdx === 'number' && xmlDoc._vxVocalPartMap && xmlDoc._vxVocalPartMap[partIdx]) {
                         return xmlDoc._vxVocalPartMap[partIdx];
                     }
-                    return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
-                case 6: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
-                default: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5 };
+                case 6:
+                    // In 2-staff scores (or staffIdx === 1), voice 6 is Bass (voice 2 on staff 2 in Sibelius)
+                    if (staffIdx === 1) return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
+                default: return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
             }
         }
 
         // ─── Direct SVG DOM Coloring (Parity with Editor) ───────────────
         function applyNoteVoiceColor(gNote, voiceColor) {
             if (!gNote || !voiceColor) return;
+            var src = gNote.sourceNote || gNote.SourceNote;
+            if (src && (typeof src.isRest === 'function' ? src.isRest() : (src.isRest === true || src.IsRest === true))) {
+                return; // Rests are never sung and must NEVER be colored with vocal colors!
+            }
 
             // Set OSMD source note properties
             if (gNote.sourceNote) {
@@ -1067,26 +1140,27 @@
             var partLabel = (gNote && gNote.__vx_partLabel) || (src ? src.CustomSatbLabel : "S");
             var norm = (partLabel || '').toUpperCase();
             switch (norm) {
-                case "S": return "#E91E63";
-                case "S1": return "#FF1493";
-                case "S2": return "#D50000";
+                case "S": return "#E11D48";
+                case "S1": return "#FB7185";
+                case "S2": return "#881337";
                 case "A": return "#8E24AA";
-                case "A1": return "#AB47BC";
-                case "A2": return "#3F51B5";
-                case "T": return "#1976D2";
-                case "T1": return "#00BCD4";
-                case "T2": return "#0D47A1";
-                case "B": return "#2E7D32";
-                case "B1": return "#7CB342";
-                case "B2": return "#1B5E20";
-                case "UNISON_TB": case "TB": return "#00BFA5";
-                case "UNISON_SA": case "SA": return "#D81B60";
-                case "UNISON_S1S2": return "#FF80AB";
-                case "UNISON_A1A2": return "#CE93D8";
-                case "UNISON_T1T2": return "#80D8FF";
-                case "UNISON_B1B2": return "#B9F6CA";
-                case "TUTTI": case "UNISON_ALL": return "#FFB300";
-                case "SOLO": return "#FF6D00";
+                case "A1": return "#C084FC";
+                case "A2": return "#4C1D95";
+                case "T": return "#2563EB";
+                case "T1": return "#0284C7";
+                case "T2": return "#1E3A8A";
+                case "B": return "#16A34A";
+                case "B1": return "#65A30D";
+                case "B2": return "#064E3B";
+                case "UNISON_TB": case "TB": return "#0D9488";
+                case "UNISON_SA": case "SA": return "#4F46E5";
+                case "UNISON_S1S2": return "#E11D48";
+                case "UNISON_A1A2": return "#8E24AA";
+                case "UNISON_T1T2": return "#2563EB";
+                case "UNISON_B1B2": return "#16A34A";
+                case "TUTTI": case "UNISON_ALL": return "#CA8A04";
+                case "SOLO": case "BARITONE_SOLO": case "BARITONE SOLO": case "BARITONE":
+                case "TENOR SOLO": case "SOPRANO SOLO": case "ALTO SOLO": case "BASS SOLO": return "#FF6D00";
                 case "OTHER":
                 case "OTHERS": return "#546E7A";
                 default: return "#808080";
@@ -1159,6 +1233,8 @@
                     let gNote = tempGraphicalNotes[i];
                     let srcNote = gNote.sourceNote || gNote.SourceNote;
                     if (!srcNote) continue;
+                    let isRest = (typeof srcNote.isRest === 'function') ? srcNote.isRest() : (srcNote.isRest === true || srcNote.IsRest === true);
+                    if (isRest) continue;
 
                     let baseColor = getOriginalVoiceColor(gNote);
                     let partLabel = gNote.__vx_partLabel || (srcNote ? srcNote.CustomSatbLabel : "S");
@@ -1425,7 +1501,7 @@
                 var vNum = getVoiceNumber(gNote);
                 var trackKey = (staffIdx * 100) + vNum;
                 var sig = getSourceNotePitchSignature(src);
-                var isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest || src.IsRest || false);
+                var isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest === true || src.IsRest === true);
                 var pitch = src.Pitch || src.pitch;
                 var stepNames = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
                 var step = 'C';
@@ -2555,6 +2631,7 @@
             if (hasExplicitSolo) {
                 var choirMeasures = new Set();
                 partInfo.forEach(function(info) {
+                    if (info.isSolo || info.isAccomp) return;
                     var isChoirVoice = (info.tier >= 2 && info.tier <= 4) ||
                         ['alto', 'tenor', 'bass', 'choir', 'satb'].some(function(kw) { return info.normName.toLowerCase().indexOf(kw) !== -1; });
                     var firstM = info.element.getElementsByTagName('measure')[0];
@@ -2585,7 +2662,12 @@
                                 }
                                 if (activeM.length > 0 && activeM.every(function(m) { return m < firstChoirM; })) {
                                     info.isSolo = true;
-                                    info.normName = 'Solo';
+                                    var rawLow = info.rawName.toLowerCase();
+                                    if (rawLow.indexOf('baritone') !== -1) {
+                                        info.normName = 'Baritone Solo';
+                                    } else {
+                                        info.normName = 'Solo';
+                                    }
                                     info.tier = 0;
                                 }
                             }
@@ -2637,7 +2719,9 @@
                         for (var m in info.measures) {
                             if (info.measures[m] > 0 && /^\d+$/.test(m)) {
                                 var mi = parseInt(m, 10);
-                                if (mi < firstBassM) firstBassM = mi;
+                                if (measureActiveParts[mi] && measureActiveParts[mi].size >= 2) {
+                                    if (mi < firstBassM) firstBassM = mi;
+                                }
                             }
                         }
                     }
@@ -2654,7 +2738,6 @@
 
                         if (isSoloIntro) {
                             nonAccompParts.forEach(function(info) {
-                                if (bassClefPids.has(info.pid)) return;
                                 if (info.tier >= 1 && info.tier <= 4) return;
                                 var activeM = [];
                                 for (var m in info.measures) {
@@ -2664,7 +2747,12 @@
                                 }
                                 if (activeM.length > 0 && activeM.some(function(m) { return m < choirEntranceM; })) {
                                     info.isSolo = true;
-                                    info.normName = 'Solo';
+                                    var rawLow = info.rawName.toLowerCase();
+                                    if (rawLow.indexOf('baritone') !== -1) {
+                                        info.normName = 'Baritone Solo';
+                                    } else {
+                                        info.normName = 'Solo';
+                                    }
                                     info.tier = 0;
                                 }
                             });
@@ -2687,10 +2775,16 @@
                 if (anchorSp) {
                     var pn = anchorSp.getElementsByTagName('part-name')[0];
                     if (!pn) { pn = doc.createElement('part-name'); anchorSp.appendChild(pn); }
-                    pn.textContent = 'Solo';
+                    var curPn = (pn.textContent || '').trim().toLowerCase();
+                    if (!curPn || ['voice', 's', 's.', 'sop'].indexOf(curPn) !== -1) {
+                        pn.textContent = anchor.normName || 'Solo';
+                    }
                     var pa = anchorSp.getElementsByTagName('part-abbreviation')[0];
                     if (!pa) { pa = doc.createElement('part-abbreviation'); anchorSp.appendChild(pa); }
-                    pa.textContent = 'Solo';
+                    var curPa = (pa.textContent || '').trim().toLowerCase();
+                    if (!curPa || ['voice', 's', 's.', 'sop'].indexOf(curPa) !== -1) {
+                        pa.textContent = anchor.normName || 'Solo';
+                    }
                 }
 
                 for (var sIdx = 1; sIdx < soloParts.length; sIdx++) {
@@ -2739,10 +2833,16 @@
                 if (singleSp) {
                     var pn = singleSp.getElementsByTagName('part-name')[0];
                     if (!pn) { pn = doc.createElement('part-name'); singleSp.appendChild(pn); }
-                    pn.textContent = 'Solo';
+                    var curPn = (pn.textContent || '').trim().toLowerCase();
+                    if (!curPn || ['voice', 's', 's.', 'sop'].indexOf(curPn) !== -1) {
+                        pn.textContent = 'Solo';
+                    }
                     var pa = singleSp.getElementsByTagName('part-abbreviation')[0];
                     if (!pa) { pa = doc.createElement('part-abbreviation'); singleSp.appendChild(pa); }
-                    pa.textContent = 'Solo';
+                    var curPa = (pa.textContent || '').trim().toLowerCase();
+                    if (!curPa || ['voice', 's', 's.', 'sop'].indexOf(curPa) !== -1) {
+                        pa.textContent = 'Solo';
+                    }
                 }
             }
 

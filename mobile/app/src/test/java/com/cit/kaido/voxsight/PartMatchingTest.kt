@@ -319,13 +319,13 @@ class PartMatchingTest {
             rawParticipatingParts = listOf("B2"), rawIsVocal = true
         )
 
-        // Bass 1 color is #7CB342
-        assertEquals("#7CB342", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBass1, "B1"))
-        // Bass 2 color is #1B5E20
-        assertEquals("#1B5E20", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBass2, "B2"))
+        // Bass 1 color is #65A30D
+        assertEquals("#65A30D", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBass1, "B1"))
+        // Bass 2 color is #064E3B
+        assertEquals("#064E3B", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBass2, "B2"))
         // Undivided Bass under B1 focus inherits B1 theme color for visual clarity
-        assertEquals("#7CB342", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, "B1"))
+        assertEquals("#65A30D", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, "B1"))
         // Undivided Bass with no focus uses standard Bass green
-        assertEquals("#4CAF50", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, null))
+        assertEquals("#16A34A", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, null))
     }
 }
