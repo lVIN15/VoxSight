@@ -222,7 +222,8 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
                         isSharp = it.isSharp,
                         averageDeviation = it.averageDeviation
                     )
-                }
+                },
+                pitchAttempts = _pitchAttempts.value
             )
 
             val finalFile = com.cit.kaido.voxsight.storage.ScoreRecordingManager.tagRecordingFileWithAccuracy(

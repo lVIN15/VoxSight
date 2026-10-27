@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -58,6 +59,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.cit.kaido.voxsight.audio.PerformanceAudioPlayer
 import com.cit.kaido.voxsight.storage.ScoreRecordingItem
+import com.cit.kaido.voxsight.storage.toSessionSummary
+import com.cit.kaido.voxsight.storage.resolveSatbVoice
 import com.cit.kaido.voxsight.storage.ScoreRecordingManager
 import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
 import com.cit.kaido.voxsight.ui.theme.VoxPurpleLight
@@ -105,17 +108,17 @@ fun SelectPracticeModeModal(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
+                .fillMaxWidth(0.95f)
                 .heightIn(max = 680.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .border(1.dp, VoxCardStroke.copy(alpha = 0.5f), RoundedCornerShape(32.dp)),
+                .clip(RoundedCornerShape(28.dp))
+                .border(1.dp, VoxCardStroke.copy(alpha = 0.5f), RoundedCornerShape(28.dp)),
             color = Color.White,
             shadowElevation = 12.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (isSelectingVocalPart) {
@@ -616,12 +619,41 @@ fun SelectPracticeModeModal(
         }
     }
 
-    summaryDialogTake?.let { (takeItem, takeNum) ->
-        TakeSummaryFeedbackDialog(
-            item = takeItem,
-            takeNumber = takeNum,
-            onDismiss = { summaryDialogTake = null }
-        )
+    summaryDialogTake?.let { (takeItem, _) ->
+        val takeSummary = takeItem.toSessionSummary()
+        val takeVoice = takeItem.resolveSatbVoice()
+        val takeAttempts = takeItem.summary?.pitchAttempts ?: emptyList()
+
+        Dialog(
+            onDismissRequest = { summaryDialogTake = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
+            ) {
+                PracticeSummaryScreen(
+                    summary = takeSummary,
+                    score = score,
+                    selectedVoice = takeVoice,
+                    pitchAttempts = takeAttempts,
+                    onBackToLibrary = { summaryDialogTake = null },
+                    onRepeatPractice = {
+                        summaryDialogTake = null
+                        val vp = when (takeVoice) {
+                            com.cit.kaido.voxsight.model.SATBVoice.SOPRANO -> VoicePart.Soprano
+                            com.cit.kaido.voxsight.model.SATBVoice.ALTO -> VoicePart.Alto
+                            com.cit.kaido.voxsight.model.SATBVoice.TENOR -> VoicePart.Tenor
+                            com.cit.kaido.voxsight.model.SATBVoice.BASS -> VoicePart.Bass
+                            com.cit.kaido.voxsight.model.SATBVoice.SOLO -> VoicePart.Solo
+                            else -> VoicePart.Others
+                        }
+                        onModeSelected(true, vp)
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -654,7 +686,7 @@ private fun TakePlaybackCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -663,7 +695,7 @@ private fun TakePlaybackCard(
                 // Play / Pause Circle Button
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(if (isCurrentlyPlaying) VoxPurplePrimary else Color(0xFFEAEAF0))
                         .clickable { onPlayPause() },
@@ -673,22 +705,26 @@ private fun TakePlaybackCard(
                         imageVector = if (isCurrentlyPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
                         contentDescription = if (isCurrentlyPlaying) "Pause" else "Play",
                         tint = if (isCurrentlyPlaying) Color.White else VoxPurplePrimary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 // Info: Take # and Timestamp
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
                         Text(
                             text = "Take #$takeNumber",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF191C20)
+                            color = Color(0xFF191C20),
+                            maxLines = 1,
+                            softWrap = false
                         )
                         item.accuracyPercentage?.let { acc ->
-                            Spacer(modifier = Modifier.width(6.dp))
                             val accColor = when {
                                 acc >= 80 -> Color(0xFF2E7D32)
                                 acc >= 60 -> Color(0xFFE65100)
@@ -698,7 +734,7 @@ private fun TakePlaybackCard(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(accColor.copy(alpha = 0.12f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = "$acc% Acc",
@@ -706,12 +742,13 @@ private fun TakePlaybackCard(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 10.sp
                                     ),
-                                    color = accColor
+                                    color = accColor,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                         item.accuracyDelta?.let { delta ->
-                            Spacer(modifier = Modifier.width(5.dp))
                             val isPositive = delta > 0
                             val isNegative = delta < 0
                             val deltaColor = when {
@@ -736,12 +773,14 @@ private fun TakePlaybackCard(
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 10.sp
                                     ),
-                                    color = deltaColor
+                                    color = deltaColor,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -750,14 +789,18 @@ private fun TakePlaybackCard(
                         Text(
                             text = item.formattedDate,
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = Color.Gray
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(VoxPurplePrimary.copy(alpha = 0.08f))
+                                .background(VoxPurplePrimary.copy(alpha = 0.1f))
                                 .clickable { onViewSummary() }
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "View Summary",
@@ -765,7 +808,9 @@ private fun TakePlaybackCard(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp
                                 ),
-                                color = VoxPurplePrimary
+                                color = VoxPurplePrimary,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }

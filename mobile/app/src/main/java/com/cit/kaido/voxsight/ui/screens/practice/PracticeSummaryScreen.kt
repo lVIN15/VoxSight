@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -357,7 +358,8 @@ fun PracticeSummaryScreen(
                 .fillMaxWidth()
                 .background(VoxBackground.copy(alpha = 0.9f))
                 .border(1.dp, Color(0xFFF2F3F9))
-                .padding(24.dp)
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
             val gradientBrush = Brush.horizontalGradient(
                 colors = listOf(VoxPurplePrimary, Color(0xFF4A148C))
@@ -392,6 +394,7 @@ fun PracticeSummaryScreen(
             PastVocalTakesDialog(
                 scoreId = score?.id,
                 scoreTitle = score?.title,
+                score = score,
                 onDismiss = { showPastTakesDialog = false }
             )
         }

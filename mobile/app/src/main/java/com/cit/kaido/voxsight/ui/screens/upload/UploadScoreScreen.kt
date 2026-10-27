@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -520,8 +522,9 @@ fun UploadScoreScreen(
                 .fillMaxSize()
                 .background(VoxBackground)
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
             TopBar(
                 uploadCredits = uploadCredits,
@@ -762,6 +765,7 @@ fun UploadScoreScreen(
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(28.dp))
         }
 
         if (scoreToDelete != null) {
@@ -981,13 +985,13 @@ private fun ActionCard(
                 indication = ripple(color = VoxPurplePrimary),
                 onClick = onClick
             )
-            .padding(vertical = 28.dp, horizontal = 24.dp),
+            .padding(vertical = 18.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Icon circle
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(VoxPurpleIconBg),
             contentAlignment = Alignment.Center
@@ -996,11 +1000,11 @@ private fun ActionCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = VoxPurplePrimary,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
             text = title,
@@ -1008,7 +1012,7 @@ private fun ActionCard(
             color = VoxTextPrimary
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Text(
             text = subtitle,
@@ -1214,12 +1218,12 @@ private fun RecentScoreRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(VoxPurpleIconBg),
                 contentAlignment = Alignment.Center
@@ -1232,7 +1236,7 @@ private fun RecentScoreRow(
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -1240,65 +1244,84 @@ private fun RecentScoreRow(
             ) {
                 Text(
                     text = item.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
-                    color = VoxTextPrimary
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = VoxTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = item.composer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VoxTextSubtitle
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                    color = VoxTextSubtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-            }
-
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Surface(
-                    color = VoxPurpleIconBg,
-                    shape = RoundedCornerShape(999.dp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Surface(
+                        color = VoxPurpleIconBg,
+                        shape = RoundedCornerShape(999.dp)
+                    ) {
+                        Text(
+                            text = item.fileType,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 10.sp
+                            ),
+                            color = VoxPurplePrimary,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
                     Text(
-                        text = item.fileType,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = VoxPurplePrimary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        text = "•",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VoxTextSubtitle.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = item.timeLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = VoxTextSubtitle,
+                        maxLines = 1
                     )
                 }
-                Text(
-                    text = item.timeLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VoxTextSubtitle
-                )
             }
 
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
-            androidx.compose.material3.IconButton(
-                onClick = {
-                    onDuplicateClick()
-                },
-                modifier = Modifier.size(36.dp)
-            ) {
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Outlined.ContentCopy,
-                    contentDescription = "Duplicate Score",
-                    tint = VoxPurplePrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(
+                    onClick = {
+                        onDuplicateClick()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = "Duplicate Score",
+                        tint = VoxPurplePrimary.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
 
-            androidx.compose.material3.IconButton(
-                onClick = {
-                    onDeleteClick()
-                },
-                modifier = Modifier.size(36.dp)
-            ) {
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Outlined.DeleteOutline,
-                    contentDescription = "Delete Score",
-                    tint = Color(0xFFE57373)
-                )
+                androidx.compose.material3.IconButton(
+                    onClick = {
+                        onDeleteClick()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Outlined.DeleteOutline,
+                        contentDescription = "Delete Score",
+                        tint = Color(0xFFE57373),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }

@@ -21,8 +21,60 @@ data class TakeSummaryData(
     val vocalHighlightHighest: String? = null,
     val vocalHighlightLowest: String? = null,
     val problematicNotes: List<ProblematicNoteData> = emptyList(),
-    val topProblematicMeasure: ProblematicMeasureData? = null
+    val topProblematicMeasure: ProblematicMeasureData? = null,
+    val pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList()
 )
+
+fun ScoreRecordingItem.toSessionSummary(): com.cit.kaido.voxsight.ui.screens.practice.SessionSummary {
+    val s = this.summary
+    val vocalHighlight = if (!s?.vocalHighlightHighest.isNullOrBlank() && !s?.vocalHighlightLowest.isNullOrBlank()) {
+        com.cit.kaido.voxsight.ui.screens.practice.VocalHighlight(
+            highestNote = s.vocalHighlightHighest!!,
+            lowestNote = s.vocalHighlightLowest!!
+        )
+    } else null
+
+    val topMeasure = s?.topProblematicMeasure?.let {
+        com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure(
+            measureNumber = it.measureNumber,
+            mistakeCount = it.mistakeCount,
+            totalNotes = it.totalNotes,
+            isSharp = it.isSharp,
+            averageDeviation = it.averageDeviation
+        )
+    }
+
+    val probNotes = s?.problematicNotes?.map {
+        com.cit.kaido.voxsight.ui.screens.practice.ProblematicNote(
+            noteName = it.noteName,
+            averageDeviation = it.averageDeviation,
+            isSharp = it.isSharp
+        )
+    } ?: emptyList()
+
+    return com.cit.kaido.voxsight.ui.screens.practice.SessionSummary(
+        totalNotesAttempted = s?.totalNotesAttempted ?: 0,
+        correctNotes = s?.correctNotes ?: 0,
+        averageDeviationCents = s?.averageDeviationCents ?: 0f,
+        problematicNotes = probNotes,
+        vocalHighlight = vocalHighlight,
+        topProblematicMeasure = topMeasure,
+        recordingFile = this.file
+    )
+}
+
+fun ScoreRecordingItem.resolveSatbVoice(): com.cit.kaido.voxsight.model.SATBVoice {
+    val voiceStr = this.summary?.satbVoice
+    return if (!voiceStr.isNullOrBlank()) {
+        try {
+            com.cit.kaido.voxsight.model.SATBVoice.valueOf(voiceStr.uppercase())
+        } catch (_: Exception) {
+            com.cit.kaido.voxsight.model.SATBVoice.SOPRANO
+        }
+    } else {
+        com.cit.kaido.voxsight.model.SATBVoice.SOPRANO
+    }
+}
 
 data class ProblematicNoteData(
     val noteName: String,
