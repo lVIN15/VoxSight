@@ -43,6 +43,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.cit.kaido.voxsight.model.MusicalEvent
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.material.icons.filled.DragHandle
+import kotlin.math.roundToInt
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlNote
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
 import com.cit.kaido.voxsight.ui.theme.VoxCardStroke
@@ -88,6 +93,8 @@ fun ScoreReviewScreen(
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
+    var zoomOffsetX by remember { mutableStateOf(0f) }
+    var zoomOffsetY by remember { mutableStateOf(0f) }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -431,22 +438,38 @@ fun ScoreReviewScreen(
                     }
                 }
 
-                // Floating Zoom In / Out / Fit Pill (Positioned cleanly at bottom-right)
+                // Floating Movable Zoom In / Out / Fit Pill (Draggable anywhere on screen)
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(end = if (isFullscreen) 16.dp else 12.dp, bottom = if (isFullscreen) 80.dp else 74.dp),
+                        .padding(end = if (isFullscreen) 16.dp else 12.dp, bottom = if (isFullscreen) 80.dp else 74.dp)
+                        .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                zoomOffsetX += dragAmount.x
+                                zoomOffsetY += dragAmount.y
+                            }
+                        },
                     color = Color.White.copy(alpha = 0.95f),
                     shadowElevation = 6.dp,
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag to move",
+                            tint = VoxPurplePrimary.copy(alpha = 0.45f),
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(end = 2.dp)
+                        )
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
                             modifier = Modifier.size(36.dp)
