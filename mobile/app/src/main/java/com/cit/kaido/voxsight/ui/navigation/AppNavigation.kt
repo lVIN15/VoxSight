@@ -552,7 +552,16 @@ fun AppNavigation() {
                     }
                 },
                 onCancel = {
-                    navController.popBackStack()
+                    com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
+                    practiceViewModel.pendingMusicXml = ""
+                    practiceViewModel.pendingScoreTitle = ""
+                    val popped = navController.popBackStack("upload", inclusive = false)
+                    if (!popped) {
+                        navController.navigate("upload") {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
                 }
             )
         }
