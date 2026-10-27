@@ -64,11 +64,14 @@ object UploadManager {
     ) {
         ScoreUploadService.ensureNotificationChannel(appContext)
         val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val builder = NotificationCompat.Builder(appContext, ScoreUploadService.CHANNEL_ID)
+        val builder = NotificationCompat.Builder(appContext, ScoreUploadService.COMPLETION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_name)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setProgress(0, 0, false)
             .setOngoing(false)
             .setAutoCancel(true)
@@ -140,57 +143,106 @@ object UploadManager {
                 val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
 
-                // Natural progression capped at 90% while network request is in flight
-                progressJob = launch {
-                    var currentP = 0f
-                    var lastNotifyTime = 0L
-                    while (isActive && currentP < 0.90f && uploadStatus.value == UploadStatus.PROCESSING) {
-                        // Smoothly decelerate as it approaches 90%
-                        val increment = when {
-                            currentP < 0.40f -> 0.008f   // ~5 seconds to reach 40%
-                            currentP < 0.70f -> 0.0035f  // ~8.5 seconds to reach 70%
-                            currentP < 0.85f -> 0.0015f  // ~10 seconds to reach 85%
-                            else -> 0.0003f              // Creep towards 90%
-                        }
-                        currentP = (currentP + increment).coerceAtMost(0.90f)
-                        uploadProgress.value = currentP
+                var response: OmrAnalysisResponse? = null
+                var asyncHandled = false
 
-                        val phase = when {
-                            currentP < 0.35f -> "Uploading score..."
-                            currentP < 0.70f -> "Digitizing staves & notes..."
-                            currentP < 0.88f -> "Analyzing vocal parts (SATB)..."
-                            else -> "Finalizing musical analysis..."
-                        }
-                        uploadPhaseText.value = phase
+                // Step 1: Attempt asynchronous background job submission (eliminates socket timeouts)
+                try {
+                    val submitResp = ApiClient.omrService.submitJob(body, bypassCache)
+                    if (submitResp.status == "COMPLETED" && submitResp.result != null) {
+                        // Cache hit: immediately ready
+                        response = submitResp.result
+                        asyncHandled = true
+                    } else if (!submitResp.jobId.isNullOrBlank()) {
+                        val jobId = submitResp.jobId
+                        asyncHandled = true
+                        uploadPhaseText.value = submitResp.phaseText ?: "Digitizing sheet music in background..."
 
-                        withContext(Dispatchers.Main) {
-                            if (isActive) onProgress(currentP)
-                        }
+                        // Poll status with accurate real-time progress from Audiveris
+                        while (isActive && uploadStatus.value == UploadStatus.PROCESSING) {
+                            delay(1500)
+                            val statusResp = ApiClient.omrService.getJobStatus(jobId)
+                            val pct = (statusResp.progressPercent / 100f).coerceIn(0f, 0.95f)
+                            val phase = statusResp.phaseText ?: "Digitizing sheet music..."
 
-                        val now = System.currentTimeMillis()
-                        if (isActive && now - lastNotifyTime > 1000) {
+                            uploadProgress.value = pct
+                            uploadPhaseText.value = phase
+                            withContext(Dispatchers.Main) {
+                                if (isActive) onProgress(pct)
+                            }
                             ScoreUploadService.updateProgress(
                                 context = appContext,
-                                progressPercent = (currentP * 100).toInt(),
+                                progressPercent = statusResp.progressPercent,
                                 phaseText = phase
                             )
-                            lastNotifyTime = now
-                        }
 
-                        if (currentP >= 0.90f) {
-                            delay(200)
-                        } else {
-                            delay(100)
+                            if (statusResp.status == "COMPLETED" && statusResp.result != null) {
+                                response = statusResp.result
+                                break
+                            } else if (statusResp.status == "FAILED") {
+                                throw Exception(statusResp.error ?: "Digitization failed on server.")
+                            }
                         }
                     }
+                } catch (e: Exception) {
+                    if (asyncHandled) {
+                        throw e // Propagate real conversion error
+                    }
+                    // Fallback to synchronous analyzeScore if endpoint not found or initial submission failed
+                    android.util.Log.w("UploadManager", "Async job not available, falling back to sync: ${e.message}")
                 }
-                activeProgressJob = progressJob
 
-                val response = ApiClient.omrService.analyzeScore(body, bypassCache)
+                // Step 2: Fallback to synchronous analyzeScore if async was not supported
+                if (!asyncHandled || response == null) {
+                    progressJob = launch {
+                        var currentP = uploadProgress.value
+                        var lastNotifyTime = 0L
+                        while (isActive && currentP < 0.90f && uploadStatus.value == UploadStatus.PROCESSING) {
+                            val increment = when {
+                                currentP < 0.40f -> 0.008f
+                                currentP < 0.70f -> 0.0035f
+                                currentP < 0.85f -> 0.0015f
+                                else -> 0.0003f
+                            }
+                            currentP = (currentP + increment).coerceAtMost(0.90f)
+                            uploadProgress.value = currentP
 
-                // Cancel and wait for progress simulator to fully terminate
-                progressJob.cancelAndJoin()
-                activeProgressJob = null
+                            val phase = when {
+                                currentP < 0.35f -> "Uploading score..."
+                                currentP < 0.70f -> "Digitizing staves & notes..."
+                                currentP < 0.88f -> "Analyzing vocal parts (SATB)..."
+                                else -> "Finalizing musical analysis..."
+                            }
+                            uploadPhaseText.value = phase
+
+                            withContext(Dispatchers.Main) {
+                                if (isActive) onProgress(currentP)
+                            }
+
+                            val now = System.currentTimeMillis()
+                            if (isActive && now - lastNotifyTime > 1000) {
+                                ScoreUploadService.updateProgress(
+                                    context = appContext,
+                                    progressPercent = (currentP * 100).toInt(),
+                                    phaseText = phase
+                                )
+                                lastNotifyTime = now
+                            }
+
+                            if (currentP >= 0.90f) {
+                                delay(200)
+                            } else {
+                                delay(100)
+                            }
+                        }
+                    }
+                    activeProgressJob = progressJob
+
+                    response = ApiClient.omrService.analyzeScore(body, bypassCache)
+
+                    progressJob.cancelAndJoin()
+                    activeProgressJob = null
+                }
 
                 if (response.success && response.musicXml != null) {
                     val scoreTitle = deriveTitleFromFileName(originalFileName)

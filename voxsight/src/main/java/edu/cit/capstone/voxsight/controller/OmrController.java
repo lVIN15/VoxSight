@@ -1,6 +1,13 @@
 package edu.cit.capstone.voxsight.controller;
 
 import edu.cit.capstone.voxsight.dto.OmrAnalysisResponse;
+import edu.cit.capstone.voxsight.dto.OmrJobStatusResponse;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import edu.cit.capstone.voxsight.dto.OmrResponse;
 import edu.cit.capstone.voxsight.service.SatbAnalysisService;
 import org.slf4j.Logger;
@@ -43,6 +50,57 @@ public class OmrController {
     // In-memory cache for instant responses (0.05s) on repeated or shared song uploads
     private static final Map<String, OmrAnalysisResponse> ANALYSIS_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, OmrResponse> CONVERT_CACHE = new ConcurrentHashMap<>();
+
+    // Asynchronous background job tracker for long-running / multi-page scores
+    public static class OmrJobState {
+        private final String jobId;
+        private volatile String status; // "PROCESSING", "COMPLETED", "FAILED"
+        private volatile int progressPercent;
+        private volatile String phaseText;
+        private volatile OmrAnalysisResponse result;
+        private volatile String error;
+        private final long createdAt;
+
+        public OmrJobState(String jobId, int progressPercent, String phaseText) {
+            this.jobId = jobId;
+            this.status = "PROCESSING";
+            this.progressPercent = progressPercent;
+            this.phaseText = phaseText;
+            this.createdAt = System.currentTimeMillis();
+        }
+
+        public synchronized void update(int progressPercent, String phaseText) {
+            this.progressPercent = progressPercent;
+            this.phaseText = phaseText;
+        }
+
+        public synchronized void complete(OmrAnalysisResponse result) {
+            this.status = "COMPLETED";
+            this.progressPercent = 100;
+            this.phaseText = "Score ready!";
+            this.result = result;
+        }
+
+        public synchronized void fail(String error) {
+            this.status = "FAILED";
+            this.error = error;
+            this.phaseText = "Processing failed: " + error;
+        }
+
+        public OmrJobStatusResponse toResponse() {
+            return new OmrJobStatusResponse(jobId, status, progressPercent, phaseText, result, error);
+        }
+
+        public long getCreatedAt() {
+            return createdAt;
+        }
+    }
+
+    private static final Map<String, OmrJobState> ACTIVE_ASYNC_JOBS = new ConcurrentHashMap<>();
+    private final ExecutorService asyncJobExecutor = Executors.newFixedThreadPool(4);
+
+    public record ProgressUpdate(int percent, String phaseText) {}
+
 
     private static volatile String lastOmrDiagnostics = "No OMR job executed yet.";
 
@@ -555,7 +613,100 @@ public class OmrController {
         }
     }
 
+    @PostMapping("/jobs/submit")
+    public ResponseEntity<OmrJobStatusResponse> submitJob(
+            @RequestParam("musicFile") MultipartFile file,
+            @RequestParam(value = "bypassCache", required = false, defaultValue = "false") boolean bypassCache
+    ) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(OmrJobStatusResponse.failed(null, "File is empty"));
+        }
+        String rawFilename = file.getOriginalFilename();
+        if (rawFilename == null || rawFilename.isBlank()) {
+            return ResponseEntity.badRequest().body(OmrJobStatusResponse.failed(null, "Filename is missing"));
+        }
+
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (IOException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrJobStatusResponse.failed(null, "Failed to read uploaded file"));
+        }
+
+        String fileHash = calculateSha256(fileBytes);
+        if (!bypassCache) {
+            OmrAnalysisResponse cached = ANALYSIS_CACHE.get(fileHash);
+            if (cached != null) {
+                log.info("[OMR Async Job Cache HIT] Returning cached conversion for: {}", rawFilename);
+                return ResponseEntity.ok(OmrJobStatusResponse.completed("cached-" + fileHash, cached));
+            }
+        }
+
+        String jobId = UUID.randomUUID().toString();
+        OmrJobState jobState = new OmrJobState(jobId, 5, "Score uploaded, starting background conversion...");
+        ACTIVE_ASYNC_JOBS.put(jobId, jobState);
+
+        // Prune stale jobs older than 1 hour
+        long oneHourAgo = System.currentTimeMillis() - 3600000L;
+        ACTIVE_ASYNC_JOBS.entrySet().removeIf(e -> e.getValue().getCreatedAt() < oneHourAgo);
+
+        asyncJobExecutor.submit(() -> {
+            try {
+                executeAsyncAnalyze(jobState, rawFilename, fileBytes, fileHash, bypassCache);
+            } catch (Exception e) {
+                log.error("[OMR Async Job Error] Unhandled exception in job {}: {}", jobId, e.getMessage(), e);
+                jobState.fail("Conversion failed: " + e.getMessage());
+            }
+        });
+
+        return ResponseEntity.ok(jobState.toResponse());
+    }
+
+    @GetMapping("/jobs/{jobId}/status")
+    public ResponseEntity<OmrJobStatusResponse> getJobStatus(@PathVariable("jobId") String jobId) {
+        OmrJobState jobState = ACTIVE_ASYNC_JOBS.get(jobId);
+        if (jobState == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(OmrJobStatusResponse.failed(jobId, "Job not found or expired"));
+        }
+        return ResponseEntity.ok(jobState.toResponse());
+    }
+
+    private void executeAsyncAnalyze(OmrJobState jobState, String rawFilename, byte[] fileBytes, String fileHash, boolean bypassCache) {
+        try {
+            OmrAnalysisResponse resp = runPipeline(rawFilename, fileBytes, fileHash, bypassCache, update -> {
+                jobState.update(update.percent(), update.phaseText());
+            });
+            jobState.complete(resp);
+        } catch (Exception e) {
+            log.error("[Async Job Error] Job {} failed: {}", jobState.jobId, e.getMessage(), e);
+            jobState.fail(e.getMessage());
+        }
+    }
+
     private ResponseEntity<OmrAnalysisResponse> executeAnalyze(String rawFilename, byte[] fileBytes, String fileHash, boolean bypassCache) {
+        try {
+            OmrAnalysisResponse resp = runPipeline(rawFilename, fileBytes, fileHash, bypassCache, update -> {});
+            return ResponseEntity.ok(resp);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(OmrAnalysisResponse.ofError("Server request was interrupted."));
+        } catch (Exception e) {
+            log.error("[Analyze Error] {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(OmrAnalysisResponse.ofError(e.getMessage()));
+        }
+    }
+
+    private OmrAnalysisResponse runPipeline(
+            String rawFilename,
+            byte[] fileBytes,
+            String fileHash,
+            boolean bypassCache,
+            Consumer<ProgressUpdate> progressConsumer
+    ) throws Exception {
         boolean acquired = false;
         try {
             log.info("[OMR Queue] Request for {} waiting for permit (Available: {}/{}, Queue depth: {})...",
@@ -564,16 +715,16 @@ public class OmrController {
             acquired = omrSemaphore.tryAcquire(600, TimeUnit.SECONDS);
             if (!acquired) {
                 log.warn("[OMR Queue Timeout] SATB analysis timed out waiting for permit (600s): {}", rawFilename);
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                        .body(OmrAnalysisResponse.ofError("The server is currently processing other scores. Please try again in a moment."));
+                throw new RuntimeException("The server is currently processing other scores. Please try again in a moment.");
             }
 
-            // Post-Lock Double-Check Cache: In case another thread finished the same file while we queued
+            // Post-Lock Double-Check Cache
             if (!bypassCache) {
                 OmrAnalysisResponse postLockCached = ANALYSIS_CACHE.get(fileHash);
                 if (postLockCached != null) {
                     log.info("[OMR Cache HIT Post-Lock] Returning cached SATB analysis for: {} (hash: {})", rawFilename, fileHash);
-                    return ResponseEntity.ok(postLockCached);
+                    progressConsumer.accept(new ProgressUpdate(100, "Loaded from cache"));
+                    return postLockCached;
                 }
             }
 
@@ -584,6 +735,8 @@ public class OmrController {
             File uploadsDir = getUploadsDir();
             File outputsDir = getOutputsDir();
 
+            progressConsumer.accept(new ProgressUpdate(10, "Uploading score and preparing workspace..."));
+
             // Step 1: Save uploaded file
             String uniqueName = System.currentTimeMillis() + "-" + originalFilename;
             File uploadedFile = new File(uploadsDir, uniqueName);
@@ -591,8 +744,7 @@ public class OmrController {
                 fos.write(fileBytes);
             } catch (IOException e) {
                 log.error("Failed to save uploaded file: ", e);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("Failed to save uploaded file"));
+                throw new RuntimeException("Failed to save uploaded file: " + e.getMessage());
             }
 
             // Step 2: Run Audiveris
@@ -603,14 +755,20 @@ public class OmrController {
 
             if (!execFile.exists() && resolvedExecutable.contains(File.separator)) {
                 log.error("[Analyze Audiveris Error] Binary executable not found at specified path: {}", resolvedExecutable);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("OMR processing service is temporarily unavailable. Missing executable component."));
+                throw new RuntimeException("OMR processing service is temporarily unavailable. Missing executable component.");
             }
 
+            progressConsumer.accept(new ProgressUpdate(15, "Optimizing score resolution & trimming margins..."));
             File scoreToProcess = prepareScoreForOmr(uploadedFile, uploadsDir);
+
+            progressConsumer.accept(new ProgressUpdate(20, "Starting notation transcription with Audiveris..."));
 
             StringBuilder audiverisLog = new StringBuilder();
             int exitCode = -1;
+            Pattern sheetsPattern = Pattern.compile("(\\d+)\\s+sheets\\s+in");
+            Pattern sheetNumPattern = Pattern.compile("\\[.*?#(\\d+)\\]");
+            int[] totalSheetsHolder = new int[]{1};
+
             try {
                 ProcessBuilder pb = new ProcessBuilder(
                         resolvedExecutable, "-batch", "-transcribe", "-export",
@@ -628,14 +786,29 @@ public class OmrController {
                         }
                         log.info("[Audiveris] {}", line);
                         audiverisLog.append(line).append("\n");
+
+                        Matcher sm = sheetsPattern.matcher(line);
+                        if (sm.find()) {
+                            try {
+                                totalSheetsHolder[0] = Math.max(1, Integer.parseInt(sm.group(1)));
+                            } catch (Exception ignored) {}
+                        }
+                        Matcher snm = sheetNumPattern.matcher(line);
+                        if (snm.find()) {
+                            try {
+                                int currentSheet = Integer.parseInt(snm.group(1));
+                                totalSheetsHolder[0] = Math.max(totalSheetsHolder[0], currentSheet);
+                                int pct = Math.min(80, 20 + (int) ((currentSheet / (double) totalSheetsHolder[0]) * 60));
+                                progressConsumer.accept(new ProgressUpdate(pct, "Digitizing page " + currentSheet + " of " + totalSheetsHolder[0] + " (" + pct + "%)"));
+                            } catch (Exception ignored) {}
+                        }
                     }
                 }
                 exitCode = process.waitFor();
                 log.info("[Analyze Audiveris Exit Code] {}", exitCode);
             } catch (Exception e) {
                 log.error("Error executing Audiveris: ", e);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("Audiveris processing failed"));
+                throw new RuntimeException("Audiveris processing failed: " + e.getMessage());
             }
 
             // Step 3: Locate MusicXML output
@@ -656,9 +829,10 @@ public class OmrController {
             if (resultFile == null || !resultFile.exists()) {
                 String friendlyError = analyzeAudiverisLog(audiverisLog.toString());
                 log.error("[Analyze Error] Audiveris output not found for baseName: {}. Friendly error: {}. Full Audiveris Logs:\n{}", baseName, friendlyError, audiverisLog);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError(friendlyError));
+                throw new RuntimeException(friendlyError);
             }
+
+            progressConsumer.accept(new ProgressUpdate(85, "Reconciling parts & removing pedal marks..."));
 
             // Step 4: Move to outputs folder
             String extension = getExtension(resultFile.getName());
@@ -668,9 +842,10 @@ public class OmrController {
                 cleanMusicXml(targetFile);
             } catch (IOException e) {
                 log.error("Failed to move output: ", e);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("Failed to save converted file"));
+                throw new RuntimeException("Failed to save converted file: " + e.getMessage());
             }
+
+            progressConsumer.accept(new ProgressUpdate(90, "Analyzing SATB vocal lines..."));
 
             // Step 5: Run SATB Analysis (music21 via Python)
             try {
@@ -686,38 +861,35 @@ public class OmrController {
                         analysis.schemaVersion()
                 );
                 ANALYSIS_CACHE.put(fileHash, response);
-                return ResponseEntity.ok(response);
+                progressConsumer.accept(new ProgressUpdate(100, "Score ready!"));
+                return response;
 
             } catch (SatbAnalysisService.SatbAnalysisException e) {
                 log.error("[Analyze] SATB analysis failed: {}", e.getMessage());
                 try {
                     String rawXml = extractXmlContent(targetFile);
-                OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
-                        rawXml, java.util.Map.of(
-                            "structure_type", "UNCERTAIN",
-                            "satb_confidence", 0.0,
-                            "validation_passed", false
-                        ), java.util.List.of(), "1.0"
-                );
-                ANALYSIS_CACHE.put(fileHash, response);
-                return ResponseEntity.ok(response);
-            } catch (IOException ioe) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(OmrAnalysisResponse.ofError("Analysis failed and could not read MusicXML"));
+                    OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
+                            rawXml, java.util.Map.of(
+                                "structure_type", "UNCERTAIN",
+                                "satb_confidence", 0.0,
+                                "validation_passed", false
+                            ), java.util.List.of(), "1.0"
+                    );
+                    ANALYSIS_CACHE.put(fileHash, response);
+                    progressConsumer.accept(new ProgressUpdate(100, "Score ready!"));
+                    return response;
+                } catch (IOException ioe) {
+                    throw new RuntimeException("Analysis failed and could not read MusicXML: " + ioe.getMessage());
+                }
+            }
+        } finally {
+            if (acquired) {
+                omrSemaphore.release();
+                log.info("[OMR Lock Released] Released permit for {} (Available: {}/{}, Queue depth: {})",
+                        rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
             }
         }
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(OmrAnalysisResponse.ofError("Server request was interrupted."));
-    } finally {
-        if (acquired) {
-            omrSemaphore.release();
-            log.info("[OMR Lock Released] Released permit for {} (Available: {}/{}, Queue depth: {})",
-                    rawFilename, omrSemaphore.availablePermits(), maxConcurrentJobs, omrSemaphore.getQueueLength());
-        }
     }
-}
 
     private String extractXmlContent(File file) throws IOException {
         byte[] bytes = Files.readAllBytes(file.toPath());

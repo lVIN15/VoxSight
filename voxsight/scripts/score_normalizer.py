@@ -225,44 +225,87 @@ def _is_blank_or_non_music_page(img: Image.Image) -> tuple:
 
 
 def normalize_pdf(input_path: str, output_path: str) -> bool:
+    pdfium = None
+    fitz = None
     try:
         import pypdfium2 as pdfium
     except ImportError:
-        print("[ScoreNormalizer] pypdfium2 not available, skipping PDF normalization.")
-        return False
+        pass
 
-    pdf = pdfium.PdfDocument(input_path)
-    page_count = len(pdf)
-    if page_count == 0:
-        return False
+    if pdfium is None:
+        try:
+            import fitz
+        except ImportError:
+            pass
 
-    print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s))...")
+    if pdfium is None and fitz is None:
+        print("[ScoreNormalizer] Neither pypdfium2 nor fitz available, skipping PDF normalization.")
+        return False
 
     rendered_pages = []
     pruned_indices = []
     needs_downscale = False
 
-    for i, page in enumerate(pdf):
-        w_pt, h_pt = page.get_size()
-        dpi_scale = 300.0 / 72.0
-        target_w = int(w_pt * dpi_scale)
-        target_h = int(h_pt * dpi_scale)
+    if pdfium is not None:
+        pdf = pdfium.PdfDocument(input_path)
+        page_count = len(pdf)
+        if page_count == 0:
+            return False
 
-        if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
-            needs_downscale = True
-            factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
-            dpi_scale *= factor
+        print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via pypdfium2...")
 
-        rendered_img = page.render(scale=dpi_scale).to_pil().convert("RGB")
+        for i, page in enumerate(pdf):
+            w_pt, h_pt = page.get_size()
+            dpi_scale = 300.0 / 72.0
+            target_w = int(w_pt * dpi_scale)
+            target_h = int(h_pt * dpi_scale)
 
-        # Check if page is blank or non-music back matter
-        is_blank, reason = _is_blank_or_non_music_page(rendered_img)
-        if is_blank:
-            print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
-            pruned_indices.append(i + 1)
-        else:
-            print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
-            rendered_pages.append(rendered_img)
+            if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
+                needs_downscale = True
+                factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
+                dpi_scale *= factor
+
+            rendered_img = page.render(scale=dpi_scale).to_pil().convert("RGB")
+
+            # Check if page is blank or non-music back matter
+            is_blank, reason = _is_blank_or_non_music_page(rendered_img)
+            if is_blank:
+                print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
+                pruned_indices.append(i + 1)
+            else:
+                print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
+                rendered_pages.append(rendered_img)
+    else:
+        doc = fitz.open(input_path)
+        page_count = len(doc)
+        if page_count == 0:
+            return False
+
+        print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via PyMuPDF (fitz)...")
+
+        for i in range(page_count):
+            page = doc[i]
+            rect = page.rect
+            w_pt, h_pt = rect.width, rect.height
+            target_dpi = 300.0
+            target_w = int(w_pt * (target_dpi / 72.0))
+            target_h = int(h_pt * (target_dpi / 72.0))
+
+            if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
+                needs_downscale = True
+                factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
+                target_dpi = 300.0 * factor
+
+            pix = page.get_pixmap(dpi=target_dpi)
+            rendered_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            is_blank, reason = _is_blank_or_non_music_page(rendered_img)
+            if is_blank:
+                print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
+                pruned_indices.append(i + 1)
+            else:
+                print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
+                rendered_pages.append(rendered_img)
 
     # Safety guard: if ALL pages were pruned, retain page 1 so downstream gets a valid sheet to inspect
     if not rendered_pages and page_count > 0:

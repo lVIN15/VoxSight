@@ -30,10 +30,23 @@ interface OmrService {
         @Query("bypassCache") bypassCache: Boolean = false
     ): OmrAnalysisResponse
 
+    /** Asynchronous background job submission: returns jobId immediately with zero HTTP timeout risk */
+    @Multipart
+    @POST("api/jobs/submit")
+    suspend fun submitJob(
+        @Part file: MultipartBody.Part,
+        @Query("bypassCache") bypassCache: Boolean = false
+    ): OmrJobStatusResponse
+
+    /** Polls background conversion job status and progress */
+    @GET("api/jobs/{jobId}/status")
+    suspend fun getJobStatus(
+        @retrofit2.http.Path("jobId") jobId: String
+    ): OmrJobStatusResponse
+
     @GET
     suspend fun downloadXml(@Url url: String): ResponseBody
 
     @POST("api/clear-cache")
     suspend fun clearCache(): retrofit2.Response<Map<String, Any>>
 }
-

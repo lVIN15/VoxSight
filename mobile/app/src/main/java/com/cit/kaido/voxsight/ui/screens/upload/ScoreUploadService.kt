@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -82,8 +84,8 @@ class ScoreUploadService : Service() {
                 "VoxSight::ScoreUploadWakeLock"
             ).apply {
                 setReferenceCounted(false)
-                // 4-minute max timeout matching OkHttp's 3-minute OMR read timeout + buffer
-                acquire(4 * 60 * 1000L)
+                // 15-minute max timeout for heavy multi-page scores running in background
+                acquire(15 * 60 * 1000L)
             }
         } catch (_: Exception) {
             // Ignore if WakeLock cannot be acquired
@@ -116,6 +118,7 @@ class ScoreUploadService : Service() {
 
     companion object {
         const val CHANNEL_ID = "upload_channel"
+        const val COMPLETION_CHANNEL_ID = "upload_completion_channel"
         const val PROGRESS_NOTIFICATION_ID = 1001
         const val RESULT_NOTIFICATION_ID = 1002
 
@@ -131,14 +134,36 @@ class ScoreUploadService : Service() {
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val channel = NotificationChannel(
+                
+                // Channel 1: Progress Notification (silent, ongoing during upload/conversion)
+                val uploadChannel = NotificationChannel(
                     CHANNEL_ID,
-                    "Score Uploads",
+                    "Score Uploads & Digitization",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Shows progress for uploading sheet music"
+                    description = "Shows real-time progress while digitizing sheet music"
                 }
-                nm.createNotificationChannel(channel)
+                nm.createNotificationChannel(uploadChannel)
+
+                // Channel 2: Completion Notification (high importance with chime & vibration)
+                val completionChannel = NotificationChannel(
+                    COMPLETION_CHANNEL_ID,
+                    "Score Import Results",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Alerts you when sheet music digitization is complete"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 300, 200, 300)
+                    enableLights(true)
+                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    val audioAttributes = AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .build()
+                    setSound(soundUri, audioAttributes)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+                nm.createNotificationChannel(completionChannel)
             }
         }
 
@@ -149,7 +174,7 @@ class ScoreUploadService : Service() {
         ): Notification {
             return NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_name)
-                .setContentTitle("Uploading Score...")
+                .setContentTitle("Digitizing Sheet Music...")
                 .setContentText(phaseText)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
@@ -207,4 +232,3 @@ class ScoreUploadService : Service() {
         }
     }
 }
-
