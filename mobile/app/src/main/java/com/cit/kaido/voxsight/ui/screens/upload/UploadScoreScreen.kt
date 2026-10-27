@@ -206,7 +206,25 @@ fun UploadScoreScreen(
     var allowMusicXmlBypass by remember { mutableStateOf(false) }
     var selectedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
     var lastParsedScore by remember { mutableStateOf<MusicXmlScore?>(null) }
-    val recentScores = remember { mutableStateListOf<RecentScoreItem>() }
+    val recentScores = remember {
+        mutableStateListOf<RecentScoreItem>().apply {
+            LocalScoreManager.peekCachedScores()?.let { cached ->
+                val musicXmlTypeLabel = context.getString(R.string.recent_score_type_musicxml)
+                addAll(
+                    cached.map { meta ->
+                        RecentScoreItem(
+                            id = meta.id,
+                            title = meta.title,
+                            composer = meta.composer,
+                            fileType = musicXmlTypeLabel,
+                            timeLabel = formatTimeLabel(context, meta.timestamp),
+                            metadata = meta
+                        )
+                    }
+                )
+            }
+        }
+    }
     var scoreToDelete by remember { mutableStateOf<RecentScoreItem?>(null) }
 
     // ── Camera URI for captured image ───────────────────────────

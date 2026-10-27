@@ -43,10 +43,7 @@ import com.cit.kaido.voxsight.ui.theme.VoxTextSubtitle
 import com.cit.kaido.voxsight.util.PremiumManager
 import com.composables.icons.lucide.Filter
 import com.composables.icons.lucide.Lucide
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 
 data class MusicSheetEntry(
     val id: String,
@@ -67,8 +64,12 @@ fun MyMusicSheetsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    val initialCached = remember { LocalScoreManager.peekCachedScores() }
     var searchQuery by remember { mutableStateOf("") }
-    var savedSheets by remember { mutableStateOf<List<MusicSheetEntry>>(emptyList()) }
+    var isLoadingScores by remember { mutableStateOf(initialCached == null) }
+    var savedSheets by remember {
+        mutableStateOf(initialCached?.let { mapScoresToSheetEntries(it) } ?: emptyList())
+    }
     var isPremium by remember { mutableStateOf(PremiumManager.isUserPremium(context)) }
 
     // Bottom sheet context menu & delete confirmation states
@@ -84,22 +85,8 @@ fun MyMusicSheetsScreen(
 
     suspend fun reloadScores() {
         val loaded = LocalScoreManager.loadSavedScores(context)
-        val mapped = withContext(Dispatchers.IO) {
-            loaded
-                .sortedBy { it.title.lowercase() }
-                .mapIndexed { index, meta ->
-                    val keySig = extractKeySignature(context, meta.xmlFileName)
-                    MusicSheetEntry(
-                        id = meta.id,
-                        title = meta.title,
-                        composer = meta.composer.ifBlank { "Unknown Composer" },
-                        keySignature = keySig,
-                        isBlueBadge = index % 3 == 2,
-                        localMetadata = meta
-                    )
-                }
-        }
-        savedSheets = mapped
+        savedSheets = mapScoresToSheetEntries(loaded)
+        isLoadingScores = false
     }
 
     LaunchedEffect(Unit) {
@@ -332,7 +319,7 @@ fun MyMusicSheetsScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
 
-            if (groupedSheets.isEmpty()) {
+            if (groupedSheets.isEmpty() && !isLoadingScores) {
                 item {
                     Box(
                         modifier = Modifier
@@ -630,33 +617,17 @@ private fun MusicSheetCard(
     }
 }
 
-private fun extractKeySignature(context: android.content.Context, xmlFileName: String): String {
-    return try {
-        val scoresDir = File(context.filesDir, "saved_scores")
-        val xmlFile = File(scoresDir, xmlFileName)
-        if (!xmlFile.exists()) return "C MAJ"
-        val content = xmlFile.readText(Charsets.UTF_8)
-        val fifthsMatch = Regex("<fifths>\\s*(-?\\d+)\\s*</fifths>").find(content)
-        val fifths = fifthsMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
-        when (fifths) {
-            -7 -> "Cb MAJ"
-            -6 -> "Gb MAJ"
-            -5 -> "Db MAJ"
-            -4 -> "Ab MAJ"
-            -3 -> "Eb MAJ"
-            -2 -> "Bb MAJ"
-            -1 -> "F MAJ"
-            0 -> "C MAJ"
-            1 -> "G MAJ"
-            2 -> "D MAJ"
-            3 -> "A MAJ"
-            4 -> "E MAJ"
-            5 -> "B MAJ"
-            6 -> "F# MAJ"
-            7 -> "C# MAJ"
-            else -> "C MAJ"
+private fun mapScoresToSheetEntries(loaded: List<LocalScoreMetadata>): List<MusicSheetEntry> {
+    return loaded
+        .sortedBy { it.title.lowercase() }
+        .mapIndexed { index, meta ->
+            MusicSheetEntry(
+                id = meta.id,
+                title = meta.title,
+                composer = meta.composer.ifBlank { "Unknown Composer" },
+                keySignature = meta.keySignature?.takeIf { it.isNotBlank() } ?: "C MAJ",
+                isBlueBadge = index % 3 == 2,
+                localMetadata = meta
+            )
         }
-    } catch (_: Exception) {
-        "C MAJ"
-    }
 }

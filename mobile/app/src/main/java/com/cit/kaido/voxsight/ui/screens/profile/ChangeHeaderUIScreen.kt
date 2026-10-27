@@ -90,7 +90,7 @@ fun ChangeHeaderUIScreen(
             HeaderUICard(
                 title = "Default",
                 description = "Choose a voice part for both Audio and Visual focus.",
-                imageResId = R.drawable.header_ui_default, // Provide the actual drawable ID when ready
+                imageResId = R.drawable.header_ui_default,
                 isSelected = selectedOption == "default",
                 onClick = {
                     selectedOption = "default"
@@ -102,7 +102,7 @@ fun ChangeHeaderUIScreen(
             HeaderUICard(
                 title = "Drop Down",
                 description = "Individually choose a voice part for Audio and Visual focus.",
-                imageResId = R.drawable.header_ui_dropdown, // Provide the actual drawable ID when ready
+                imageResId = R.drawable.header_ui_dropdown,
                 isSelected = selectedOption == "dropdown",
                 onClick = {
                     selectedOption = "dropdown"

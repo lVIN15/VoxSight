@@ -7,56 +7,54 @@ package com.cit.kaido.voxsight.util
  */
 object ScoreValidator {
 
+    private val PART_LIST_CHORAL_REGEX = Regex(
+        "\\b(soprano|alto|tenor|bass|choir|chorus|choral|satb|voices|vocal|coro|unison)\\b",
+        RegexOption.IGNORE_CASE
+    )
+    private val HEADER_CHORAL_REGEX = Regex(
+        "\\b(satb|choir|chorus|choral)\\b",
+        RegexOption.IGNORE_CASE
+    )
+    private val LYRIC_TAG_REGEX = Regex("<lyric\\b", RegexOption.IGNORE_CASE)
+
     /**
      * Inspects raw MusicXML content.
      * Returns null if score contains an SATB/choral component, or an error description string if purely instrumental.
      */
     fun checkUnsupportedMusicXml(xml: String): String? {
-        val lowerXml = xml.lowercase()
-        val partListStart = lowerXml.indexOf("<part-list")
-        val partListEnd = lowerXml.indexOf("</part-list>")
-        val partListSection = if (partListStart != -1 && partListEnd != -1) {
-            lowerXml.substring(partListStart, partListEnd)
+        val partListStart = xml.indexOf("<part-list", ignoreCase = true)
+        val partListEnd = if (partListStart != -1) {
+            xml.indexOf("</part-list>", startIndex = partListStart, ignoreCase = true)
         } else {
-            lowerXml
+            -1
+        }
+        val partListSection = if (partListStart != -1 && partListEnd != -1) {
+            xml.substring(partListStart, partListEnd)
+        } else {
+            xml
         }
 
-        val choralKeywords = listOf(
-            "soprano", "alto", "tenor", "bass", "choir", "chorus", "choral",
-            "satb", "s.a.t.b.", "voices", "vocal", "coro", "unison"
-        )
-
-        var hasChoralComponent = false
-
-        // Check part-list names
-        for (kw in choralKeywords) {
-            if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(partListSection)) {
-                hasChoralComponent = true
-                break
-            }
+        // Check part-list names first (fast header slice, no full-file lowercase allocation)
+        if (PART_LIST_CHORAL_REGEX.containsMatchIn(partListSection) ||
+            partListSection.contains("s.a.t.b.", ignoreCase = true)
+        ) {
+            return null
         }
 
-        // Check header/title
-        if (!hasChoralComponent) {
-            val headerSection = lowerXml.substring(0, (lowerXml.indexOf("<part ").takeIf { it != -1 } ?: lowerXml.length).coerceAtMost(30000))
-            for (kw in listOf("satb", "choir", "chorus", "choral")) {
-                if (Regex("\\b${Regex.escape(kw)}\\b").containsMatchIn(headerSection)) {
-                    hasChoralComponent = true
-                    break
-                }
-            }
+        // Check header/title before first <part>
+        val firstPartIdx = xml.indexOf("<part ", ignoreCase = true)
+        val headerLimit = (if (firstPartIdx != -1) firstPartIdx else xml.length).coerceAtMost(30_000)
+        val headerSection = xml.substring(0, headerLimit)
+        if (HEADER_CHORAL_REGEX.containsMatchIn(headerSection)) {
+            return null
         }
 
-        // Check lyrics count across the score
-        val lyricCount = Regex("<lyric\\b").findAll(lowerXml).count()
-        if (lyricCount >= 5) {
-            hasChoralComponent = true
+        // Lazily check if there are at least 5 <lyric> tags without scanning the rest of the file
+        val hasEnoughLyrics = LYRIC_TAG_REGEX.findAll(xml).take(5).count() >= 5
+        if (hasEnoughLyrics) {
+            return null
         }
 
-        if (!hasChoralComponent && lyricCount < 5) {
-            return "Unsupported Score: Purely instrumental score without SATB or choral vocal parts. VoxSight requires sheet music with an SATB or choral vocal component. Scores intended exclusively for piano, guitar, or orchestra without vocal parts cannot be processed."
-        }
-
-        return null
+        return "Unsupported Score: Purely instrumental score without SATB or choral vocal parts. VoxSight requires sheet music with an SATB or choral vocal component. Scores intended exclusively for piano, guitar, or orchestra without vocal parts cannot be processed."
     }
 }

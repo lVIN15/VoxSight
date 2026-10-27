@@ -33,6 +33,13 @@ import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Pause
@@ -1307,33 +1314,143 @@ private fun PartSelectorUI(
                     }
                 }
             } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                val partsScrollState = rememberScrollState()
+                val coroutineScope = rememberCoroutineScope()
+                val density = LocalDensity.current
+                val scrollStepPx = with(density) { 180.dp.roundToPx() }
+
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    choirParts.forEach { part ->
-                        val isSelected = part == selectedPart
-                        Surface(
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(partsScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        choirParts.forEach { part ->
+                            val isSelected = part == selectedPart
+                            Surface(
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .clickable(enabled = enabled) { onPartSelected(part) },
+                                color = if (isSelected) part.color else Color.White,
+                                shape = RoundedCornerShape(999.dp),
+                                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = part.getDisplayLabel(availableParts),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isSelected) Color.White else VoxTextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Left scroll chevron (shown when scrollable parts exist on the left; disappears at leftmost edge)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = partsScrollState.canScrollBackward,
+                        enter = fadeIn(tween(150)),
+                        exit = fadeOut(tween(150)),
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    ) {
+                        Box(
                             modifier = Modifier
                                 .height(36.dp)
-                                .clickable(enabled = enabled) { onPartSelected(part) },
-                            color = if (isSelected) part.color else Color.White,
-                            shape = RoundedCornerShape(999.dp),
-                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                                .width(38.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            VoxCardBackground,
+                                            VoxCardBackground.copy(alpha = 0.92f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                contentAlignment = Alignment.Center
+                            Surface(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = enabled) {
+                                        coroutineScope.launch {
+                                            partsScrollState.animateScrollTo(
+                                                (partsScrollState.value - scrollStepPx).coerceAtLeast(0)
+                                            )
+                                        }
+                                    },
+                                color = Color.White,
+                                shape = CircleShape,
+                                shadowElevation = 2.dp,
+                                border = BorderStroke(1.dp, VoxCardStroke)
                             ) {
-                                Text(
-                                    text = part.getDisplayLabel(availableParts),
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    color = if (isSelected) Color.White else VoxTextSecondary
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "Scroll parts left",
+                                        tint = VoxPurplePrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Right scroll chevron (shown when scrollable parts exist on the right; disappears at rightmost edge)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = partsScrollState.canScrollForward,
+                        enter = fadeIn(tween(150)),
+                        exit = fadeOut(tween(150)),
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .width(38.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            VoxCardBackground.copy(alpha = 0.92f),
+                                            VoxCardBackground
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = enabled) {
+                                        coroutineScope.launch {
+                                            partsScrollState.animateScrollTo(
+                                                (partsScrollState.value + scrollStepPx).coerceAtMost(partsScrollState.maxValue)
+                                            )
+                                        }
+                                    },
+                                color = Color.White,
+                                shape = CircleShape,
+                                shadowElevation = 2.dp,
+                                border = BorderStroke(1.dp, VoxCardStroke)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Scroll parts right",
+                                        tint = VoxPurplePrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

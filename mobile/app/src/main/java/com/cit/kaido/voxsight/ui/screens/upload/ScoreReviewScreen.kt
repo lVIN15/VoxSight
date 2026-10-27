@@ -431,7 +431,8 @@ fun ScoreReviewScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(if (isFullscreen) 16.dp else 10.dp),
+                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(end = if (isFullscreen) 16.dp else 10.dp, bottom = if (isFullscreen) 40.dp else 36.dp),
                     color = Color.White.copy(alpha = 0.95f),
                     shadowElevation = 6.dp,
                     shape = RoundedCornerShape(20.dp),
