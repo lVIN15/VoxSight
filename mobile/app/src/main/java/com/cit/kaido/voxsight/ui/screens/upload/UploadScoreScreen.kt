@@ -230,6 +230,7 @@ fun UploadScoreScreen(
         }
     }
     var scoreToDelete by remember { mutableStateOf<RecentScoreItem?>(null) }
+    var forceFreshScan by remember { mutableStateOf(false) }
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -288,7 +289,7 @@ fun UploadScoreScreen(
                 context = context,
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
-                bypassCache = false,
+                bypassCache = forceFreshScan,
                 onProgress = { /* handled by UploadManager state */ },
                 onSuccess = { musicXml, title ->
                     val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -338,7 +339,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = it,
                     coroutineScope = coroutineScope,
-                    bypassCache = false,
+                    bypassCache = forceFreshScan,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -435,7 +436,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = optimizedUri,
                     coroutineScope = coroutineScope,
-                    bypassCache = false,
+                    bypassCache = forceFreshScan,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -689,6 +690,47 @@ fun UploadScoreScreen(
                     color = VoxTextSecondary,
                     textAlign = TextAlign.Center
                 )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ===== Fresh Scan / Bypass Cache Option =====
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = VoxCardBackground,
+                border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Force Fresh Scan",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = VoxTextPrimary
+                        )
+                        Text(
+                            text = "Bypasses server cache to re-run full OMR analysis from scratch.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VoxTextSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = forceFreshScan,
+                        onCheckedChange = { forceFreshScan = it },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = VoxPurplePrimary
+                        )
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
