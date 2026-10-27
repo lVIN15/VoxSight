@@ -365,6 +365,9 @@ fun MyMusicSheetsScreen(
                                     }
                                 }
                             },
+                            onDeleteClick = {
+                                sheetToDelete = sheet
+                            },
                             onMoreClick = {
                                 selectedSheetForMenu = sheet
                             }
@@ -529,6 +532,7 @@ fun MyMusicSheetsScreen(
 private fun MusicSheetCard(
     sheet: MusicSheetEntry,
     onCardClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
     val badgeBg = if (sheet.isBlueBadge) Color(0xFFDCE4FF) else Color(0xFFEAD9FE)
@@ -546,13 +550,13 @@ private fun MusicSheetCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Key & Note Badge
             Box(
                 modifier = Modifier
-                    .size(58.dp)
+                    .size(54.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(badgeBg),
                 contentAlignment = Alignment.Center
@@ -565,7 +569,7 @@ private fun MusicSheetCard(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
                         tint = badgeFg,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                     Text(
                         text = sheet.keySignature,
@@ -577,18 +581,18 @@ private fun MusicSheetCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             // Title & Composer
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
                     text = sheet.title,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     color = Color(0xFF111827),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -602,16 +606,32 @@ private fun MusicSheetCard(
                 )
             }
 
-            IconButton(
-                onClick = onMoreClick,
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More options",
-                    tint = Color(0xFF374151),
-                    modifier = Modifier.size(20.dp)
-                )
+            Spacer(modifier = Modifier.width(4.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.DeleteOutline,
+                        contentDescription = "Delete Score",
+                        tint = Color(0xFFE57373),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onMoreClick,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = Color(0xFF374151),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

@@ -317,6 +317,9 @@ fun AppNavigation() {
                 },
                 onNavigateToShop = {
                     navController.navigate("shop")
+                },
+                onNavigateToMusicSheets = {
+                    navController.navigate("my_music_sheets")
                 }
             )
         }

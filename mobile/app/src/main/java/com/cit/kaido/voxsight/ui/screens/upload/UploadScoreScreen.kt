@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.width
@@ -155,7 +156,8 @@ fun UploadScoreScreen(
     onNavigateToPractice: (MusicXmlScore) -> Unit = {},
     onNavigateToReview: (musicXml: String, title: String) -> Unit = { _, _ -> },
     onNavigateToProfile: () -> Unit = {},
-    onNavigateToShop: () -> Unit = {}
+    onNavigateToShop: () -> Unit = {},
+    onNavigateToMusicSheets: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -761,7 +763,8 @@ fun UploadScoreScreen(
                         },
                         onClearAll = {
                             showClearAllConfirm = true
-                        }
+                        },
+                        onShowMore = onNavigateToMusicSheets
                     )
                 }
             }
@@ -1155,7 +1158,8 @@ private fun RecentScoresSection(
     onScoreSelected: (RecentScoreItem) -> Unit,
     onDuplicateScore: (RecentScoreItem) -> Unit,
     onDeleteScore: (RecentScoreItem) -> Unit,
-    onClearAll: () -> Unit
+    onClearAll: () -> Unit,
+    onShowMore: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1171,6 +1175,18 @@ private fun RecentScoresSection(
                 color = VoxTextPrimary,
                 modifier = Modifier.weight(1f)
             )
+            if (scores.size > 3) {
+                Text(
+                    text = "See All (${scores.size})",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = VoxPurplePrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onShowMore() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             if (scores.isNotEmpty()) {
                 Text(
                     text = "Clear All",
@@ -1184,13 +1200,50 @@ private fun RecentScoresSection(
             }
         }
 
-        scores.forEach { item ->
+        val displayedScores = scores.take(3)
+        displayedScores.forEach { item ->
             RecentScoreRow(
                 item = item,
                 onClick = { onScoreSelected(item) },
                 onDuplicateClick = { onDuplicateScore(item) },
                 onDeleteClick = { onDeleteScore(item) }
             )
+        }
+
+        if (scores.size > 3) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onShowMore() },
+                color = VoxPurpleIconBg,
+                border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Show More (${scores.size} total imports)",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        ),
+                        color = VoxPurplePrimary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Show More",
+                        tint = VoxPurplePrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }
