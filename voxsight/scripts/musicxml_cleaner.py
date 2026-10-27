@@ -1402,6 +1402,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
     if part_list_elem is not None:
         def _get_sort_rank(name):
             s = re.sub(r'[.\s_-]+', '', (name or '').strip().lower())
+            s = re.sub(r'(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)ii$', r'\g<1>2', s)
+            s = re.sub(r'(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)i$', r'\g<1>1', s)
             if s.startswith('solo'): return 0
             if re.match(r'^(soprano|sopr|sop|s)1?$', s): return 10
             if re.match(r'^(soprano|sopr|sop|s)2$', s): return 20

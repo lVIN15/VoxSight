@@ -3077,6 +3077,21 @@
         function cleanMusicXmlDom(doc) {
             if (!doc) return;
 
+            function isStrayVoiceName(name) {
+                var s = (name || '').trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                s = s.replace(/(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)ii$/i, '$12')
+                     .replace(/(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)i$/i, '$11');
+                if (/^(soprano|sopr|sop|s)[1-9]?$/.test(s)) return false;
+                if (/^(alto|alt|a|contralto)[1-9]?$/.test(s)) return false;
+                if (/^(tenor|ten|t)[1-9]?$/.test(s)) return false;
+                if (/^(bass|bas|b)[1-9]?$/.test(s)) return false;
+                if (/^(baritone|bar)[1-9]?$/.test(s)) return false;
+                if (/^(mezzosoprano|mezzo)[1-9]?$/.test(s)) return false;
+                if (/^(voice|part|vocal|lead|solo)[0-9]*$/.test(s)) return true;
+                if (s === '' || s === 'musicxmlpart' || s === 'staff') return true;
+                return false;
+            }
+
             // 0a. Strip piano pedal markings and stray direction words that collide with choral notation
             var pedals = Array.from(doc.getElementsByTagName('pedal'));
             pedals.forEach(function(p) { if (p.parentNode) p.parentNode.removeChild(p); });
@@ -3894,6 +3909,8 @@
 
                 function getVoiceOrderRank(name) {
                     var s = (name || '').trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                    s = s.replace(/(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)ii$/i, '$12')
+                         .replace(/(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)i$/i, '$11');
                     if (/^solo/.test(s)) return 0;
                     if (/^(soprano|sopr|sop|s)1?$/.test(s)) return 10;
                     if (/^(soprano|sopr|sop|s)2$/.test(s)) return 20;
@@ -3914,10 +3931,7 @@
                     return 100;
                 }
 
-                var scoreParts = Array.from(pList.getElementsByTagName('score-part'));
-                if (scoreParts.length <= 1) return;
-
-                                                // Unconditional purge of any stray or voice parts in choral scores
+                // Unconditional purge of any stray or voice parts in choral scores
                 var allParts = Array.from(doc.getElementsByTagName('part'));
                 var hasAuthenticChoral = allParts.some(function(p) {
                     var sp = doc.querySelector("score-part[id='" + p.getAttribute('id') + "']");
@@ -3936,6 +3950,9 @@
                         }
                     });
                 }
+
+                var scoreParts = Array.from(pList.getElementsByTagName('score-part'));
+                if (scoreParts.length <= 1) return;
 
                 scoreParts.sort(function(a, b) {
                     var na = (a.querySelector('part-name') ? a.querySelector('part-name').textContent : '').trim();
