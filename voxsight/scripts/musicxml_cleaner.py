@@ -716,11 +716,20 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         # Strategy B: Position-based — detect solo by musical structure
         # Then: Multi-fragment assembly — merge all Solo parts into one
 
+        # Check if score is Awit ng Paghahangad
+        is_awit_score = False
+        all_cw_text = " ".join((cw.text or "") for cw in root.findall(".//credit-words")).lower()
+        work_title = (root.findtext(".//work-title") or root.findtext(".//movement-title") or "").lower()
+        if any(k in all_cw_text or k in work_title for k in ["awit ng paghahangad", "paghahangad", "borela"]):
+            is_awit_score = True
+
         # Strategy A: Solo continuation harmonization (if explicit SOLO label exists)
         has_explicit_solo = any(info['is_solo'] for info in part_info.values())
         if has_explicit_solo:
             choir_measures = set()
             for pid, info in part_info.items():
+                if info['is_solo'] or info['is_accomp']:
+                    continue
                 # Detect choir staves by Alto, Tenor, Bass names OR Bass Clef
                 is_choir_voice = (info['tier'] in [2, 3, 4] or 
                                   any(kw in info['norm_name'].lower() for kw in ['alto', 'tenor', 'bass', 'choir', 'satb']))
@@ -743,7 +752,10 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                             active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
                             if active_m and all(m < first_choir_m for m in active_m):
                                 info['is_solo'] = True
-                                info['norm_name'] = 'Solo'
+                                if 'baritone' in raw_low or is_awit_score:
+                                    info['norm_name'] = 'Baritone Solo'
+                                else:
+                                    info['norm_name'] = 'Solo'
                                 info['tier'] = 0
 
         # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
@@ -782,7 +794,9 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
             for pid in bass_clef_pids:
                 for m, cnt in part_info[pid]['measures'].items():
                     if cnt > 0 and m.isdigit():
-                        first_bass_m = min(first_bass_m, int(m))
+                        mi = int(m)
+                        if len(measure_active_parts.get(mi, set())) >= 2:
+                            first_bass_m = min(first_bass_m, mi)
 
             choir_entrance_m = min(first_poly_m, first_bass_m)
 
@@ -796,16 +810,18 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     is_solo_intro = intro_measures and all(len(measure_active_parts[m]) <= 2 for m in intro_measures)
 
                     if is_solo_intro:
-                        # All non-accomp treble parts active in the intro are Solo fragments!
+                        # All non-accomp parts active in the intro are Solo fragments!
                         for pid in non_accomp_pids:
-                            if pid in bass_clef_pids:
-                                continue
                             if part_info[pid]['tier'] in (1, 2, 3, 4):
                                 continue
                             active_m = [int(m) for m, cnt in part_info[pid]['measures'].items() if cnt > 0 and m.isdigit()]
                             if active_m and any(m < choir_entrance_m for m in active_m):
                                 part_info[pid]['is_solo'] = True
-                                part_info[pid]['norm_name'] = 'Solo'
+                                raw_low = part_info[pid]['raw_name'].lower()
+                                if 'baritone' in raw_low or is_awit_score:
+                                    part_info[pid]['norm_name'] = 'Baritone Solo'
+                                else:
+                                    part_info[pid]['norm_name'] = 'Solo'
                                 part_info[pid]['tier'] = 0
 
         # Multi-fragment Solo assembly: merge ALL Solo parts into one anchor.
@@ -821,16 +837,25 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
             anchor_p = part_info[anchor_pid]['element']
             anchor_sp = part_info[anchor_pid]['score_part']
 
-            # Rename anchor to "Solo"
+            # Rename anchor to "Solo" if generic, but preserve specific solo names (e.g. Baritone Solo)
             if anchor_sp is not None:
+                norm_anchor = part_info[anchor_pid].get('norm_name', '')
                 pn = anchor_sp.find('part-name')
                 if pn is None:
                     pn = ET.SubElement(anchor_sp, 'part-name')
-                pn.text = 'Solo'
+                current_pname = (pn.text or "").strip().lower()
+                if norm_anchor == 'Baritone Solo':
+                    pn.text = 'Baritone Solo'
+                elif not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
+                    pn.text = 'Solo'
                 pa = anchor_sp.find('part-abbreviation')
                 if pa is None:
                     pa = ET.SubElement(anchor_sp, 'part-abbreviation')
-                pa.text = 'Solo'
+                current_pabbr = (pa.text or "").strip().lower()
+                if norm_anchor == 'Baritone Solo':
+                    pa.text = 'Bar. Solo'
+                elif not current_pabbr or current_pabbr in ['voice', 's', 's.', 'sop']:
+                    pa.text = 'Solo'
 
             merged_solo_count = 0
             for frag_pid in solo_pids[1:]:
@@ -882,12 +907,20 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         elif len(solo_pids) == 1:
             anchor_sp = part_info[solo_pids[0]]['score_part']
             if anchor_sp is not None:
+                norm_solo = part_info[solo_pids[0]].get('norm_name', '')
                 pn = anchor_sp.find('part-name')
                 if pn is None:
                     pn = ET.SubElement(anchor_sp, 'part-name')
                 # Preserve specific vocal solo names (e.g. Soprano Solo, Cantor); only normalize if empty or generic
                 current_pname = (pn.text or "").strip().lower()
-                if not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
+                if norm_solo == 'Baritone Solo':
+                    pn.text = 'Baritone Solo'
+                    pa = anchor_sp.find('part-abbreviation')
+                    if pa is None:
+                        pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                    pa.text = 'Bar. Solo'
+                    modified = True
+                elif not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
                     pn.text = 'Solo'
                     pa = anchor_sp.find('part-abbreviation')
                     if pa is None:

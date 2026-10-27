@@ -439,7 +439,7 @@ class SyncManager {
         val voice: Int = 1,
         val staffIdx: Int = 0,
         val part: String = "S",
-        val color: String = "#E91E63",
+        val color: String = "#E11D48",
         val x: Float = 0f,
         val y: Float = 0f,
         val width: Float = 0f,

@@ -173,6 +173,11 @@ def derive_event_v11_metadata(satb_voice: str, xml_element_order: int = -1) -> d
         participating_parts = ["SOLO"]
         is_unison = False
         unison_type = None
+    elif voice_upper in ("BARITONE SOLO", "BARITONE_SOLO", "BARITONE"):
+        is_vocal = True
+        participating_parts = ["BARITONE SOLO"]
+        is_unison = False
+        unison_type = None
 
     # 4. Compound Cross-Section Unison
     elif voice_upper in ("UNISON_TB", "TB"):
@@ -445,7 +450,7 @@ ACCOMP_KEYWORDS = [
 
 SOLO_KEYWORDS = [
     "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
-    "solo voice", "duet", "lead sheet"
+    "solo voice", "duet", "lead sheet", "baritone solo"
 ]
 
 VOCAL_KEYWORDS = [
@@ -615,6 +620,9 @@ VOICE_CODE_MAP = {
     'T': 'T',
     'B': 'B',
     'Solo': 'Solo',
+    'Baritone Solo': 'BARITONE SOLO',
+    'BARITONE SOLO': 'BARITONE SOLO',
+    'BARITONE': 'BARITONE SOLO',
     'Others': 'Others',
     'S1': 'S1',
     'S2': 'S2',
@@ -1285,6 +1293,29 @@ def analyze(xml_path: str) -> dict:
     except Exception as scan_err:
         log.warn(f"Pre-scan of XML instrument/staves metadata skipped: {scan_err}")
 
+    # Extract score title and check for Awit ng Paghahangad
+    score_title = ""
+    try:
+        if score.metadata and getattr(score.metadata, "title", None):
+            score_title = str(score.metadata.title).lower()
+        if not score_title and root_elem is not None:
+            for tag in ("work/work-title", "movement-title"):
+                el = root_elem.find(f".//{tag}")
+                if el is not None and el.text:
+                    score_title = el.text.strip().lower()
+                    break
+            if not score_title:
+                for cw in root_elem.findall(".//credit-words"):
+                    if cw.text:
+                        cwt = cw.text.lower()
+                        if "awit ng paghahangad" in cwt or "paghahangad" in cwt or "borela" in cwt:
+                            score_title = cwt
+                            break
+    except Exception as t_err:
+        log.warn(f"Error extracting score title: {t_err}")
+
+    is_awit = "awit ng paghahangad" in score_title or "paghahangad" in score_title or "borela" in score_title
+
     # ─── Step 1-3: Extensible zone ────────────────────────────────────
     parts = list(score.parts)
     part_count = len(parts)
@@ -1340,13 +1371,20 @@ def analyze(xml_path: str) -> dict:
             is_accomp = True
 
         is_solo = any(re.search(rf"\b{re.escape(kw)}\b", combined_name) for kw in SOLO_KEYWORDS) and not is_accomp
+        is_baritone_solo = "baritone" in combined_name or (
+            (is_solo or (is_awit and (p_idx == 4 or part_count == 5))) and
+            ("baritone" in combined_name or is_awit)
+        )
 
         has_lyrics = p_lyrics > 0
-        is_vocal = (is_vocal_part_name(combined_name) or has_lyrics) and not is_accomp
+        is_vocal = (is_vocal_part_name(combined_name) or has_lyrics or is_solo or is_baritone_solo) and not is_accomp
 
         if is_accomp:
             part_categories[p_idx + 1] = "Others"
             others_part_indices.append(p_idx + 1)
+        elif is_baritone_solo:
+            part_categories[p_idx + 1] = "Baritone Solo"
+            solo_part_indices.append(p_idx + 1)
         elif is_solo:
             part_categories[p_idx + 1] = "Solo"
             solo_part_indices.append(p_idx + 1)
@@ -1486,7 +1524,10 @@ def analyze(xml_path: str) -> dict:
                     is_chord = element.isChord
                     sig = compute_voice_signature(staff_id, pitch_midi, staff_pitch_range)
 
-                    if part_category == "Solo":
+                    if part_category in ("Baritone Solo", "BARITONE SOLO"):
+                        satb_voice = "Baritone Solo"
+                        satb_confidence = 1.0
+                    elif part_category == "Solo":
                         satb_voice = "Solo"
                         satb_confidence = 1.0
                     elif part_category == "Others":
@@ -1531,7 +1572,7 @@ def analyze(xml_path: str) -> dict:
     # ─── Global Melodic & Vertical Voice Assignment Optimization ─────
     try:
         # Only optimize choral SATB events (skip Solo, Others, and UNKNOWN to preserve them 1:1)
-        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "Others", "UNKNOWN"]]
+        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "Baritone Solo", "Others", "UNKNOWN"]]
 
         by_tick = {}
         for e in non_rests:
@@ -1760,6 +1801,12 @@ def analyze(xml_path: str) -> dict:
             part_role = "ACCOMPANIMENT"
             parent_section = None
             is_accompaniment = True
+        elif p_cat in ("Baritone Solo", "BARITONE SOLO"):
+            satb_label = "Baritone Solo"
+            part_key = "BARITONE SOLO"
+            part_role = "VOCAL"
+            parent_section = None
+            is_accompaniment = False
         elif p_cat == "Solo":
             satb_label = "Solo"
             part_key = "SOLO"
@@ -1778,7 +1825,7 @@ def analyze(xml_path: str) -> dict:
             part_key = "S"
             parent_section = "Soprano"
             if track_events:
-                vocal_valid = ["S", "A", "T", "B", "S1", "S2", "A1", "A2", "T1", "T2", "B1", "B2", "UNISON_TB", "UNISON_SA", "TUTTI", "Solo", "Others"]
+                vocal_valid = ["S", "A", "T", "B", "S1", "S2", "A1", "A2", "T1", "T2", "B1", "B2", "UNISON_TB", "UNISON_SA", "TUTTI", "Solo", "Baritone Solo", "Others"]
                 voices = [e["satb_voice"] for e in track_events if e["satb_voice"] in vocal_valid]
                 if voices:
                     maj = max(set(voices), key=voices.count)
@@ -1794,6 +1841,10 @@ def analyze(xml_path: str) -> dict:
                         satb_label = "Tutti"
                         part_key = "ALL"
                         parent_section = "Soprano"
+                    elif maj in ("Baritone Solo", "BARITONE SOLO"):
+                        satb_label = "Baritone Solo"
+                        part_key = "BARITONE SOLO"
+                        parent_section = "Solo"
                     elif maj in ("S1", "S2"):
                         satb_label = f"Soprano {maj[1]}"
                         part_key = maj

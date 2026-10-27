@@ -803,10 +803,10 @@ private fun PracticeTopBar(
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = VoxPurplePrimary
                     )
-                    LegendItem("Soprano", Color(0xFFE91E63))
+                    LegendItem("Soprano", Color(0xFFE11D48))
                     LegendItem("Alto", Color(0xFF8E24AA))
-                    LegendItem("Tenor", Color(0xFF1976D2))
-                    LegendItem("Bass", Color(0xFF2E7D32))
+                    LegendItem("Tenor", Color(0xFF2563EB))
+                    LegendItem("Bass", Color(0xFF16A34A))
 
                     // Divisi Subdivisions
                     Text(
@@ -814,25 +814,24 @@ private fun PracticeTopBar(
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = VoxPurplePrimary
                     )
-                    LegendItem("Soprano 1", Color(0xFFFF1493))
-                    LegendItem("Soprano 2", Color(0xFFD50000))
-                    LegendItem("Alto 1", Color(0xFFAB47BC))
-                    LegendItem("Alto 2", Color(0xFF3F51B5))
-                    LegendItem("Tenor 1", Color(0xFF00BCD4))
-                    LegendItem("Tenor 2", Color(0xFF0D47A1))
-                    LegendItem("Bass 1", Color(0xFF7CB342))
-                    LegendItem("Bass 2", Color(0xFF1B5E20))
+                    LegendItem("Soprano 1", Color(0xFFFB7185))
+                    LegendItem("Soprano 2", Color(0xFF881337))
+                    LegendItem("Alto 1", Color(0xFFC084FC))
+                    LegendItem("Alto 2", Color(0xFF4C1D95))
+                    LegendItem("Tenor 1", Color(0xFF0284C7))
+                    LegendItem("Tenor 2", Color(0xFF1E3A8A))
+                    LegendItem("Bass 1", Color(0xFF65A30D))
+                    LegendItem("Bass 2", Color(0xFF064E3B))
 
-                    // Merged & Unison Notes
+                    // Merged & Cross-Family Unison Notes
                     Text(
-                        text = "MERGED & UNISON NOTES",
+                        text = "MERGED & CROSS-FAMILY UNISONS",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = VoxPurplePrimary
                     )
-                    LegendItem("Tenor–Bass Unison (T/B)", Color(0xFF00BFA5))
-                    LegendItem("Soprano–Alto Unison (S/A)", Color(0xFFD81B60))
-                    LegendItem("Soprano 1/2 Unison (S1/S2)", Color(0xFFFF80AB))
-                    LegendItem("Tutti / All Voices", Color(0xFFFFB300))
+                    LegendItem("Soprano–Alto Unison (S/A)", Color(0xFF4F46E5))
+                    LegendItem("Tenor–Bass Unison (T/B)", Color(0xFF0D9488))
+                    LegendItem("Tutti / All Voices", Color(0xFFCA8A04))
 
                     // Other Tracks
                     Text(
@@ -1276,8 +1275,8 @@ private fun PartSelectorUI(
     onPartSelected: (VoicePart) -> Unit,
     enabled: Boolean
 ) {
-    val choirParts = availableParts.filter { it !in listOf(VoicePart.Solo, VoicePart.Others) }
-    val additionalParts = availableParts.filter { it in listOf(VoicePart.Solo, VoicePart.Others) }
+    val choirParts = availableParts.filter { !it.isSpecialOrSolo }
+    val additionalParts = availableParts.filter { it.isSpecialOrSolo }
 
     Column(
         modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f),
@@ -1605,7 +1604,8 @@ private fun ScoreCard(
     selectedPart: VoicePart,
     visualFocusEnabled: Boolean,
     playheadProgress: Float,
-    staffNotes: List<StaffNote>
+    staffNotes: List<StaffNote>,
+    availableParts: List<VoicePart> = emptyList()
 ) {
     Surface(
         color = Color.White,
@@ -1622,7 +1622,8 @@ private fun ScoreCard(
                 selectedPart = selectedPart,
                 visualFocusEnabled = visualFocusEnabled,
                 playheadProgress = playheadProgress,
-                staffNotes = staffNotes
+                staffNotes = staffNotes,
+                availableParts = availableParts
             )
         }
     }
@@ -1633,13 +1634,14 @@ private fun AudioVisualMixer(
     selectedPart: VoicePart,
     visualFocusEnabled: Boolean,
     playheadProgress: Float,
-    staffNotes: List<StaffNote>
+    staffNotes: List<StaffNote>,
+    availableParts: List<VoicePart> = emptyList()
 ) {
     // Distribute notes to SATB parts based on voice number from MusicXML.
     // Voice 1 → Soprano, 2 → Alto, 3 → Tenor, 4 → Bass.
     // If the file only uses voice 1, fall back to pitch-range heuristic.
-    val notesByPart = remember(staffNotes) {
-        distributeNotesToParts(staffNotes)
+    val notesByPart = remember(staffNotes, availableParts) {
+        distributeNotesToParts(staffNotes, availableParts)
     }
 
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -2079,18 +2081,20 @@ private fun buildStaffNotes(
  *     distribute by pitch range: highest → Soprano, lowest → Bass.
  */
 private fun distributeNotesToParts(
-    staffNotes: List<StaffNote>
+    staffNotes: List<StaffNote>,
+    availableParts: List<VoicePart> = emptyList()
 ): Map<VoicePart, List<StaffNote>> {
     val distinctVoices = staffNotes.map { it.voice }.distinct().sorted()
 
     // Direct mapping when the file has multiple voices
     if (distinctVoices.size >= 2) {
+        val soloPart = availableParts.find { it.isSoloPart } ?: VoicePart.Solo
         val voiceMap = mapOf(
             1 to VoicePart.Soprano,
             2 to VoicePart.Alto,
             3 to VoicePart.Tenor,
             4 to VoicePart.Bass,
-            5 to VoicePart.Solo,
+            5 to soloPart,
             6 to VoicePart.Others
         )
         val parts = VoicePart.values()
