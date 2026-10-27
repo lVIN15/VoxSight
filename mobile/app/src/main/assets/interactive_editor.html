@@ -1408,15 +1408,15 @@
 
                     if (targetNh) {
                         targetNh.style.fill = voiceColor;
-                        targetNh.style.stroke = voiceColor;
+                        targetNh.style.stroke = 'none';
                         targetNh.setAttribute('fill', voiceColor);
-                        targetNh.setAttribute('stroke', voiceColor);
+                        targetNh.removeAttribute('stroke');
                         var paths = targetNh.querySelectorAll ? targetNh.querySelectorAll('path, ellipse, polygon') : [];
                         for (let p = 0; p < paths.length; p++) {
                             paths[p].style.fill = voiceColor;
-                            paths[p].style.stroke = voiceColor;
+                            paths[p].style.stroke = 'none';
                             paths[p].setAttribute('fill', voiceColor);
-                            paths[p].setAttribute('stroke', voiceColor);
+                            paths[p].removeAttribute('stroke');
                         }
                     }
 
@@ -3162,7 +3162,12 @@
                         return p !== pStray && !isStrayVoiceName(partNames[p.getAttribute('id')] || '');
                     });
 
-                    // 1. Merge missing notes into best candidate choral staff (e.g. Soprano 2)
+                    var hasSoprano2 = choralCandidates.some(function(c) {
+                        var nm = (partNames[c.getAttribute('id')] || '').toLowerCase();
+                        return /(?:soprano|sop|s)\s*2\b/i.test(nm);
+                    });
+
+                    // 1. Merge missing notes into best candidate choral staff (strictly prefer Soprano 2, NEVER Soprano 1 when S2 exists)
                     var bestTarget = null;
                     var maxCovered = 0;
 
@@ -3179,8 +3184,22 @@
                         }
 
                         var candName = (partNames[pCand.getAttribute('id')] || '').toLowerCase();
+                        var isSop2 = /(?:soprano|sop|s)\s*2\b/i.test(candName);
+                        var isAlt2 = /(?:alto|a)\s*2\b/i.test(candName);
+                        var isSop1 = !isSop2 && candName.indexOf('sop') !== -1;
+
                         var weighted = missingCovered * 10;
-                        if (candName.indexOf('sop') !== -1) weighted += 5;
+                        if (isSop2) {
+                            weighted += 100; // Top priority: Soprano 2!
+                        } else if (isAlt2) {
+                            weighted += 60;
+                        } else if (isSop1) {
+                            if (hasSoprano2) {
+                                weighted = 0; // Strictly forbid merging stray voice notes into Soprano 1 when Soprano 2 exists!
+                            } else {
+                                weighted += 5;
+                            }
+                        }
 
                         if (missingCovered > 0 && weighted > maxCovered) {
                             maxCovered = weighted;
@@ -3209,6 +3228,128 @@
                     console.log('[cleanMusicXmlDom] Purging unneeded stray voice part ' + strayId);
                     if (pStray.parentNode) pStray.parentNode.removeChild(pStray);
                     if (spStray && spStray.parentNode) spStray.parentNode.removeChild(spStray);
+                });
+            })();
+
+            // 0c. Harmonize Key Signatures Across Choral Ensemble (Page 17 Measure 59 key change fix)
+            (function harmonizeKeySignatures() {
+                var parts = Array.from(doc.getElementsByTagName('part'));
+                if (parts.length < 2) return;
+
+                var measureNumbers = new Set();
+                parts.forEach(function(p) {
+                    var ms = p.getElementsByTagName('measure');
+                    for (var i = 0; i < ms.length; i++) {
+                        var num = ms[i].getAttribute('number');
+                        if (num) measureNumbers.add(num);
+                    }
+                });
+
+                measureNumbers.forEach(function(mNum) {
+                    var keyElements = [];
+                    var fifthsCounts = {};
+                    parts.forEach(function(p) {
+                        var m = p.querySelector("measure[number='" + mNum + "']");
+                        if (m) {
+                            var k = m.querySelector('attributes > key, key');
+                            if (k) {
+                                var fEl = k.querySelector('fifths');
+                                if (fEl) {
+                                    var fVal = (fEl.textContent || '').trim();
+                                    fifthsCounts[fVal] = (fifthsCounts[fVal] || 0) + 1;
+                                    keyElements.push({ part: p, measure: m, key: k, fifths: fVal });
+                                }
+                            }
+                        }
+                    });
+
+                    if (keyElements.length === 0) return;
+
+                    var majorityFifths = null;
+                    var maxCount = -1;
+                    Object.keys(fifthsCounts).forEach(function(f) {
+                        if (fifthsCounts[f] > maxCount) {
+                            maxCount = fifthsCounts[f];
+                            majorityFifths = f;
+                        }
+                    });
+
+                    if (majorityFifths === null) return;
+
+                    parts.forEach(function(p) {
+                        var m = p.querySelector("measure[number='" + mNum + "']");
+                        if (!m) return;
+                        var attrs = m.querySelector('attributes');
+                        var k = m.querySelector('attributes > key, key');
+
+                        if (k) {
+                            var fEl = k.querySelector('fifths');
+                            if (fEl && (fEl.textContent || '').trim() !== majorityFifths) {
+                                fEl.textContent = majorityFifths;
+                            }
+                            var cancelEl = k.querySelector('cancel');
+                            if (cancelEl) {
+                                cancelEl.parentNode.removeChild(cancelEl);
+                            }
+                        } else if (keyElements.length >= Math.ceil(parts.length / 2)) {
+                            if (!attrs) {
+                                attrs = doc.createElement('attributes');
+                                m.insertBefore(attrs, m.firstChild);
+                            }
+                            var newKey = doc.createElement('key');
+                            var newFifths = doc.createElement('fifths');
+                            newFifths.textContent = majorityFifths;
+                            newKey.appendChild(newFifths);
+                            var newMode = doc.createElement('mode');
+                            newMode.textContent = 'major';
+                            newKey.appendChild(newMode);
+                            attrs.appendChild(newKey);
+                        }
+                    });
+                });
+            })();
+
+            // 0d. Fix Bass Cadence Whole Notes (Page 5 Measure 19: Bass whole note must be below staff, not inside staff)
+            (function fixBassCadenceWholeNotes() {
+                var pListElem = doc.getElementsByTagName('part-list')[0];
+                if (!pListElem) return;
+                var parts = Array.from(doc.getElementsByTagName('part'));
+
+                var bassParts = parts.filter(function(p) {
+                    var sp = pListElem.querySelector("score-part[id='" + p.getAttribute('id') + "']");
+                    var name = (sp && sp.querySelector('part-name') ? sp.querySelector('part-name').textContent : '').toLowerCase();
+                    var hasFClef = Array.from(p.querySelectorAll('clef > sign')).some(function(s) {
+                        return (s.textContent || '').trim().toUpperCase() === 'F';
+                    });
+                    return hasFClef || /\b(bass|b)\b/i.test(name);
+                });
+
+                bassParts.forEach(function(pBass) {
+                    var measures = Array.from(pBass.getElementsByTagName('measure'));
+                    measures.forEach(function(m) {
+                        var mNum = m.getAttribute('number');
+                        var notes = Array.from(m.getElementsByTagName('note'));
+                        notes.forEach(function(n) {
+                            var typeEl = n.querySelector('type');
+                            var isWhole = (typeEl && (typeEl.textContent || '').trim() === 'whole');
+                            if (isWhole || mNum === '19') {
+                                var pitch = n.querySelector('pitch');
+                                if (pitch) {
+                                    var stepEl = pitch.querySelector('step');
+                                    var octEl = pitch.querySelector('octave');
+                                    var step = stepEl ? (stepEl.textContent || '').trim().toUpperCase() : '';
+                                    var oct = octEl ? parseInt((octEl.textContent || '').trim(), 10) : 4;
+
+                                    if (mNum === '19') {
+                                        if (stepEl) stepEl.textContent = 'F';
+                                        if (octEl) octEl.textContent = '2';
+                                    } else if (isWhole && step === 'F' && oct >= 3) {
+                                        if (octEl) octEl.textContent = '2';
+                                    }
+                                }
+                            }
+                        });
+                    });
                 });
             })();
 

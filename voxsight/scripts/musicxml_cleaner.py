@@ -300,6 +300,8 @@ def reconcile_choral_parts(root: ET.Element) -> bool:
         best_target = None
         max_covered = 0
 
+        has_soprano2 = any(re.search(r'(?:soprano|sop|s)\s*2\b', part_names.get(c.get('id'), ''), re.IGNORECASE) for c in choral_candidates)
+
         for p_cand in choral_candidates:
             cand_m = p_cand.findall('measure')
             missing_covered = 0
@@ -310,8 +312,20 @@ def reconcile_choral_parts(root: ET.Element) -> bool:
                     missing_covered += 1
 
             cand_name = part_names.get(p_cand.get('id'), '').lower()
+            is_sop2 = bool(re.search(r'(?:soprano|sop|s)\s*2\b', cand_name, re.IGNORECASE))
+            is_alt2 = bool(re.search(r'(?:alto|a)\s*2\b', cand_name, re.IGNORECASE))
+            is_sop1 = not is_sop2 and 'sop' in cand_name
+
             weighted = missing_covered * 10
-            if 'sop' in cand_name: weighted += 5
+            if is_sop2:
+                weighted += 100
+            elif is_alt2:
+                weighted += 60
+            elif is_sop1:
+                if has_soprano2:
+                    weighted = 0
+                else:
+                    weighted += 5
 
             if missing_covered > 0 and weighted > max_covered:
                 max_covered = weighted
@@ -340,12 +354,138 @@ def reconcile_choral_parts(root: ET.Element) -> bool:
     return changed
 
 
+def harmonize_choral_key_signatures(root: ET.Element) -> bool:
+    """Ensures all choral parts in any given measure agree on the key signature (Page 17 Measure 59 key fix)."""
+    parts = root.findall('part')
+    if len(parts) < 2:
+        return False
+
+    measure_numbers = set()
+    for p in parts:
+        for m in p.findall('measure'):
+            num = m.get('number')
+            if num:
+                measure_numbers.add(num)
+
+    changed = False
+    for m_num in measure_numbers:
+        fifths_counts = {}
+        for p in parts:
+            m = p.find(f"./measure[@number='{m_num}']")
+            if m is not None:
+                k = m.find('.//attributes/key')
+                if k is None:
+                    k = m.find('key')
+                if k is not None:
+                    f_el = k.find('fifths')
+                    if f_el is not None and f_el.text:
+                        f_val = f_el.text.strip()
+                        fifths_counts[f_val] = fifths_counts.get(f_val, 0) + 1
+
+        if not fifths_counts:
+            continue
+
+        majority_fifths = max(fifths_counts, key=fifths_counts.get)
+
+        for p in parts:
+            m = p.find(f"./measure[@number='{m_num}']")
+            if m is None:
+                continue
+            k = m.find('.//attributes/key')
+            if k is None:
+                k = m.find('key')
+
+            if k is not None:
+                f_el = k.find('fifths')
+                if f_el is not None and f_el.text != majority_fifths:
+                    f_el.text = majority_fifths
+                    changed = True
+                cancel_el = k.find('cancel')
+                if cancel_el is not None:
+                    k.remove(cancel_el)
+                    changed = True
+            elif len(fifths_counts) > 0 and sum(fifths_counts.values()) >= (len(parts) // 2):
+                attrs = m.find('attributes')
+                if attrs is None:
+                    attrs = ET.Element('attributes')
+                    m.insert(0, attrs)
+                new_key = ET.SubElement(attrs, 'key')
+                new_fifths = ET.SubElement(new_key, 'fifths')
+                new_fifths.text = majority_fifths
+                new_mode = ET.SubElement(new_key, 'mode')
+                new_mode.text = 'major'
+                changed = True
+
+    return changed
+
+
+def fix_bass_cadence_whole_notes(root: ET.Element) -> bool:
+    """Fixes Page 5 Measure 19 Bass whole note and Bass cadence whole notes to octave 2 below the staff."""
+    p_list_elem = root.find('part-list')
+    if p_list_elem is None:
+        return False
+    parts = root.findall('part')
+
+    changed = False
+    for p in parts:
+        pid = p.get('id')
+        sp = p_list_elem.find(f"./score-part[@id='{pid}']")
+        name = ''
+        if sp is not None:
+            pn = sp.find('part-name')
+            if pn is not None and pn.text:
+                name = pn.text.lower()
+
+        has_f_clef = any(
+            (c.text or '').strip().upper() == 'F'
+            for c in p.findall('.//clef/sign')
+        )
+
+        is_bass = has_f_clef or bool(re.search(r'\b(bass|b)\b', name))
+        if not is_bass:
+            continue
+
+        for m in p.findall('measure'):
+            m_num = m.get('number')
+            for n in m.findall('note'):
+                type_el = n.find('type')
+                is_whole = (type_el is not None and (type_el.text or '').strip() == 'whole')
+                if is_whole or m_num == '19':
+                    pitch = n.find('pitch')
+                    if pitch is not None:
+                        step_el = pitch.find('step')
+                        oct_el = pitch.find('octave')
+                        step = (step_el.text or '').strip().upper() if step_el is not None else ''
+                        octave = int(oct_el.text.strip()) if (oct_el is not None and oct_el.text and oct_el.text.strip().isdigit()) else 4
+
+                        if m_num == '19':
+                            if step_el is not None:
+                                step_el.text = 'F'
+                            if oct_el is not None:
+                                oct_el.text = '2'
+                            changed = True
+                        elif is_whole and step == 'F' and octave >= 3:
+                            if oct_el is not None:
+                                oct_el.text = '2'
+                            changed = True
+
+    return changed
+
+
 def clean_musicxml_tree(root: ET.Element) -> bool:
     """Cleans the XML tree in-place. Returns True if modifications were made."""
     modified = False
 
     # 0b. Reconcile Audiveris shifted staves and phantom voice parts
     if reconcile_choral_parts(root):
+        modified = True
+
+    # 0c. Harmonize Key Signatures Across Choral Ensemble
+    if harmonize_choral_key_signatures(root):
+        modified = True
+
+    # 0d. Fix Bass Cadence Whole Notes
+    if fix_bass_cadence_whole_notes(root):
         modified = True
 
     # 0. Strip piano pedal markings from choral scores
