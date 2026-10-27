@@ -811,6 +811,7 @@
                 osmd.rules.ColorFlags = true;
                 osmd.rules.AutoGenerateMultipleRestMeasuresFromRestMeasures = true;
                 osmd.rules.RenderMultipleRestMeasures = true;
+                osmd.rules.RenderPedals = false;
                 osmd.rules.DrawCredits = false;
                 osmd.rules.BetweenStaffDistance = 5.0;
                 osmd.rules.StaffDistance = 6.0;
@@ -1920,6 +1921,143 @@
         function cleanMusicXmlDom(doc) {
             if (!doc) return;
 
+            // 0a. Strip piano pedal markings and stray direction words that collide with choral notation
+            var pedals = Array.from(doc.getElementsByTagName('pedal'));
+            pedals.forEach(function(p) { if (p.parentNode) p.parentNode.removeChild(p); });
+
+            var directions = Array.from(doc.getElementsByTagName('direction'));
+            directions.forEach(function(d) {
+                var words = Array.from(d.getElementsByTagName('words'));
+                var hasPedalWord = words.some(function(w) {
+                    var txt = (w.textContent || '').trim().toLowerCase();
+                    return txt === 'ped' || txt === 'ped.' || txt === '\ue650' || txt === '(ped)' || txt === '(ped.)';
+                });
+                if (hasPedalWord || d.querySelector('pedal')) {
+                    if (d.parentNode) d.parentNode.removeChild(d);
+                }
+            });
+
+            // 0b. Reconcile Audiveris Shifted Vocal Staves (Lead Voice dummy with rests in m1, Soprano shifted to S2, Soprano 2 abandoned)
+            (function reconcileShiftedChoralParts() {
+                var partsList = Array.from(doc.getElementsByTagName('part'));
+                var pListElem = doc.getElementsByTagName('part-list')[0];
+                if (!pListElem || partsList.length < 3) return;
+
+                function getNonRestCount(m) {
+                    if (!m) return 0;
+                    var notes = m.getElementsByTagName('note');
+                    var cnt = 0;
+                    for (var i = 0; i < notes.length; i++) {
+                        if (notes[i].getElementsByTagName('rest').length === 0) cnt++;
+                    }
+                    return cnt;
+                }
+
+                var p0 = partsList[0];
+                var pid0 = p0.getAttribute('id');
+                var sp0 = doc.querySelector("score-part[id='" + pid0 + "']");
+                var name0 = (sp0 && sp0.querySelector('part-name')) ? (sp0.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+
+                var p0Measures = Array.from(p0.getElementsByTagName('measure'));
+                var p0_m1_notes = p0Measures.length > 0 ? getNonRestCount(p0Measures[0]) : 0;
+                var p0_total_notes = 0;
+                for (var i = 0; i < p0Measures.length; i++) {
+                    p0_total_notes += getNonRestCount(p0Measures[i]);
+                }
+
+                if ((name0 === 'voice' || name0 === 'part 1' || name0 === '' || name0.indexOf('voice') !== -1) && p0_m1_notes === 0 && p0_total_notes > 0) {
+                    var splitIdx = -1;
+                    for (var m = 0; m < p0Measures.length; m++) {
+                        if (getNonRestCount(p0Measures[m]) > 0) {
+                            splitIdx = m;
+                            break;
+                        }
+                    }
+                    if (splitIdx <= 0) return;
+
+                    var p_tail = null;
+                    var p_tail_idx = -1;
+                    for (var idx = 1; idx < partsList.length; idx++) {
+                        var pi = partsList[idx];
+                        var piMeasures = Array.from(pi.getElementsByTagName('measure'));
+                        var nBefore = 0;
+                        for (var m = 0; m < Math.min(splitIdx, piMeasures.length); m++) {
+                            nBefore += getNonRestCount(piMeasures[m]);
+                        }
+                        var nAfter = 0;
+                        for (var m = splitIdx; m < piMeasures.length; m++) {
+                            nAfter += getNonRestCount(piMeasures[m]);
+                        }
+                        if (nBefore > 0 && nAfter === 0) {
+                            p_tail = pi;
+                            p_tail_idx = idx;
+                            break;
+                        }
+                    }
+
+                    var p_mid = null;
+                    for (var idx = 1; idx < partsList.length; idx++) {
+                        if (idx === p_tail_idx) continue;
+                        var pi = partsList[idx];
+                        var sp = doc.querySelector("score-part[id='" + pi.getAttribute('id') + "']");
+                        var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                        if (pName.indexOf('sop') !== -1 || pName.indexOf('voice') !== -1) {
+                            p_mid = pi;
+                            break;
+                        }
+                    }
+                    if (!p_mid && partsList.length > 1) {
+                        p_mid = (p_tail_idx === 1) ? partsList[2] : partsList[1];
+                    }
+
+                    if (p_tail && p_mid) {
+                        console.log('[cleanMusicXmlDom] Reconciling Audiveris shifted parts at split measure index ' + splitIdx);
+                        var p_tail_m = Array.from(p_tail.getElementsByTagName('measure'));
+                        var p_mid_m = Array.from(p_mid.getElementsByTagName('measure'));
+                        var p0_m = Array.from(p0.getElementsByTagName('measure'));
+
+                        var maxM = Math.max(p_tail_m.length, p_mid_m.length, p0_m.length);
+                        for (var m = splitIdx; m < maxM; m++) {
+                            var m_tail = (m < p_tail_m.length) ? p_tail_m[m] : null;
+                            var m_mid = (m < p_mid_m.length) ? p_mid_m[m] : null;
+                            var m_p0 = (m < p0_m.length) ? p0_m[m] : null;
+
+                            var m_mid_clone = m_mid ? m_mid.cloneNode(true) : null;
+                            var m_p0_clone = m_p0 ? m_p0.cloneNode(true) : null;
+
+                            if (m_tail && m_mid_clone) {
+                                p_tail.replaceChild(m_mid_clone, m_tail);
+                            }
+                            if (m_mid && m_p0_clone) {
+                                p_mid.replaceChild(m_p0_clone, m_mid);
+                            }
+                        }
+
+                        if (p0.parentNode) p0.parentNode.removeChild(p0);
+                        if (sp0 && sp0.parentNode) sp0.parentNode.removeChild(sp0);
+
+                        var sp_mid = doc.querySelector("score-part[id='" + p_mid.getAttribute('id') + "']");
+                        if (sp_mid) {
+                            var pn = sp_mid.querySelector('part-name');
+                            if (!pn) { pn = doc.createElement('part-name'); sp_mid.appendChild(pn); }
+                            pn.textContent = 'Soprano 1';
+                            var pa = sp_mid.querySelector('part-abbreviation');
+                            if (!pa) { pa = doc.createElement('part-abbreviation'); sp_mid.appendChild(pa); }
+                            pa.textContent = 'S1';
+                        }
+                        var sp_tail = doc.querySelector("score-part[id='" + p_tail.getAttribute('id') + "']");
+                        if (sp_tail) {
+                            var pn = sp_tail.querySelector('part-name');
+                            if (!pn) { pn = doc.createElement('part-name'); sp_tail.appendChild(pn); }
+                            pn.textContent = 'Soprano 2';
+                            var pa = sp_tail.querySelector('part-abbreviation');
+                            if (!pa) { pa = doc.createElement('part-abbreviation'); sp_tail.appendChild(pa); }
+                            pa.textContent = 'S2';
+                        }
+                    }
+                }
+            })();
+
             // 1. Remove misplaced credit/copyright/annotation lyrics
             var creditKeywords = ['prepared', 'arranged by', 'arr.', 'composed by', 'music by', 'words by', 'lyrics by', 'copyright', 'all rights reserved', 'freely distributed', 'duplicated', 'performed', 'recorded', 'edition', 'published by', 'printed in', 'jedscott', '.com', '.org', '.net', 'http', 'www.', 'page '];
             var lyrics = doc.getElementsByTagName('lyric');
@@ -2609,6 +2747,60 @@
                 if (elem2.parentNode) elem2.parentNode.removeChild(elem2);
                 if (sp2 && sp2.parentNode) sp2.parentNode.removeChild(sp2);
             }
+
+            // 5. Sort parts into standard choral score arrangement: Soprano 1 -> Soprano 2 -> Alto 1 -> Alto 2 -> Tenor -> Bass
+            (function sortChoralParts() {
+                var pList = doc.getElementsByTagName('part-list')[0];
+                var rootElem = doc.documentElement;
+                if (!pList || !rootElem) return;
+
+                function getVoiceOrderRank(name) {
+                    var s = (name || '').trim().toLowerCase().replace(/[.\s_-]+/g, '');
+                    if (/^solo/.test(s)) return 0;
+                    if (/^(soprano|sopr|sop|s)1?$/.test(s)) return 10;
+                    if (/^(soprano|sopr|sop|s)2$/.test(s)) return 20;
+                    if (/^(soprano|sopr|sop|s)[3-9]$/.test(s)) return 25;
+                    if (/^(mezzosoprano|mezzo)$/.test(s)) return 28;
+                    if (/^(alto|alt|a|contralto)1?$/.test(s)) return 30;
+                    if (/^(alto|alt|a|contralto)2$/.test(s)) return 40;
+                    if (/^(alto|alt|a|contralto)[3-9]$/.test(s)) return 45;
+                    if (/^(sa|sopranoalto)$/.test(s)) return 48;
+                    if (/^(tenor|ten|t)1?$/.test(s)) return 50;
+                    if (/^(tenor|ten|t)2$/.test(s)) return 60;
+                    if (/^(tenor|ten|t)[3-9]$/.test(s)) return 65;
+                    if (/^(baritone|bar)$/.test(s)) return 70;
+                    if (/^(bass|bas|b)1?$/.test(s)) return 80;
+                    if (/^(bass|bas|b)2$/.test(s)) return 90;
+                    if (/^(bass|bas|b)[3-9]$/.test(s)) return 95;
+                    if (/^(tb|tenorbass)$/.test(s)) return 98;
+                    return 100;
+                }
+
+                var scoreParts = Array.from(pList.getElementsByTagName('score-part'));
+                if (scoreParts.length <= 1) return;
+
+                scoreParts.sort(function(a, b) {
+                    var na = (a.querySelector('part-name') ? a.querySelector('part-name').textContent : '').trim();
+                    var nb = (b.querySelector('part-name') ? b.querySelector('part-name').textContent : '').trim();
+                    return getVoiceOrderRank(na) - getVoiceOrderRank(nb);
+                });
+
+                scoreParts.forEach(function(sp) {
+                    pList.appendChild(sp);
+                });
+
+                var orderedPids = scoreParts.map(function(sp) { return sp.getAttribute('id'); });
+                var partsMap = {};
+                Array.from(doc.getElementsByTagName('part')).forEach(function(p) {
+                    partsMap[p.getAttribute('id')] = p;
+                });
+
+                orderedPids.forEach(function(pid) {
+                    if (partsMap[pid]) {
+                        rootElem.appendChild(partsMap[pid]);
+                    }
+                });
+            })();
 
             // 4b. Universal Choral Lyric Synchronization & Dynamic Disambiguation
             (function synchronizeChoralLyricsDom() {

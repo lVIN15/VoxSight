@@ -250,6 +250,22 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
     """Cleans the XML tree in-place. Returns True if modifications were made."""
     modified = False
 
+    # 0. Strip piano pedal markings from choral scores
+    for pedal in root.findall('.//pedal'):
+        for parent in root.iter():
+            for child in list(parent):
+                if child.tag == 'pedal':
+                    parent.remove(child)
+                    modified = True
+
+    for direction in list(root.findall('.//direction')):
+        pedal_words = [w for w in direction.findall('.//words') if w.text and w.text.strip().lower() in ['ped', 'ped.', '(ped)', '(ped.)', '\ue650']]
+        if pedal_words or direction.find('.//pedal') is not None:
+            for parent in root.iter():
+                if direction in list(parent):
+                    parent.remove(direction)
+                    modified = True
+
     # ─────────────────────────────────────────────────────────────────────────
     # 1. Clean misplaced credit / copyright / annotation lyrics
     # ─────────────────────────────────────────────────────────────────────────
@@ -628,19 +644,106 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
+    # 2c. Reconcile Audiveris Shifted Vocal Staves (e.g. Lead Voice dummy with rests in m1, Soprano shifted to S2, Soprano 2 abandoned)
+    parts_list = root.findall('part')
+    part_list_elem = root.find('part-list')
+    if part_list_elem is not None and len(parts_list) >= 3:
+        def _get_non_rest_cnt(m):
+            return len([n for n in m.findall('note') if n.find('rest') is None])
+
+        p0 = parts_list[0]
+        sp0 = root.find(f".//score-part[@id='{p0.get('id')}']")
+        name0 = (sp0.find('part-name').text if (sp0 is not None and sp0.find('part-name') is not None and sp0.find('part-name').text) else '').strip().lower()
+
+        p0_m = p0.findall('measure')
+        p0_m1_notes = _get_non_rest_cnt(p0_m[0]) if p0_m else 0
+        p0_total_notes = sum(_get_non_rest_cnt(m) for m in p0_m)
+
+        if (name0 in ['voice', 'part 1', ''] or 'voice' in name0) and p0_m1_notes == 0 and p0_total_notes > 0:
+            split_idx = -1
+            for idx, m in enumerate(p0_m):
+                if _get_non_rest_cnt(m) > 0:
+                    split_idx = idx
+                    break
+            if split_idx > 0:
+                p_tail = None
+                p_tail_idx = -1
+                for idx in range(1, len(parts_list)):
+                    pi = parts_list[idx]
+                    pi_m = pi.findall('measure')
+                    n_before = sum(_get_non_rest_cnt(m) for m in pi_m[:split_idx])
+                    n_after = sum(_get_non_rest_cnt(m) for m in pi_m[split_idx:])
+                    if n_before > 0 and n_after == 0:
+                        p_tail = pi
+                        p_tail_idx = idx
+                        break
+
+                p_mid = None
+                for idx in range(1, len(parts_list)):
+                    if idx == p_tail_idx:
+                        continue
+                    pi = parts_list[idx]
+                    sp = root.find(f".//score-part[@id='{pi.get('id')}']")
+                    pname = (sp.find('part-name').text if (sp is not None and sp.find('part-name') is not None and sp.find('part-name').text) else '').strip().lower()
+                    if 'sop' in pname or 'voice' in pname:
+                        p_mid = pi
+                        break
+                if p_mid is None and len(parts_list) > 1:
+                    p_mid = parts_list[2] if p_tail_idx == 1 else parts_list[1]
+
+                if p_tail is not None and p_mid is not None:
+                    import copy as _cp
+                    p_tail_m = p_tail.findall('measure')
+                    p_mid_m = p_mid.findall('measure')
+
+                    for m in range(split_idx, max(len(p_tail_m), len(p_mid_m), len(p0_m))):
+                        m_mid_clone = _cp.deepcopy(p_mid_m[m])
+                        m_p0_clone = _cp.deepcopy(p0_m[m])
+
+                        idx_t = list(p_tail).index(p_tail_m[m])
+                        p_tail.remove(p_tail_m[m])
+                        p_tail.insert(idx_t, m_mid_clone)
+
+                        idx_m = list(p_mid).index(p_mid_m[m])
+                        p_mid.remove(p_mid_m[m])
+                        p_mid.insert(idx_m, m_p0_clone)
+
+                    root.remove(p0)
+                    part_list_elem.remove(sp0)
+
+                    sp_mid = root.find(f".//score-part[@id='{p_mid.get('id')}']")
+                    if sp_mid is not None:
+                        pn = sp_mid.find('part-name')
+                        if pn is None:
+                            pn = ET.SubElement(sp_mid, 'part-name')
+                        pn.text = 'Soprano 1'
+                        pa = sp_mid.find('part-abbreviation')
+                        if pa is None:
+                            pa = ET.SubElement(sp_mid, 'part-abbreviation')
+                        pa.text = 'S1'
+
+                    sp_tail = root.find(f".//score-part[@id='{p_tail.get('id')}']")
+                    if sp_tail is not None:
+                        pn = sp_tail.find('part-name')
+                        if pn is None:
+                            pn = ET.SubElement(sp_tail, 'part-name')
+                        pn.text = 'Soprano 2'
+                        pa = sp_tail.find('part-abbreviation')
+                        if pa is None:
+                            pa = ET.SubElement(sp_tail, 'part-abbreviation')
+                        pa.text = 'S2'
+                    modified = True
+
     # 3. Detect & merge split / complementary parts (e.g. S/A + Alto, T/B + Bass)
     # ─────────────────────────────────────────────────────────────────────────
     part_list = root.find('part-list')
     parts = root.findall('part')
     if part_list is not None and len(parts) >= 2:
-        TIER_1 = {'s', 'sop', 'sopr', 'soprano', 'a', 'alt', 'alto', 's/a', 'sa', 's.a.', 'soprano/alto', 'soprano / alto', 'women', 'treble', 's1', 's2', 'a1', 'a2'}
-        TIER_2 = {'t', 'ten', 'tenor', 'b', 'bas', 'bass', 't/b', 'tb', 't.b.', 'tenor/bass', 'tenor / bass', 'men', 't1', 't2', 'b1', 'b2'}
-
         def get_tier(name_str: str) -> int:
-            n = (name_str or '').strip().lower()
-            if n in TIER_1:
+            n = re.sub(r'[.\s_-]+', '', (name_str or '').strip().lower())
+            if re.match(r'^(soprano|sopr|sop|s)[1-4]?$', n) or re.match(r'^(alto|alt|a|contralto|mezzo|mezzosoprano)[1-4]?$', n) or re.match(r'^(sa|sopranoalto|women|treble)[1-4]?$', n):
                 return 1
-            if n in TIER_2:
+            if re.match(r'^(tenor|ten|t)[1-4]?$', n) or re.match(r'^(baritone|bar)[1-4]?$', n) or re.match(r'^(bass|bas|b)[1-4]?$', n) or re.match(r'^(tb|tenorbass|men)[1-4]?$', n):
                 return 2
             return 0
 
@@ -748,7 +851,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
 
         # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
         # Detects staggered choral entrances by musical structure, not part names.
-        if not any(info['is_solo'] for info in part_info.values()):
+        has_choral_parts = any(info['tier'] in (1, 2, 3, 4) for info in part_info.values())
+        if not has_choral_parts and not any(info['is_solo'] for info in part_info.values()):
             non_accomp_pids = [pid for pid, info in part_info.items() if not info['is_accomp']]
 
             # Count how many non-accomp parts have notes at each measure
@@ -1194,6 +1298,47 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 if mnum in m_by_num:
                     for m in m_by_num[mnum]:
                         p.append(m)
+
+    # 5. Sort parts into standard choral score arrangement: Soprano 1 -> Soprano 2 -> Alto 1 -> Alto 2 -> Tenor -> Bass
+    part_list_elem = root.find('part-list')
+    if part_list_elem is not None:
+        def _get_sort_rank(name):
+            s = re.sub(r'[.\s_-]+', '', (name or '').strip().lower())
+            if s.startswith('solo'): return 0
+            if re.match(r'^(soprano|sopr|sop|s)1?$', s): return 10
+            if re.match(r'^(soprano|sopr|sop|s)2$', s): return 20
+            if re.match(r'^(soprano|sopr|sop|s)[3-9]$', s): return 25
+            if re.match(r'^(mezzosoprano|mezzo)$', s): return 28
+            if re.match(r'^(alto|alt|a|contralto)1?$', s): return 30
+            if re.match(r'^(alto|alt|a|contralto)2$', s): return 40
+            if re.match(r'^(alto|alt|a|contralto)[3-9]$', s): return 45
+            if re.match(r'^(sa|sopranoalto)$', s): return 48
+            if re.match(r'^(tenor|ten|t)1?$', s): return 50
+            if re.match(r'^(tenor|ten|t)2$', s): return 60
+            if re.match(r'^(tenor|ten|t)[3-9]$', s): return 65
+            if re.match(r'^(baritone|bar)$', s): return 70
+            if re.match(r'^(bass|bas|b)1?$', s): return 80
+            if re.match(r'^(bass|bas|b)2$', s): return 90
+            if re.match(r'^(bass|bas|b)[3-9]$', s): return 95
+            if re.match(r'^(tb|tenorbass)$', s): return 98
+            return 100
+
+        s_parts = part_list_elem.findall('score-part')
+        if len(s_parts) > 1:
+            s_parts.sort(key=lambda sp: _get_sort_rank(sp.find('part-name').text if sp.find('part-name') is not None else ''))
+            for sp in list(part_list_elem):
+                part_list_elem.remove(sp)
+            for sp in s_parts:
+                part_list_elem.append(sp)
+
+            ordered_ids = [sp.get('id') for sp in s_parts]
+            p_map = {p.get('id'): p for p in root.findall('part')}
+            for p in list(root.findall('part')):
+                root.remove(p)
+            for pid in ordered_ids:
+                if pid in p_map:
+                    root.append(p_map[pid])
+            modified = True
 
     return modified
 
