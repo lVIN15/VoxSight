@@ -100,6 +100,10 @@ fun ScoreReviewScreen(
         webViewInstance?.evaluateJavascript("zoomFit();", null)
     }
 
+    BackHandler(enabled = !isFullscreen) {
+        onCancel()
+    }
+
     // JS Bridge class to capture note/rest clicks
     class EditorJsBridge {
         @JavascriptInterface
@@ -432,7 +436,7 @@ fun ScoreReviewScreen(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(end = if (isFullscreen) 16.dp else 10.dp, bottom = if (isFullscreen) 40.dp else 36.dp),
+                        .padding(end = if (isFullscreen) 16.dp else 12.dp, bottom = if (isFullscreen) 80.dp else 74.dp),
                     color = Color.White.copy(alpha = 0.95f),
                     shadowElevation = 6.dp,
                     shape = RoundedCornerShape(20.dp),
