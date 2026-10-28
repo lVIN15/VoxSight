@@ -6,8 +6,14 @@ import com.cit.kaido.voxsight.ui.screens.practice.isEventTargetForSinger
 import com.cit.kaido.voxsight.ui.screens.practice.getDisplayLabel
 import com.cit.kaido.voxsight.ui.screens.practice.getDisplayShortLabel
 import com.cit.kaido.voxsight.ui.screens.practice.detectAvailableParts
-import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlMeasure
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlNote
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlPart
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
+import com.cit.kaido.voxsight.ui.screens.practice.computeUniversalVocalPartMap
+import com.cit.kaido.voxsight.ui.screens.practice.generateEventsJsonFromScoreParts
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -327,5 +333,134 @@ class PartMatchingTest {
         assertEquals("#65A30D", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, "B1"))
         // Undivided Bass with no focus uses standard Bass green
         assertEquals("#16A34A", com.cit.kaido.voxsight.ui.screens.practice.getHighlightColorForEvent(eventBassUndivided, null))
+    }
+
+    private fun syntheticMeasureNotes(
+        count: Int,
+        step: String,
+        octave: Int,
+        startMeasure: Int = 0
+    ): List<MusicXmlNote> {
+        return (0 until count).map { idx ->
+            MusicXmlNote(
+                step = step,
+                octave = octave,
+                durationDivisions = 480,
+                startTimeDivisions = (startMeasure + idx) * 1920,
+                measureNumber = startMeasure + idx + 1,
+                measureIndex = startMeasure + idx
+            )
+        }
+    }
+
+    @Test
+    fun testUniversalVocalPartMapFivePartGenericVoiceSoloPlusSatb() {
+        // Mirrors raw Audiveris OMR output for 5-stave Solo + SATB scores (e.g. Awit ng Paghahangad)
+        // where all staves have generic "Voice Oohs" names and 0 lyrics.
+        val partNames = mapOf(
+            1 to "Voice Oohs",
+            2 to "Voice Oohs",
+            3 to "Voice Oohs",
+            4 to "Voice Oohs",
+            5 to "Voice Oohs"
+        )
+        val partNotes = mapOf(
+            1 to syntheticMeasureNotes(count = 15, step = "D", octave = 4), // Sparse soloist above choir
+            2 to syntheticMeasureNotes(count = 82, step = "F", octave = 4), // Soprano (G clef, ~65)
+            3 to syntheticMeasureNotes(count = 84, step = "C", octave = 4), // Alto (G clef, ~60)
+            4 to syntheticMeasureNotes(count = 81, step = "G", octave = 3), // Tenor (F clef, ~55)
+            5 to syntheticMeasureNotes(count = 83, step = "C", octave = 3)  // Bass (F clef, ~48)
+        )
+        val hasFClef = mapOf(1 to false, 2 to false, 3 to false, 4 to true, 5 to true)
+
+        val roles = computeUniversalVocalPartMap(
+            totalParts = 5,
+            partNamesMap = partNames,
+            partNotesMap = partNotes,
+            partHasFClefMap = hasFClef
+        )
+
+        assertEquals("SOLO", roles[1]?.roleStr)
+        assertEquals("SOPRANO", roles[2]?.roleStr)
+        assertEquals("ALTO", roles[3]?.roleStr)
+        assertEquals("TENOR", roles[4]?.roleStr)
+        assertEquals("BASS", roles[5]?.roleStr)
+    }
+
+    @Test
+    fun testUniversalVocalPartMapDualFClefTenorAboveBass() {
+        val partNames = mapOf(1 to "Voice", 2 to "Voice", 3 to "Voice", 4 to "Voice")
+        val partNotes = mapOf(
+            1 to syntheticMeasureNotes(count = 16, step = "G", octave = 4), // Soprano
+            2 to syntheticMeasureNotes(count = 16, step = "D", octave = 4), // Alto
+            3 to syntheticMeasureNotes(count = 16, step = "A", octave = 3), // Tenor (MIDI 57)
+            4 to syntheticMeasureNotes(count = 16, step = "D", octave = 3)  // Bass (MIDI 50)
+        )
+        val hasFClef = mapOf(1 to false, 2 to false, 3 to true, 4 to true)
+
+        val roles = computeUniversalVocalPartMap(
+            totalParts = 4,
+            partNamesMap = partNames,
+            partNotesMap = partNotes,
+            partHasFClefMap = hasFClef
+        )
+
+        assertEquals("SOPRANO", roles[1]?.roleStr)
+        assertEquals("ALTO", roles[2]?.roleStr)
+        assertEquals("TENOR", roles[3]?.roleStr)
+        assertEquals("BASS", roles[4]?.roleStr)
+    }
+
+    @Test
+    fun testUniversalVocalPartMapFivePartSsatbMotetNotMisclassifiedAsSolo() {
+        val partNames = (1..5).associateWith { "Voice" }
+        val partNotes = mapOf(
+            1 to syntheticMeasureNotes(count = 40, step = "A", octave = 4), // S1
+            2 to syntheticMeasureNotes(count = 40, step = "F", octave = 4), // S2
+            3 to syntheticMeasureNotes(count = 40, step = "C", octave = 4), // A
+            4 to syntheticMeasureNotes(count = 40, step = "G", octave = 3), // T
+            5 to syntheticMeasureNotes(count = 40, step = "C", octave = 3)  // B
+        )
+        val hasFClef = mapOf(1 to false, 2 to false, 3 to false, 4 to true, 5 to true)
+
+        val roles = computeUniversalVocalPartMap(
+            totalParts = 5,
+            partNamesMap = partNames,
+            partNotesMap = partNotes,
+            partHasFClefMap = hasFClef
+        )
+
+        assertTrue("No stave in full SSATB motet should be SOLO", roles.values.none { it.roleStr == "SOLO" })
+        assertEquals("TENOR", roles[4]?.roleStr)
+        assertEquals("BASS", roles[5]?.roleStr)
+    }
+
+    @Test
+    fun testGenerateEventsJsonPreservesSourceNoteIdAndInStaffDivisi() {
+        val altoDivTop = MusicXmlNote(
+            step = "E", octave = 4, durationDivisions = 480, startTimeDivisions = 0,
+            voice = 2, measureNumber = 1, measureIndex = 0, sourceNoteId = 201
+        )
+        val altoDivBottom = MusicXmlNote(
+            step = "C", octave = 4, durationDivisions = 480, startTimeDivisions = 0,
+            voice = 2, isChord = true, measureNumber = 1, measureIndex = 0, sourceNoteId = 202
+        )
+        val parts = listOf(
+            MusicXmlPart(1, "Soprano", listOf(MusicXmlNote("G", 4, 480, 0, voice = 1, sourceNoteId = 101)), listOf(MusicXmlMeasure(1, emptyList()))),
+            MusicXmlPart(2, "Alto", listOf(altoDivTop, altoDivBottom), listOf(MusicXmlMeasure(1, emptyList()))),
+            MusicXmlPart(3, "Tenor", listOf(MusicXmlNote("G", 3, 480, 0, voice = 3, sourceNoteId = 301)), listOf(MusicXmlMeasure(1, emptyList()))),
+            MusicXmlPart(4, "Bass", listOf(MusicXmlNote("C", 3, 480, 0, voice = 4, sourceNoteId = 401)), listOf(MusicXmlMeasure(1, emptyList())))
+        )
+
+        val json = generateEventsJsonFromScoreParts(parts, tpq = 480)
+        val type = object : TypeToken<List<MusicalEvent>>() {}.type
+        val events: List<MusicalEvent> = Gson().fromJson(json, type)
+
+        val e201 = events.first { it.sourceNoteId == 201 }
+        val e202 = events.first { it.sourceNoteId == 202 }
+        assertEquals("ALTO 1", e201.satbVoice)
+        assertEquals(listOf("A1"), e201.participatingParts)
+        assertEquals("ALTO 2", e202.satbVoice)
+        assertEquals(listOf("A2"), e202.participatingParts)
     }
 }

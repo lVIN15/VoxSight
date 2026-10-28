@@ -10,7 +10,10 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
     private const val PREFS_NAME = "voxsight_prefs"
     private const val KEY_BASE_URL = "backend_base_url"
-    
+    private const val KEY_DEBUG_MANUAL_URL = "debug_manual_base_url"
+
+    const val PRODUCTION_BASE_URL: String = "https://voxsight-production.up.railway.app/"
+    const val EMULATOR_BASE_URL: String = "http://10.0.2.2:8080/"
     val DEFAULT_BASE_URL: String = BuildConfig.BASE_URL
 
     private var activeUrl = DEFAULT_BASE_URL
@@ -40,15 +43,57 @@ object ApiClient {
     /**
      * Initializes the client with a stored URL from SharedPreferences
      */
+    private fun isRunningOnEmulator(): Boolean {
+        return try {
+            val fp = android.os.Build.FINGERPRINT ?: ""
+            val model = android.os.Build.MODEL ?: ""
+            val product = android.os.Build.PRODUCT ?: ""
+            val brand = android.os.Build.BRAND ?: ""
+            val device = android.os.Build.DEVICE ?: ""
+            fp.startsWith("generic") || fp.startsWith("unknown") ||
+                model.contains("google_sdk") || model.contains("Emulator") || model.contains("Android SDK built for") || model.contains("sdk_gphone") ||
+                product.contains("sdk") || product.contains("emulator") ||
+                (brand.startsWith("generic") && device.startsWith("generic"))
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun isLocalUrl(url: String): Boolean {
+        return url.contains("10.0.2.2") || url.contains("192.168.") || url.contains("localhost") || url.contains("127.0.0.1")
+    }
+
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        var storedUrl = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
-        // Auto-migrate legacy local emulator IPs or old Render URLs to Railway
-        if (storedUrl.contains("10.0.2.2") || storedUrl.contains("192.168.") || storedUrl.contains("onrender.com")) {
-            storedUrl = DEFAULT_BASE_URL
-            prefs.edit().putString(KEY_BASE_URL, storedUrl).apply()
+        var storedUrl = prefs.getString(KEY_BASE_URL, null)
+
+        if (!BuildConfig.DEBUG) {
+            val candidate = storedUrl ?: PRODUCTION_BASE_URL
+            storedUrl = if (isLocalUrl(candidate) || candidate.contains("onrender.com")) {
+                PRODUCTION_BASE_URL
+            } else {
+                candidate
+            }
+        } else {
+            val manualDebugUrl = prefs.getString(KEY_DEBUG_MANUAL_URL, null)?.takeIf { it.isNotBlank() }
+            storedUrl = when {
+                manualDebugUrl != null -> manualDebugUrl
+                isLocalUrl(DEFAULT_BASE_URL) && isRunningOnEmulator() -> EMULATOR_BASE_URL
+                else -> DEFAULT_BASE_URL
+            }
         }
         updateBaseUrl(context, storedUrl)
+    }
+
+    fun setDebugServerOverride(context: Context, newUrl: String?) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (newUrl.isNullOrBlank()) {
+            prefs.edit().remove(KEY_DEBUG_MANUAL_URL).apply()
+            init(context)
+        } else {
+            updateBaseUrl(context, newUrl)
+            prefs.edit().putString(KEY_DEBUG_MANUAL_URL, activeUrl).apply()
+        }
     }
 
     fun getBaseUrl(context: Context): String {

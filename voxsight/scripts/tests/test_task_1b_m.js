@@ -70,13 +70,25 @@ const context = {
         },
         _vxVocalPartMap: null
     },
+    VOICE_PALETTE: {
+        S: '#E11D48', A: '#8E24AA', T: '#2563EB', B: '#16A34A',
+        SOLO: '#FF6D00', OTHER: '#546E7A', UNKNOWN: '#808080'
+    },
     console: console,
     parseInt: parseInt,
+    isNaN: isNaN,
+    Boolean: Boolean,
+    Array: Array,
     String: String
 };
 
+const mapFnMatch = htmlContent.match(/function buildXmlDocVocalPartMap\([\s\S]*?\n {8}\}/);
+assert(mapFnMatch, 'Could not locate function buildXmlDocVocalPartMap in renderer.html');
+
 vm.createContext(context);
+vm.runInContext(mapFnMatch[0], context);
 vm.runInContext(fnMatch[0], context);
+const buildXmlDocVocalPartMap = context.buildXmlDocVocalPartMap;
 const getVocalPartInfo = context.getVocalPartInfo;
 assert(typeof getVocalPartInfo === 'function', 'getVocalPartInfo was not extracted as a function');
 
@@ -317,6 +329,123 @@ runTest('TC-10: Multi-part visual focus highlighting for merged unison notes', (
 
     assert.strictEqual(isVisualFocusMatch('T', 'TUTTI', ['ALL']), true, 'Tenor focus must highlight TUTTI');
     assert.strictEqual(isVisualFocusMatch('OTHERS', 'TUTTI', ['ALL']), false, 'Accompaniment focus must dim TUTTI');
+});
+
+// ─── Test 11: 5-Part Generic "Voice Oohs" Solo + SATB Structural Classification ───
+runTest('TC-11: 5-part generic "Voice Oohs" Solo + SATB resolves P1=SOLO, P2=S, P3=A, P4=T, P5=B', () => {
+    function makeMockNote(step, octave) {
+        return {
+            querySelector: (q) => {
+                if (q === 'rest') return null;
+                if (q === 'pitch') {
+                    return {
+                        querySelector: (pq) => {
+                            if (pq === 'step') return { textContent: step };
+                            if (pq === 'octave') return { textContent: String(octave) };
+                            return null;
+                        }
+                    };
+                }
+                return null;
+            }
+        };
+    }
+    function makeMockPart(id, clefSign, step, octave, activeMeasures) {
+        const notes = Array.from({ length: activeMeasures }, () => makeMockNote(step, octave));
+        const measures = Array.from({ length: activeMeasures }, () => ({
+            querySelectorAll: (q) => (q === 'note' ? [makeMockNote(step, octave)] : [])
+        }));
+        return {
+            getAttribute: (a) => (a === 'id' ? id : null),
+            getElementsByTagName: (t) => (t === 'measure' ? measures : []),
+            querySelectorAll: (q) => {
+                if (q === 'clef > sign') return [{ textContent: clefSign }];
+                if (q === 'clef > clef-octave-change') return [];
+                if (q === 'note') return notes;
+                return [];
+            }
+        };
+    }
+
+    const savedDoc = context.xmlDoc;
+    try {
+        const generic5PartDoc = {
+            getElementsByTagName: (tag) => (tag === 'part' ? [
+                makeMockPart('P1', 'G', 'D', 4, 15), // Sparse soloist above choir
+                makeMockPart('P2', 'G', 'F', 4, 82), // Soprano
+                makeMockPart('P3', 'G', 'C', 4, 84), // Alto
+                makeMockPart('P4', 'F', 'G', 3, 81), // Tenor (higher F-clef)
+                makeMockPart('P5', 'F', 'C', 3, 83), // Bass (lower F-clef)
+            ] : []),
+            querySelector: () => ({
+                querySelector: (sub) => (sub === 'part-name' ? { textContent: 'Voice Oohs' } : null)
+            }),
+            _vxVocalPartMap: null
+        };
+        context.xmlDoc = generic5PartDoc;
+
+        assert.strictEqual(getVocalPartInfo(1, 0, 0, 5, 'single', null).part, 'SOLO');
+        assert.strictEqual(getVocalPartInfo(1, 0, 0, 5, 'single', null).color, '#FF6D00');
+        assert.strictEqual(getVocalPartInfo(1, 1, 1, 5, 'single', null).part, 'S');
+        assert.strictEqual(getVocalPartInfo(1, 2, 2, 5, 'single', null).part, 'A');
+        assert.strictEqual(getVocalPartInfo(1, 3, 3, 5, 'single', null).part, 'T');
+        assert.strictEqual(getVocalPartInfo(1, 3, 3, 5, 'single', null).color, '#2563EB');
+        assert.strictEqual(getVocalPartInfo(1, 4, 4, 5, 'single', null).part, 'B');
+        assert.strictEqual(getVocalPartInfo(1, 4, 4, 5, 'single', null).color, '#16A34A');
+    } finally {
+        context.xmlDoc = savedDoc;
+    }
+});
+
+// ─── Test 12: 4-Part Unnamed Dual-F-Clef Tenor Above Bass Ordering ───
+runTest('TC-12: 4-part generic score with dual F-clefs assigns higher pitch to Tenor and lower to Bass', () => {
+    function makeSimplePart(id, clefSign, step, octave) {
+        const note = {
+            querySelector: (q) => (q === 'pitch' ? {
+                querySelector: (pq) => (pq === 'step' ? { textContent: step } : (pq === 'octave' ? { textContent: String(octave) } : null))
+            } : null)
+        };
+        return {
+            activeMeasures: 16,
+            getAttribute: (a) => (a === 'id' ? id : null),
+            getElementsByTagName: () => [],
+            querySelectorAll: (q) => {
+                if (q === 'clef > sign') return [{ textContent: clefSign }];
+                if (q === 'note') return [note];
+                return [];
+            }
+        };
+    }
+
+    const doc4 = {
+        getElementsByTagName: (t) => (t === 'part' ? [
+            makeSimplePart('P1', 'G', 'G', 4),
+            makeSimplePart('P2', 'G', 'C', 4),
+            makeSimplePart('P3', 'F', 'A', 3), // MIDI 57 -> Tenor
+            makeSimplePart('P4', 'F', 'D', 3), // MIDI 50 -> Bass
+        ] : []),
+        querySelector: () => ({ querySelector: () => ({ textContent: 'Voice' }) })
+    };
+    const map = buildXmlDocVocalPartMap(doc4);
+    assert.strictEqual(map[0].part, 'S');
+    assert.strictEqual(map[1].part, 'A');
+    assert.strictEqual(map[2].part, 'T');
+    assert.strictEqual(map[3].part, 'B');
+});
+
+// ─── Test 13: Open-Staff Multi-Pitch Chord In-Staff Divisi ───
+runTest('TC-13: Open-staff multi-pitch chord promotes unstamped section to divisi sub-shades', () => {
+    // context.xmlDoc part 0 is named 'Alto Voice'
+    const topDiv = getVocalPartInfo(1, 0, 0, 4, 'top', null, true);
+    const botDiv = getVocalPartInfo(1, 0, 0, 4, 'bottom', null, true);
+    const mono = getVocalPartInfo(1, 0, 0, 4, 'single', null, false);
+
+    assert.strictEqual(topDiv.part, 'A1');
+    assert.strictEqual(topDiv.color, '#C084FC');
+    assert.strictEqual(botDiv.part, 'A2');
+    assert.strictEqual(botDiv.color, '#4C1D95');
+    assert.strictEqual(mono.part, 'A');
+    assert.strictEqual(mono.color, '#8E24AA');
 });
 
 console.log('='.repeat(70));

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Xml
 import com.cit.kaido.voxsight.model.MusicalEvent
+import com.cit.kaido.voxsight.model.normalizeLegacyVoiceToParts
 import com.google.gson.Gson
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
@@ -70,7 +71,8 @@ data class MusicXmlNote(
     val stem: String? = null,
     val beam: String? = null,
     val beam2: String? = null,
-    val beam3: String? = null
+    val beam3: String? = null,
+    val sourceNoteId: Int? = null
 )
 
 fun parseMusicXmlScore(
@@ -245,6 +247,7 @@ internal fun computeUniversalVocalPartMap(
         val isTenor: Boolean,
         val isBass: Boolean,
         val hasFClef: Boolean,
+        val activeMeasures: Int,
         val avgMidi: Double
     )
 
@@ -256,8 +259,9 @@ internal fun computeUniversalVocalPartMap(
         } else {
             0.0
         }
+        val activeMeasures = pNotes.map { if (it.measureIndex > 0) it.measureIndex else it.measureNumber }.distinct().size
         val hasFClef = (partHasFClefMap[idx] == true) || (avgMidi in 1.0..56.9)
-        val isExplicitSolo = listOf("solo", "cantor", "leader", "descant", "baritone").any { pName.contains(it) }
+        val isExplicitSolo = listOf("solo", "cantor", "leader", "descant", "baritone", "sol.", "sol").any { pName.contains(it) }
         val isAccomp = listOf("piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings").any { pName.contains(it) }
         val isSop = pName.contains("soprano") || pName == "s" || pName.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(pName)
         val isAlt = pName.contains("alto") || pName == "a" || pName.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(pName)
@@ -274,6 +278,7 @@ internal fun computeUniversalVocalPartMap(
             isTenor = isTen,
             isBass = isBas,
             hasFClef = hasFClef,
+            activeMeasures = activeMeasures,
             avgMidi = avgMidi
         )
     }
@@ -294,21 +299,80 @@ internal fun computeUniversalVocalPartMap(
     meta.forEach { m ->
         if (result.containsKey(m.index)) return@forEach
         when {
+            m.name.contains("soprano 1") || m.name == "s1" || m.name == "s 1" || m.name.contains("soprano i") -> {
+                result[m.index] = VocalPartRole(1, "SOPRANO 1", "Soprano 1")
+                claimedRoles.add("SOPRANO 1")
+            }
+            m.name.contains("soprano 2") || m.name == "s2" || m.name == "s 2" || m.name.contains("soprano ii") -> {
+                result[m.index] = VocalPartRole(1, "SOPRANO 2", "Soprano 2")
+                claimedRoles.add("SOPRANO 2")
+            }
             m.isSoprano -> {
                 result[m.index] = VocalPartRole(1, "SOPRANO", "Soprano")
                 claimedRoles.add("SOPRANO")
+            }
+            m.name.contains("alto 1") || m.name == "a1" || m.name == "a 1" || m.name.contains("alto i") -> {
+                result[m.index] = VocalPartRole(2, "ALTO 1", "Alto 1")
+                claimedRoles.add("ALTO 1")
+            }
+            m.name.contains("alto 2") || m.name == "a2" || m.name == "a 2" || m.name.contains("alto ii") -> {
+                result[m.index] = VocalPartRole(2, "ALTO 2", "Alto 2")
+                claimedRoles.add("ALTO 2")
             }
             m.isAlto -> {
                 result[m.index] = VocalPartRole(2, "ALTO", "Alto")
                 claimedRoles.add("ALTO")
             }
+            m.name.contains("tenor 1") || m.name == "t1" || m.name == "t 1" || m.name.contains("tenor i") -> {
+                result[m.index] = VocalPartRole(3, "TENOR 1", "Tenor 1")
+                claimedRoles.add("TENOR 1")
+            }
+            m.name.contains("tenor 2") || m.name == "t2" || m.name == "t 2" || m.name.contains("tenor ii") -> {
+                result[m.index] = VocalPartRole(3, "TENOR 2", "Tenor 2")
+                claimedRoles.add("TENOR 2")
+            }
             m.isTenor -> {
                 result[m.index] = VocalPartRole(3, "TENOR", "Tenor")
                 claimedRoles.add("TENOR")
             }
+            m.name.contains("bass 1") || m.name == "b1" || m.name == "b 1" || m.name.contains("bass i") -> {
+                result[m.index] = VocalPartRole(4, "BASS 1", "Bass 1")
+                claimedRoles.add("BASS 1")
+            }
+            m.name.contains("bass 2") || m.name == "b2" || m.name == "b 2" || m.name.contains("bass ii") -> {
+                result[m.index] = VocalPartRole(4, "BASS 2", "Bass 2")
+                claimedRoles.add("BASS 2")
+            }
             m.isBass -> {
                 result[m.index] = VocalPartRole(4, "BASS", "Bass")
                 claimedRoles.add("BASS")
+            }
+        }
+    }
+
+    // Pass 2.5: Structural Soloist Detection for >= 5-part vocal ensembles with generic OMR part names
+    val vocalCandidates = meta.filter { !it.isAccomp && it.activeMeasures > 0 }
+    if (vocalCandidates.size >= 5 && result.values.none { it.roleStr == "SOLO" }) {
+        val activeSorted = vocalCandidates.map { it.activeMeasures }.sortedDescending()
+        val mCore = activeSorted[3]
+        val coreCandidates = vocalCandidates.filter { mCore < 4 || it.activeMeasures >= mCore * 0.45 }
+        val sopranoAnchor = coreCandidates
+            .filter { !it.hasFClef }
+            .maxByOrNull { it.avgMidi }
+
+        vocalCandidates.forEach { m ->
+            if (result.containsKey(m.index)) return@forEach
+            val isSparseSolo = mCore >= 4 && m.activeMeasures < mCore * 0.45
+            val isAboveChoirSolo = sopranoAnchor != null &&
+                m.index < sopranoAnchor.index &&
+                (m.hasFClef || (m.avgMidi > 0.0 && m.avgMidi < sopranoAnchor.avgMidi - 3.0))
+            if (isSparseSolo || isAboveChoirSolo) {
+                val remainingVocal = vocalCandidates.count { cand ->
+                    cand.index != m.index && result[cand.index]?.roleStr != "SOLO"
+                }
+                if (remainingVocal >= 4) {
+                    result[m.index] = VocalPartRole(5, "SOLO", "Solo")
+                }
             }
         }
     }
@@ -321,25 +385,6 @@ internal fun computeUniversalVocalPartMap(
         val unassignedTreble = unassigned.filter { !it.hasFClef && (it.avgMidi == 0.0 || it.avgMidi >= 60.0) }
             .sortedByDescending { it.avgMidi }
 
-        unassignedBass.forEach { m ->
-            when {
-                "BASS" !in claimedRoles -> {
-                    result[m.index] = VocalPartRole(4, "BASS", "Bass")
-                    claimedRoles.add("BASS")
-                }
-                "TENOR" !in claimedRoles -> {
-                    result[m.index] = VocalPartRole(3, "TENOR", "Tenor")
-                    claimedRoles.add("TENOR")
-                }
-                else -> {
-                    val role = if (m.avgMidi >= 55.0) 3 else 4
-                    val roleStr = if (role == 3) "TENOR" else "BASS"
-                    val roleName = if (role == 3) "Tenor" else "Bass"
-                    result[m.index] = VocalPartRole(role, roleStr, roleName)
-                }
-            }
-        }
-
         unassignedTreble.forEach { m ->
             when {
                 "SOPRANO" !in claimedRoles -> {
@@ -350,10 +395,41 @@ internal fun computeUniversalVocalPartMap(
                     result[m.index] = VocalPartRole(2, "ALTO", "Alto")
                     claimedRoles.add("ALTO")
                 }
+                unassignedTreble.size >= 3 && unassignedBass.size <= 1 && "TENOR" !in claimedRoles -> {
+                    result[m.index] = VocalPartRole(3, "TENOR", "Tenor")
+                    claimedRoles.add("TENOR")
+                }
                 else -> {
                     val role = if (m.avgMidi >= 66.5) 1 else 2
                     val roleStr = if (role == 1) "SOPRANO" else "ALTO"
                     val roleName = if (role == 1) "Soprano" else "Alto"
+                    result[m.index] = VocalPartRole(role, roleStr, roleName)
+                }
+            }
+        }
+
+        unassignedBass.forEach { m ->
+            when {
+                unassignedBass.size >= 2 && "TENOR" !in claimedRoles -> {
+                    result[m.index] = VocalPartRole(3, "TENOR", "Tenor")
+                    claimedRoles.add("TENOR")
+                }
+                unassignedBass.size >= 2 && "BASS" !in claimedRoles -> {
+                    result[m.index] = VocalPartRole(4, "BASS", "Bass")
+                    claimedRoles.add("BASS")
+                }
+                "TENOR" in claimedRoles && "BASS" !in claimedRoles -> {
+                    result[m.index] = VocalPartRole(4, "BASS", "Bass")
+                    claimedRoles.add("BASS")
+                }
+                "BASS" in claimedRoles && "TENOR" !in claimedRoles -> {
+                    result[m.index] = VocalPartRole(3, "TENOR", "Tenor")
+                    claimedRoles.add("TENOR")
+                }
+                else -> {
+                    val role = if (m.avgMidi in 1.0..54.9) 4 else 3
+                    val roleStr = if (role == 3) "TENOR" else "BASS"
+                    val roleName = if (role == 3) "Tenor" else "Bass"
                     result[m.index] = VocalPartRole(role, roleStr, roleName)
                 }
             }
@@ -409,6 +485,7 @@ fun parseMusicXmlScoreFromText(
     var voice: Int? = null
     var customVoice: Int? = null
     var customVoiceStr: String? = null
+    var sourceNoteId: Int? = null
     var staff: Int? = null
     var noteType: String? = null
     var lyricText: String? = null
@@ -500,6 +577,12 @@ fun parseMusicXmlScoreFromText(
                                 partHasFClefMap[currentPartIndex] = true
                             }
                         }
+                        "clef-octave-change" -> {
+                            val octChange = parser.nextText().trim().toIntOrNull()
+                            if (octChange != null && octChange < 0) {
+                                partHasFClefMap[currentPartIndex] = true
+                            }
+                        }
                         "note" -> {
                             inNote = true
                             isRest = false
@@ -510,7 +593,10 @@ fun parseMusicXmlScoreFromText(
                             octave = null
                             duration = null
                             voice = null
-                            customVoiceStr = parser.getAttributeValue(null, "data-vx-voice")?.trim()
+                            sourceNoteId = parser.getAttributeValue(null, "data-vx-id")?.trim()?.toIntOrNull()
+                            customVoiceStr = parser.getAttributeValue(null, "data-vx-voice")
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() && !it.equals("UNKNOWN", ignoreCase = true) }
                             customVoice = customVoiceStr?.let { cv ->
                                 when (cv.uppercase()) {
                                     "1", "S", "S1", "S2", "SOPRANO", "SOPRANO 1", "SOPRANO 2" -> 1
@@ -687,7 +773,8 @@ fun parseMusicXmlScoreFromText(
                                 stem = stem,
                                 beam = beam,
                                 beam2 = beam2,
-                                beam3 = beam3
+                                beam3 = beam3,
+                                sourceNoteId = sourceNoteId
                             )
                             notes.add(note)
                             currentMeasureNotes.add(note)
@@ -818,6 +905,31 @@ fun parseMusicXmlScoreFromText(
 
                     val assignedRole = universalPartMap[partIndex]
                     val isSoloRole = assignedRole?.roleStr == "SOLO" || assignedRole?.roleStr == "BARITONE SOLO"
+                    val pitchedChordGroup = if (!note.isRest) group.filter { !it.isRest } else emptyList()
+                    val distinctChordPitches = if (pitchedChordGroup.size > 1) {
+                        pitchedChordGroup.map { calculateMidiNote(it.step, it.alter, it.octave) }.distinct().sortedDescending()
+                    } else {
+                        emptyList()
+                    }
+                    val inferredInStaffDivisi = if (
+                        note.customVoiceStr.isNullOrBlank() &&
+                        !isPartCondensedSA &&
+                        !isPartCondensedTB &&
+                        totalParts >= 4 &&
+                        distinctChordPitches.size >= 2
+                    ) {
+                        val noteMidi = calculateMidiNote(note.step, note.alter, note.octave)
+                        val isTopPitch = noteMidi == distinctChordPitches.first()
+                        when (assignedRole?.roleStr) {
+                            "SOPRANO" -> if (isTopPitch) "S1" else "S2"
+                            "ALTO" -> if (isTopPitch) "A1" else "A2"
+                            "TENOR" -> if (isTopPitch) "T1" else "T2"
+                            "BASS" -> if (isTopPitch) "B1" else "B2"
+                            else -> null
+                        }
+                    } else {
+                        null
+                    }
                     val noteCustomVoiceStr = when {
                         !note.customVoiceStr.isNullOrBlank() -> {
                             if (isSoloRole && (note.customVoiceStr.equals("SOLO", ignoreCase = true) || note.customVoiceStr.equals("BARITONE SOLO", ignoreCase = true) || note.customVoiceStr == "5")) {
@@ -827,6 +939,7 @@ fun parseMusicXmlScoreFromText(
                             }
                         }
                         isSoloRole -> "SOLO"
+                        inferredInStaffDivisi != null -> inferredInStaffDivisi
                         else -> null
                     }
                     val noteCustomVoice = when {
@@ -857,8 +970,11 @@ fun parseMusicXmlScoreFromText(
             val declaredName = partNamesMap[partIndex]?.takeIf { it.isNotBlank() }
             val assignedRole = universalPartMap[partIndex]
             val isGenericName = declaredName == null ||
-                declaredName.equals("voice", ignoreCase = true) ||
-                declaredName.matches(Regex("(?i)part\\s*\\d+"))
+                declaredName.lowercase() in setOf(
+                    "voice", "voices", "vocal", "vocals",
+                    "voice oohs", "voice aahs", "choir aahs", "synth voice", "oohs", "aahs"
+                ) ||
+                declaredName.matches(Regex("(?i)(part|voice|staff)\\s*\\d+"))
             val resolvedPartName = when {
                 assignedRole?.roleStr == "SOLO" || assignedRole?.roleStr == "BARITONE SOLO" -> "Solo"
                 totalParts >= 4 && isGenericName -> assignedRole?.defaultName ?: "Part $partIndex"
@@ -1007,22 +1123,51 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int, scoreT
     var eventIndex = 0
     val safeTpq = if (tpq > 0) tpq else 1
 
-    parts.forEach { part ->
+    val inferredPartRoles = computeUniversalVocalPartMap(
+        totalParts = parts.size,
+        partNamesMap = parts.mapIndexed { idx, p -> (idx + 1) to p.name }.toMap(),
+        partNotesMap = parts.mapIndexed { idx, p -> (idx + 1) to p.notes }.toMap(),
+        partHasFClefMap = emptyMap(),
+        scoreTitle = scoreTitle
+    )
+
+    parts.forEachIndexed { partListIdx, part ->
+        val partOrdinal = partListIdx + 1
+        val inferredRole = inferredPartRoles[partOrdinal]
         val nameLower = part.name.lowercase()
-        val nonRestNotes = part.notes.filter { !it.isRest }
-        val avgMidi = if (nonRestNotes.isNotEmpty()) {
-            nonRestNotes.map { calculateMidiNote(it.step, it.alter, it.octave) }.average()
-        } else {
-            0.0
-        }
-        val isSoloPart = nameLower.contains("baritone") || nameLower.contains("solo") ||
-            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant")
+        val isSoloPart = inferredRole?.roleStr == "SOLO" ||
+            nameLower.contains("baritone") || nameLower.contains("solo") ||
+            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") ||
+            nameLower.contains("sol.") || nameLower.trim() == "sol" || Regex("(?i)\\bsol\\b").containsMatchIn(nameLower)
+        val pitchedNotesByMeasureTime = part.notes
+            .filter { !it.isRest }
+            .groupBy { "${it.measureIndex}_${it.measureNumber}_${it.startTimeDivisions}" }
 
         part.notes.forEach { note ->
             val isCondensedSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||
-                nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower == "sa"
+                nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower.contains("s. a.") || nameLower == "sa"
             val isCondensedTB = (nameLower.contains("tenor") && nameLower.contains("bass")) ||
-                nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower == "tb"
+                nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower.contains("t. b.") || nameLower == "tb"
+
+            val chordPeers = if (!note.isRest) {
+                pitchedNotesByMeasureTime["${note.measureIndex}_${note.measureNumber}_${note.startTimeDivisions}"].orEmpty()
+            } else {
+                emptyList()
+            }
+            val distinctChordMidis = if (chordPeers.size > 1) {
+                chordPeers.map { calculateMidiNote(it.step, it.alter, it.octave) }.distinct().sortedDescending()
+            } else {
+                emptyList()
+            }
+            val openSectionDivisi: (String) -> String = { baseSection ->
+                if (!note.isRest && !isCondensedSA && !isCondensedTB && distinctChordMidis.size >= 2) {
+                    val midiVal = calculateMidiNote(note.step, note.alter, note.octave)
+                    val sub = if (midiVal == distinctChordMidis.first()) "1" else "2"
+                    "$baseSection $sub"
+                } else {
+                    baseSection
+                }
+            }
 
             val satbVoiceStr = when {
                 !note.customVoiceStr.isNullOrBlank() -> when (note.customVoiceStr.uppercase()) {
@@ -1063,27 +1208,22 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int, scoreT
                 nameLower.contains("piano") || nameLower.contains("organ") || nameLower.contains("keyboard") || nameLower.contains("guitar") || nameLower.contains("accomp") || nameLower.contains("orch") || nameLower.contains("strings") || nameLower.contains("other") -> "OTHERS"
                 isCondensedSA -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
                 isCondensedTB -> if (note.voice == 4 || note.voice == 2 || note.originalVoice == 2 || note.originalVoice == 4) "BASS" else "TENOR"
-                nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(nameLower) -> "SOPRANO"
-                nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(nameLower) -> "ALTO"
-                nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower) -> "TENOR"
-                nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower) -> "BASS"
-                parts.size >= 4 -> {
-                    val nonSoloParts = parts.filter { p ->
-                        val pLower = p.name.lowercase()
-                        !listOf("solo", "cantor", "leader", "descant", "piano", "organ", "keyboard", "guitar", "accomp", "orch", "strings", "other", "instrument").any { pLower.contains(it) }
-                    }
-                    val sortedByPitch = nonSoloParts.sortedByDescending { p ->
-                        val pNotes = p.notes.filter { !it.isRest }
-                        if (pNotes.isNotEmpty()) pNotes.map { calculateMidiNote(it.step, it.alter, it.octave) }.average() else 0.0
-                    }
-                    val rank = sortedByPitch.indexOf(part)
-                    when (rank) {
-                        0 -> "SOPRANO"
-                        1 -> "ALTO"
-                        2 -> "TENOR"
-                        3 -> "BASS"
-                        else -> "OTHERS"
-                    }
+                nameLower.contains("soprano 1") || nameLower == "s1" || nameLower == "s 1" || nameLower.contains("soprano i") -> "SOPRANO 1"
+                nameLower.contains("soprano 2") || nameLower == "s2" || nameLower == "s 2" || nameLower.contains("soprano ii") -> "SOPRANO 2"
+                nameLower.contains("alto 1") || nameLower == "a1" || nameLower == "a 1" || nameLower.contains("alto i") -> "ALTO 1"
+                nameLower.contains("alto 2") || nameLower == "a2" || nameLower == "a 2" || nameLower.contains("alto ii") -> "ALTO 2"
+                nameLower.contains("tenor 1") || nameLower == "t1" || nameLower == "t 1" || nameLower.contains("tenor i") -> "TENOR 1"
+                nameLower.contains("tenor 2") || nameLower == "t2" || nameLower == "t 2" || nameLower.contains("tenor ii") -> "TENOR 2"
+                nameLower.contains("bass 1") || nameLower == "b1" || nameLower == "b 1" || nameLower.contains("bass i") -> "BASS 1"
+                nameLower.contains("bass 2") || nameLower == "b2" || nameLower == "b 2" || nameLower.contains("bass ii") -> "BASS 2"
+                nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(nameLower) -> openSectionDivisi("SOPRANO")
+                nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(nameLower) -> openSectionDivisi("ALTO")
+                nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower) -> openSectionDivisi("TENOR")
+                nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower) -> openSectionDivisi("BASS")
+                parts.size >= 4 && inferredRole != null -> when (inferredRole.roleStr) {
+                    "SOPRANO", "ALTO", "TENOR", "BASS" -> openSectionDivisi(inferredRole.roleStr)
+                    "SOLO" -> "SOLO"
+                    else -> "OTHERS"
                 }
                 note.voice == 5 -> "SOLO"
                 note.voice == 6 -> "OTHERS"
@@ -1122,11 +1262,14 @@ fun generateEventsJsonFromScoreParts(parts: List<MusicXmlPart>, tpq: Int, scoreT
                     voiceSource = note.voice,
                     staffId = note.staff,
                     partId = part.id,
+                    sourceNoteId = note.sourceNoteId,
                     isRest = note.isRest,
                     isChordMember = note.isChord,
                     satbVoice = satbVoiceStr,
                     satbConfidence = 1.0f,
-                    playbackTrack = satbVoiceStr
+                    playbackTrack = satbVoiceStr,
+                    rawParticipatingParts = normalizeLegacyVoiceToParts(satbVoiceStr).takeIf { it.isNotEmpty() },
+                    rawIsVocal = if (note.isRest) false else satbVoiceStr != "OTHERS"
                 )
             )
         }

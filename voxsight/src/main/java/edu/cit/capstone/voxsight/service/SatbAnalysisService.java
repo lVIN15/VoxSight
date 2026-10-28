@@ -20,8 +20,9 @@ import java.util.concurrent.TimeUnit;
  * Architecture Contract (v3.7):
  *   - Invokes satb_analyzer.py via ProcessBuilder
  *   - Reads JSON output from stdout
- *   - Returns raw MusicXML + normalized events (ORDER-FROZEN)
- *   - NEVER modifies the MusicXML content
+ *   - Returns analyzed MusicXML + normalized events (ORDER-FROZEN)
+ *   - Preserves musical score content; Python adds VoxSight note identity and
+ *     voice-assignment metadata to the MusicXML notes
  *
  * Pipeline Boundary Markers:
  *   PIPELINE_START_ANALYSIS → Python script start
@@ -73,10 +74,10 @@ public class SatbAnalysisService {
         log.info("[SATB Analysis] Starting analysis for: {}", musicXmlFile.getName());
 
         try {
-            // Run Python analyzer (which cleans and merges duplicate parts and lyrics)
+            // Run analysis first. It stamps only VoxSight metadata onto matched notes.
             String jsonOutput = runPythonAnalyzer(musicXmlFile.getAbsolutePath());
 
-            // Read cleaned MusicXML content safely, extracting from MXL if necessary
+            // Read the analyzed XML safely, extracting from MXL if necessary
             String rawMusicXml = extractXmlContent(musicXmlFile);
 
             // Parse JSON output

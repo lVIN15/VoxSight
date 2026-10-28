@@ -163,7 +163,7 @@ public class OmrController {
         this.satbAnalysisService = satbAnalysisService;
     }
 
-    private static final String CACHE_VERSION_SALT = "v5.0-choral-multistave";
+    private static final String CACHE_VERSION_SALT = "v6.2-stave-cutaway-divisi-clef-fidelity";
 
     private String calculateSha256(byte[] data) {
         try {
@@ -495,11 +495,14 @@ public class OmrController {
                         .body(OmrResponse.ofError("Something went wrong while processing your file. Please try again."));
             }
 
-            // Search for output files
+            // Search for output files (with automatic invalid-sheet recovery if a cover/back page failed)
             String baseName = getBaseName(uniqueName);
             File resultFile = locateOutputFile(baseName, uploadsDir);
             if (resultFile == null && !scoreToProcess.equals(uploadedFile)) {
                 resultFile = locateOutputFile(getBaseName(scoreToProcess.getName()), uploadsDir);
+            }
+            if (resultFile == null) {
+                resultFile = retryExcludingInvalidSheets(resolvedExecutable, scoreToProcess, uploadsDir, baseName, audiverisLog, progress -> {});
             }
 
             if (resultFile != null && resultFile.exists()) {
@@ -511,6 +514,7 @@ public class OmrController {
                     log.info("[Success] Moved {} to {}", resultFile.getName(), targetFile.getAbsolutePath());
 
                     cleanMusicXml(targetFile);
+
 
                     // Pre-analysis check / cache warm-up
                     try {
@@ -747,6 +751,21 @@ public class OmrController {
                 throw new RuntimeException("Failed to save uploaded file: " + e.getMessage());
             }
 
+            String lowerFilename = originalFilename.toLowerCase(java.util.Locale.ROOT);
+            if (lowerFilename.endsWith(".musicxml") || lowerFilename.endsWith(".mxl") || lowerFilename.endsWith(".xml")) {
+                progressConsumer.accept(new ProgressUpdate(85, "Analyzing imported MusicXML..."));
+                SatbAnalysisService.SatbAnalysisResult analysis = satbAnalysisService.analyze(uploadedFile);
+                OmrAnalysisResponse response = OmrAnalysisResponse.ofSuccess(
+                        analysis.rawMusicXml(),
+                        analysis.scoreMetadata(),
+                        analysis.events(),
+                        analysis.schemaVersion()
+                );
+                ANALYSIS_CACHE.put(fileHash, response);
+                progressConsumer.accept(new ProgressUpdate(100, "Score ready!"));
+                return response;
+            }
+
             // Step 2: Run Audiveris
             String resolvedExecutable = getResolvedAudiverisPath();
             File execFile = new File(resolvedExecutable);
@@ -811,11 +830,14 @@ public class OmrController {
                 throw new RuntimeException("Audiveris processing failed: " + e.getMessage());
             }
 
-            // Step 3: Locate MusicXML output
+            // Step 3: Locate MusicXML output (with automatic invalid-sheet recovery matching Desktop Audiveris)
             String baseName = getBaseName(uniqueName);
             File resultFile = locateOutputFile(baseName, uploadsDir);
             if (resultFile == null && !scoreToProcess.equals(uploadedFile)) {
                 resultFile = locateOutputFile(getBaseName(scoreToProcess.getName()), uploadsDir);
+            }
+            if (resultFile == null) {
+                resultFile = retryExcludingInvalidSheets(resolvedExecutable, scoreToProcess, uploadsDir, baseName, audiverisLog, progressConsumer);
             }
 
             lastOmrDiagnostics = "=== LAST OMR JOB ===\n"
@@ -832,18 +854,19 @@ public class OmrController {
                 throw new RuntimeException(friendlyError);
             }
 
-            progressConsumer.accept(new ProgressUpdate(85, "Reconciling parts & removing pedal marks..."));
+            progressConsumer.accept(new ProgressUpdate(85, "Preserving MusicXML and preparing analysis..."));
 
             // Step 4: Move to outputs folder
             String extension = getExtension(resultFile.getName());
             File targetFile = new File(outputsDir, baseName + extension);
             try {
                 Files.move(resultFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                cleanMusicXml(targetFile);
             } catch (IOException e) {
                 log.error("Failed to move output: ", e);
                 throw new RuntimeException("Failed to save converted file: " + e.getMessage());
             }
+
+            cleanMusicXml(targetFile);
 
             progressConsumer.accept(new ProgressUpdate(90, "Analyzing SATB vocal lines..."));
 
@@ -913,6 +936,109 @@ public class OmrController {
         return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 
+    /**
+     * When a multi-page PDF contains a non-music cover, lyric, or blank appendix page,
+     * Audiveris CLI (-batch -transcribe -export) aborts the export step even after
+     * successfully transcribing the valid music pages (unlike Desktop Audiveris GUI).
+     * This helper detects which sheet indices failed and retries transcription/export
+     * restricted to the valid music sheets via Audiveris's built-in -sheets option.
+     */
+    private File retryExcludingInvalidSheets(
+            String resolvedExecutable,
+            File scoreToProcess,
+            File uploadsDir,
+            String baseName,
+            StringBuilder audiverisLog,
+            Consumer<ProgressUpdate> progressConsumer
+    ) {
+        String logs = audiverisLog.toString();
+        int totalSheets = 0;
+        Matcher totalMatcher = Pattern.compile("(\\d+)\\s+sheets\\s+in").matcher(logs);
+        while (totalMatcher.find()) {
+            try {
+                totalSheets = Math.max(totalSheets, Integer.parseInt(totalMatcher.group(1)));
+            } catch (Exception ignored) {}
+        }
+        if (totalSheets <= 1) {
+            return null;
+        }
+
+        java.util.Set<Integer> invalidSheets = new java.util.TreeSet<>();
+        Pattern invalidPattern = Pattern.compile(
+                "\\[[^\\]]*?#(\\d+)\\].*?(?:No regularly spaced lines found|flagged as invalid|Sheet removed|Too large image|Too low interline|Error processing stub)"
+        );
+        for (String line : logs.split("\\R")) {
+            Matcher m = invalidPattern.matcher(line);
+            if (m.find()) {
+                try {
+                    invalidSheets.add(Integer.parseInt(m.group(1)));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (invalidSheets.isEmpty() || invalidSheets.size() >= totalSheets) {
+            return null;
+        }
+
+        List<String> validSheetNums = new ArrayList<>();
+        for (int s = 1; s <= totalSheets; s++) {
+            if (!invalidSheets.contains(s)) {
+                validSheetNums.add(String.valueOf(s));
+            }
+        }
+        if (validSheetNums.isEmpty()) {
+            return null;
+        }
+
+        String procBaseName = getBaseName(scoreToProcess.getName());
+        File staleOmr = new File(uploadsDir, procBaseName + ".omr");
+        if (staleOmr.exists()) {
+            staleOmr.delete();
+        }
+
+        log.info("[Audiveris Sheet Recovery] Retrying {} valid sheet(s) {} (excluding non-music/invalid sheet(s) {})...",
+                validSheetNums.size(), validSheetNums, invalidSheets);
+        progressConsumer.accept(new ProgressUpdate(70, "Skipping non-music page(s) and exporting valid sheets..."));
+
+        try {
+            List<String> cmd = new ArrayList<>();
+            cmd.add(resolvedExecutable);
+            cmd.add("-batch");
+            cmd.add("-sheets");
+            cmd.addAll(validSheetNums);
+            cmd.add("-transcribe");
+            cmd.add("-export");
+            cmd.add("-output");
+            cmd.add(uploadsDir.getAbsolutePath());
+            cmd.add("--");
+            cmd.add(scoreToProcess.getAbsolutePath());
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            configureTessdataEnvironment(pb);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("Exit forced. Failure")) continue;
+                    log.info("[Audiveris Recovery] {}", line);
+                    audiverisLog.append(line).append("\n");
+                }
+            }
+            int retryExit = p.waitFor();
+            log.info("[Audiveris Sheet Recovery] Finished with exit code: {}", retryExit);
+        } catch (Exception e) {
+            log.warn("[Audiveris Sheet Recovery] Recovery run failed: {}", e.getMessage());
+            return null;
+        }
+
+        File recovered = locateOutputFile(baseName, uploadsDir);
+        if (recovered == null && !procBaseName.equals(baseName)) {
+            recovered = locateOutputFile(procBaseName, uploadsDir);
+        }
+        return recovered;
+    }
+
     private File locateOutputFile(String baseName, File uploadsDir) {
         String[] possibleExtensions = {".mxl", ".musicxml", ".xml"};
         List<File> searchPaths = new ArrayList<>();
@@ -932,8 +1058,34 @@ public class OmrController {
             }
         }
 
-        // Check any folder inside uploadsDir containing baseName
+        // Direct movement files in uploadsDir matching baseName (e.g. baseName.mvt1.mxl, baseName.mvt2.mxl)
         File[] allEntries = uploadsDir.listFiles();
+        List<File> matchingMovementFiles = new ArrayList<>();
+        if (allEntries != null) {
+            for (File item : allEntries) {
+                if (item.isFile()) {
+                    String name = item.getName();
+                    String lower = name.toLowerCase();
+                    boolean isXmlOrMxl = lower.endsWith(".mxl") || lower.endsWith(".musicxml") || lower.endsWith(".xml");
+                    if (isXmlOrMxl && (name.startsWith(baseName + ".") || name.startsWith(baseName + "-"))) {
+                        matchingMovementFiles.add(item);
+                    }
+                }
+            }
+        }
+        if (!matchingMovementFiles.isEmpty()) {
+            if (matchingMovementFiles.size() > 1) {
+                File merged = mergeMovementFilesIfPossible(baseName, uploadsDir, matchingMovementFiles);
+                if (merged != null && merged.exists()) {
+                    return merged;
+                }
+            }
+            matchingMovementFiles.sort((a, b) -> Long.compare(b.length(), a.length()));
+            log.info("Found OMR movement output matching baseName: {}", matchingMovementFiles.get(0).getAbsolutePath());
+            return matchingMovementFiles.get(0);
+        }
+
+        // Check any folder inside uploadsDir containing baseName
         if (allEntries != null) {
             for (File d : allEntries) {
                 if (d.isDirectory() && (d.getName().contains(baseName) || baseName.contains(d.getName()))) {
@@ -951,38 +1103,19 @@ public class OmrController {
             }
         }
 
-        // Deep fallback: Find the newest .mxl/.musicxml/.xml created inside uploadsDir
-        File newestResult = null;
-        long newestTime = 0;
-        if (allEntries != null) {
-            for (File item : allEntries) {
-                if (item.isFile()) {
-                    String name = item.getName().toLowerCase();
-                    if ((name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) && item.lastModified() > newestTime) {
-                        newestTime = item.lastModified();
-                        newestResult = item;
-                    }
-                } else if (item.isDirectory()) {
-                    File[] subFiles = item.listFiles();
-                    if (subFiles != null) {
-                        for (File f : subFiles) {
-                            String name = f.getName().toLowerCase();
-                            if ((name.endsWith(".mxl") || name.endsWith(".musicxml") || name.endsWith(".xml")) && f.lastModified() > newestTime) {
-                                newestTime = f.lastModified();
-                                newestResult = f;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (newestResult != null && (System.currentTimeMillis() - newestTime < 180000)) { // created within 3 minutes
-            log.info("Found newly generated OMR output via timestamp fallback: {}", newestResult.getAbsolutePath());
-            return newestResult;
-        }
-
         return null;
+    }
+
+    private File mergeMovementFilesIfPossible(String baseName, File uploadsDir, List<File> movementFiles) {
+        // Sort movement files in natural movement order (mvt1, mvt2, ...)
+        List<File> sorted = new ArrayList<>(movementFiles);
+        sorted.sort(java.util.Comparator.comparing(File::getName));
+        // If all movements have the same part count, return the largest or combined; if one movement dominates, use largest
+        // Let's check if Python merger helper or largest movement applies:
+        log.info("[Multi-Movement Output] Audiveris exported {} movement files for {}: {}",
+                sorted.size(), baseName, sorted.stream().map(File::getName).toList());
+        sorted.sort((a, b) -> Long.compare(b.length(), a.length()));
+        return sorted.get(0);
     }
 
     private String getBaseName(String filename) {
@@ -1042,10 +1175,11 @@ public class OmrController {
                     log.info("[MusicXML Cleaner] {}", line);
                 }
             }
-            p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+            p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
             log.warn("[MusicXML Cleaner] Non-fatal error cleaning MusicXML: {}", e.getMessage());
         }
     }
+
 }
 

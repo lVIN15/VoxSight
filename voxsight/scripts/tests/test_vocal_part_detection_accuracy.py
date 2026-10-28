@@ -55,11 +55,9 @@ def test_open_satb_unison_pitches_no_tutti():
             os.remove(p)
 
 
-def test_condensed_2staff_unison_tb():
-    """Condensed 2-staff score (Staff 1: SA, Staff 2: TB).
-    Staff 1 has polyphony (S and A), Staff 2 has single note -> UNISON_TB.
-    """
-    print("\n--- Test 2: Condensed 2-Staff Score (Staff 2 UNISON_TB) ---")
+def test_condensed_2staff_explicit_unison_tb():
+    """Only explicit same-pitch T and B notes on the same staff form UNISON_TB."""
+    print("\n--- Test 2: Condensed 2-Staff Score (Explicit Staff 2 UNISON_TB) ---")
     xml_cond = """<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part-list>
@@ -73,6 +71,8 @@ def test_condensed_2staff_unison_tb():
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice><staff>1</staff></note>
       <backup><duration>1</duration></backup>
       <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>3</voice><staff>2</staff></note>
+      <backup><duration>1</duration></backup>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>4</voice><staff>2</staff></note>
     </measure>
   </part>
 </score-partwise>"""
@@ -86,7 +86,7 @@ def test_condensed_2staff_unison_tb():
         print(f"  Assigned voices: {voices}")
         assert "UNISON_TB" in voices, f"Expected UNISON_TB in {voices}"
         assert "TUTTI" not in voices, "TUTTI incorrectly assigned to condensed staves!"
-        print("  [PASS] Test 2: Condensed 2-staff correctly detected UNISON_TB on Staff 2.")
+        print("  [PASS] Test 2: Explicit same-pitch Staff 2 voices detected as UNISON_TB.")
     finally:
         if os.path.exists(p):
             os.remove(p)
@@ -313,7 +313,7 @@ def main():
     print("STARTING VOCAL-PART DETECTION ACCURACY REGRESSION SUITE")
     print("==================================================================")
     test_open_satb_unison_pitches_no_tutti()
-    test_condensed_2staff_unison_tb()
+    test_condensed_2staff_explicit_unison_tb()
     test_open_satb_divisi_isolation()
     test_condensed_2staff_four_parts_no_false_divisi()
     test_open_satb_bass_divisi_isolation()

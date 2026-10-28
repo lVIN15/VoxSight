@@ -13,6 +13,7 @@ val localProperties = Properties().apply {
     }
 }
 val paymongoSecretKey: String = localProperties.getProperty("PAYMONGO_SECRET_KEY", "")
+val debugBaseUrl: String = localProperties.getProperty("DEBUG_BASE_URL", "https://voxsight-production.up.railway.app/")
 
 android {
     namespace = "com.cit.kaido.voxsight"
@@ -27,7 +28,7 @@ android {
     }
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"https://voxsight-production.up.railway.app/\"")
+            buildConfigField("String", "BASE_URL", "\"$debugBaseUrl\"")
         }
         release {
             isMinifyEnabled = false

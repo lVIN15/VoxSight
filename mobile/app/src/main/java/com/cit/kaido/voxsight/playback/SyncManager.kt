@@ -4,38 +4,37 @@ import android.util.Log
 import com.cit.kaido.voxsight.model.EventStream
 import com.cit.kaido.voxsight.model.MusicalEvent
 import java.security.MessageDigest
+import kotlin.math.abs
 
 /**
- * VoxSight Sync Manager v1.1 (Milestone 3)
+ * VoxSight Sync Manager v1.2
  * ==========================================
- * Bridges the native playback engine to the WebView renderer.
+ * Bridges the native playback engine to the WebView OSMD renderer.
  *
- * Architecture Contract (v3.7):
- *   - Uses event_id for correlation between playback events and OSMD elements
- *   - layout_hash gating: sync coordinates are only valid for a specific render
- *   - Bipartite matching: maps events to OSMD note elements by tick + pitch
- *   - Confidence is monotonic (never increases after mismatch)
- *   - Graceful degradation: audio ALWAYS works, visuals are best-effort
- *
- * Sync Pipeline:
- *   PLAYBACK_TICK → FIND_EVENT → LOOKUP_COORDINATE → EMIT_HIGHLIGHT
- *   If any step fails: audio continues, highlight is suppressed.
+ * Hybrid Two-Tier Mapping Contract:
+ *   - Tier 1 (Exact Stable Note Identity): Matches `event.sourceNoteId` (`data-vx-id`)
+ *     directly to OSMD graphical note elements. Supports shared unison noteheads
+ *     (multiple simultaneous vocal events sharing one OSMD notehead) and multi-head
+ *     tied notes split across system breaks.
+ *   - Tier 2 (Deterministic Structural Fallback): For legacy/cloud/saved events where
+ *     `event.sourceNoteId == null`, maps within aligned `(measure, staffIdx, pitchMidi, tick)`
+ *     without cross-measure wild pitch guessing.
+ *   - Graceful degradation: audio ALWAYS plays uninterrupted; visuals degrade cleanly.
  */
 class SyncManager {
 
     companion object {
         private const val TAG = "SyncManager"
+        private const val OSMD_TPQ = 480
     }
 
     // ─── Highlight Mode ────────────────────────────────────────────────
     enum class HighlightMode { NOTE_LEVEL, MEASURE_LEVEL, DISABLED }
 
     // ─── Layout Version Lock ───────────────────────────────────────────
-    // Coordinates are ONLY valid for a specific OSMD render.
-    // If layout_hash changes (zoom, resize, reflow), coordinates must be re-extracted.
     private var currentLayoutHash: String? = null
     private var coordinateMap = HashMap<String, NoteCoordinate>()  // event_id → screen position
-    private var syncConfidence = 1.0f  // Monotonic — only decreases
+    private var syncConfidence = 1.0f
     private var highlightMode = HighlightMode.DISABLED
     private var totalMappings = 0
     private var successfulMappings = 0
@@ -60,13 +59,6 @@ class SyncManager {
     fun getSyncConfidence(): Float = syncConfidence
 
     // ─── Coordinate Registration ───────────────────────────────────────
-    /**
-     * Register note coordinates extracted from OSMD render.
-     * Called from JavaScript via WebView bridge.
-     *
-     * @param layoutHash Hash of the current OSMD render state
-     * @param coordinates Map of event_id → screen position
-     */
     fun registerCoordinates(
         layoutHash: String,
         coordinates: Map<String, NoteCoordinate>
@@ -84,34 +76,20 @@ class SyncManager {
         listener?.onHighlightModeChanged(highlightMode)
     }
 
-    /**
-     * Compute a layout hash for the current render parameters.
-     * If this changes, existing coordinates are invalidated.
-     */
     fun computeLayoutHash(width: Int, height: Int, zoom: Float, pageCount: Int): String {
         val raw = "osmd_render_w${width}_h${height}_z${zoom}_p${pageCount}"
         val digest = MessageDigest.getInstance("MD5").digest(raw.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }.take(12)
     }
 
-    /**
-     * Check if the current coordinate map is still valid.
-     */
     fun isLayoutValid(layoutHash: String): Boolean {
         return currentLayoutHash == layoutHash
     }
 
-    // ─── Event Coordination ────────────────────────────────────────────
-    /**
-     * Retrieve the mapped screen coordinate for a specific event ID.
-     */
     fun getCoordinateForEvent(eventId: String): NoteCoordinate? {
         return coordinateMap[eventId]
     }
 
-    /**
-     * Invalidate coordinates (e.g., after zoom/resize/reflow).
-     */
     fun invalidateLayout() {
         currentLayoutHash = null
         coordinateMap.clear()
@@ -125,15 +103,9 @@ class SyncManager {
     val coordinateMapSize: Int get() = coordinateMap.size
 
     // ─── Playback Sync ─────────────────────────────────────────────────
-    /**
-     * Called by the playback engine on each progress update.
-     * Finds the matching note coordinate and emits a highlight command.
-     *
-     * Graceful degradation: if mapping fails, audio continues, highlight is suppressed.
-     */
     fun onPlaybackProgress(activeEventIds: List<String>) {
         if (activeEventIds.isEmpty()) return
-        if (currentLayoutHash == null) return  // No valid layout
+        if (currentLayoutHash == null) return
 
         val highlights = mutableListOf<NoteHighlightData>()
         for (eventId in activeEventIds) {
@@ -148,28 +120,30 @@ class SyncManager {
         }
     }
 
-    /**
-     * Called when playback stops.
-     */
     fun onPlaybackStopped() {
         listener?.onClearHighlights()
     }
 
-    // ─── Bipartite Matching ────────────────────────────────────────────
+    // ─── Hybrid Two-Tier Bipartite Matching ────────────────────────────
     data class MatchResult(
         val eventId: String,
         val matched: Boolean,
         val duplicateMatch: Boolean
     )
 
-    /**
-     * Bulk-match events to OSMD elements using bipartite matching.
-     * This is called once after OSMD renders and JavaScript extracts note positions.
-     *
-     * @param events The ORDER-FROZEN event stream
-     * @param osmdElements Raw note elements extracted from OSMD
-     * @param layoutHash The layout hash for this render
-     */
+    private fun scaleEventTickToOsmd(event: MusicalEvent): Int {
+        val tpq = event.ticksPerQuarter.coerceAtLeast(1)
+        return ((event.tickPosition.toLong() * OSMD_TPQ.toLong()) / tpq.toLong()).toInt()
+    }
+
+    private fun resolveExpectedStaffIdx(event: MusicalEvent): Int {
+        return when {
+            event.partId > 1 && event.staffId <= 1 -> event.partId - 1
+            event.staffId > 0 -> event.staffId - 1
+            else -> (event.partId - 1).coerceAtLeast(0)
+        }
+    }
+
     private fun isVoiceCompatible(eventVoice: String, elemPart: String): Boolean {
         val ev = eventVoice.uppercase().trim()
         val ep = elemPart.uppercase().trim()
@@ -183,6 +157,7 @@ class SyncManager {
         if (ep in setOf("UNISON_A1A2", "A1A2") && (ev.startsWith("A") || ev.contains("ALTO"))) return true
         if (ep in setOf("UNISON_T1T2", "T1T2") && (ev.startsWith("T") || ev.contains("TENOR"))) return true
         if (ep in setOf("UNISON_B1B2", "B1B2") && (ev.startsWith("B") || ev.contains("BASS"))) return true
+        if ((ev.contains("SOLO") || ev.contains("BARITONE")) && (ep == "SOLO" || ep.contains("SOLO"))) return true
         val evInitial = ev.firstOrNull()?.toString() ?: ""
         val epInitial = ep.firstOrNull()?.toString() ?: ""
         return evInitial.isNotEmpty() && evInitial == epInitial
@@ -196,195 +171,210 @@ class SyncManager {
         currentLayoutHash = layoutHash
         coordinateMap.clear()
 
-        val coords = HashMap<String, NoteCoordinate>()
-        val matchResults = ArrayList<MatchResult>()
-
         val activeEvents = events.filter { !it.isRest }
-        val osmdAssignedEvent = HashMap<Int, MusicalEvent>()
+        val coords = HashMap<String, NoteCoordinate>(activeEvents.size)
 
-        fun isCandidateAvailable(elemId: Int, event: MusicalEvent): Boolean {
-            val assigned = osmdAssignedEvent[elemId] ?: return true
-            // Allow sharing if it's the same measure and same pitch (unison, Tutti, shared chord notehead)
-            return assigned.measureIndex == event.measureIndex &&
-                    assigned.pitchMidi == event.pitchMidi &&
-                    kotlin.math.abs(assigned.tickPosition - event.tickPosition) <= 240
+        // Track claimed OSMD elements by unique list index so shared IDs across tied heads remain addressable
+        val claimedByElementIdx = HashMap<Int, MusicalEvent>()
+        val osmdIndexedById = HashMap<Int, MutableList<IndexedValue<OsmdNoteElement>>>()
+        osmdElements.withIndex().forEach { indexed ->
+            osmdIndexedById.getOrPut(indexed.value.id) { mutableListOf() }.add(indexed)
         }
 
-        // Sort events strictly chronologically (Measure, Beat/Tick, Staff, Voice, Pitch descending)
-        val sortedEvents = activeEvents.sortedWith(
-            compareBy<MusicalEvent>({ it.measureNumber }, { it.tickPosition }, { it.staffId }, { it.voiceSource }, { -it.pitchMidi })
-        )
+        val hasReliableMeasureIndex = activeEvents.any { it.measureIndex > 0 } ||
+            activeEvents.all { it.measureNumber <= 1 }
 
-        // 1. Group events and OSMD elements by 0-based measure index (mIdx)
-        val eventsByMeasure = activeEvents.groupBy { it.measureIndex }
-        val osmdByMeasure = osmdElements.groupBy { it.measureIndex }
-
-        val allMeasureIndices = (eventsByMeasure.keys + osmdByMeasure.keys).distinct().sorted()
-
-        for (mIdx in allMeasureIndices) {
-            val measEvents = eventsByMeasure[mIdx] ?: emptyList()
-            val measOsmd = osmdByMeasure[mIdx] ?: emptyList()
-
-            // Group by staff (0-indexed matching OSMD staffIdx)
-            val staffEvents = measEvents.groupBy { event ->
-                if (event.partId > 1 && event.staffId <= 1) {
-                    event.partId - 1
-                } else if (event.staffId > 0) {
-                    event.staffId - 1
-                } else {
-                    (event.partId - 1).coerceAtLeast(0)
-                }
+        fun canShareUnisonNoteHead(assigned: MusicalEvent, incoming: MusicalEvent): Boolean {
+            val sameMeasure = if (hasReliableMeasureIndex) {
+                assigned.measureIndex == incoming.measureIndex
+            } else {
+                assigned.measureNumber == incoming.measureNumber
             }
-            val staffOsmd = measOsmd.groupBy { it.staffIdx }
-
-            val allStaves = (staffEvents.keys + staffOsmd.keys).distinct().sorted()
-
-            for (staffIdx in allStaves) {
-                val sEvents = (staffEvents[staffIdx] ?: emptyList())
-                    .sortedWith(compareBy<MusicalEvent>({ it.tickPosition }, { -it.pitchMidi }))
-                val sOsmd = (staffOsmd[staffIdx] ?: emptyList())
-                    .sortedWith(compareBy<OsmdNoteElement>({ it.x }, { -it.midiNote }))
-
-                // PASS 1: Compatible SATB Voice + Exact Pitch in chronological visual order on this staff
-                for (event in sEvents) {
-                    if (coords.containsKey(event.eventId)) continue
-                    val candidate = sOsmd.firstOrNull { elem ->
-                        isCandidateAvailable(elem.id, event) &&
-                        isVoiceCompatible(event.satbVoice, elem.part) &&
-                        elem.midiNote == event.pitchMidi
-                    }
-                    if (candidate != null) {
-                        osmdAssignedEvent[candidate.id] = event
-                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-                    }
-                }
-
-                // PASS 2: Exact Pitch on this staff (if SATB label had slight variant)
-                for (event in sEvents) {
-                    if (coords.containsKey(event.eventId)) continue
-                    val candidate = sOsmd.firstOrNull { elem ->
-                        isCandidateAvailable(elem.id, event) &&
-                        elem.midiNote == event.pitchMidi
-                    }
-                    if (candidate != null) {
-                        osmdAssignedEvent[candidate.id] = event
-                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-                    }
-                }
-
-                // PASS 3: Compatible Voice positional match on this staff
-                for (event in sEvents) {
-                    if (coords.containsKey(event.eventId)) continue
-                    val candidate = sOsmd.firstOrNull { elem ->
-                        isCandidateAvailable(elem.id, event) &&
-                        isVoiceCompatible(event.satbVoice, elem.part)
-                    }
-                    if (candidate != null) {
-                        osmdAssignedEvent[candidate.id] = event
-                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-                    }
-                }
-
-                // PASS 4: Positional 1-to-1 match on this staff
-                for (event in sEvents) {
-                    if (coords.containsKey(event.eventId)) continue
-                    val candidate = sOsmd.firstOrNull { elem -> isCandidateAvailable(elem.id, event) }
-                    if (candidate != null) {
-                        osmdAssignedEvent[candidate.id] = event
-                        coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-                    }
-                }
-            }
+            val assignedTick480 = scaleEventTickToOsmd(assigned)
+            val incomingTick480 = scaleEventTickToOsmd(incoming)
+            return sameMeasure &&
+                assigned.pitchMidi == incoming.pitchMidi &&
+                abs(assignedTick480 - incomingTick480) <= (OSMD_TPQ / 2)
         }
 
-        // PASS 5: Global Nearby Measure Index (+/- 1) + Same Staff + Same Pitch
-        for (event in sortedEvents) {
-            if (coords.containsKey(event.eventId)) continue
-            val eventStaffIdx = if (event.partId > 1 && event.staffId <= 1) event.partId - 1 else if (event.staffId > 0) event.staffId - 1 else (event.partId - 1).coerceAtLeast(0)
-            val candidate = osmdElements.firstOrNull { elem ->
-                isCandidateAvailable(elem.id, event) &&
-                kotlin.math.abs(elem.measureIndex - event.measureIndex) <= 1 &&
-                elem.staffIdx == eventStaffIdx &&
-                elem.midiNote == event.pitchMidi
-            }
-            if (candidate != null) {
-                osmdAssignedEvent[candidate.id] = event
-                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-            }
+        fun isElementAvailableFor(elemIdx: Int, event: MusicalEvent): Boolean {
+            val assigned = claimedByElementIdx[elemIdx] ?: return true
+            return canShareUnisonNoteHead(assigned, event)
         }
 
-        // PASS 6: Same Measure Index + Same Pitch (Staff Fallback)
-        for (event in sortedEvents) {
-            if (coords.containsKey(event.eventId)) continue
-            val candidate = osmdElements.firstOrNull { elem ->
-                isCandidateAvailable(elem.id, event) &&
-                elem.measureIndex == event.measureIndex &&
-                elem.midiNote == event.pitchMidi
-            }
-            if (candidate != null) {
-                osmdAssignedEvent[candidate.id] = event
-                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
-            }
+        var tier1Matched = 0
+        var tier2Matched = 0
+
+        // ─── TIER 1: Exact Stable Note Identity (`data-vx-id` / `sourceNoteId`) ───
+        for (event in activeEvents) {
+            val sourceId = event.sourceNoteId ?: continue
+            val indexedCandidates = osmdIndexedById[sourceId] ?: continue
+            val eventTick480 = scaleEventTickToOsmd(event)
+            val expectedStaff = resolveExpectedStaffIdx(event)
+
+            val bestIndexed = indexedCandidates
+                .filter { isElementAvailableFor(it.index, event) }
+                .minByOrNull { (_, elem) ->
+                    val pitchPenalty = if (elem.midiNote == event.pitchMidi) 0 else 100_000
+                    val staffPenalty = if (elem.staffIdx == expectedStaff) 0 else 5_000
+                    val voicePenalty = if (isVoiceCompatible(event.satbVoice, elem.part)) 0 else 1_000
+                    val measurePenalty = if (hasReliableMeasureIndex) {
+                        abs(elem.measureIndex - event.measureIndex) * 2_000
+                    } else {
+                        abs(elem.measureNumber - event.measureNumber) * 2_000
+                    }
+                    pitchPenalty + measurePenalty + staffPenalty + voicePenalty + abs(elem.tick - eventTick480)
+                } ?: continue
+
+            val elem = bestIndexed.value
+            claimedByElementIdx[bestIndexed.index] = event
+            coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+            tier1Matched++
         }
 
-        // PASS 7: Global Pitch Match (Chronological order)
-        for (event in sortedEvents) {
-            if (coords.containsKey(event.eventId)) continue
-            val candidate = osmdElements.firstOrNull { elem ->
-                isCandidateAvailable(elem.id, event) &&
-                elem.midiNote == event.pitchMidi
+        // ─── TIER 2: Deterministic Structural Fallback for Unstamped Events (`sourceNoteId == null`) ───
+        // Protects cloud (Railway), previously saved local scores, and unstamped MusicXML imports.
+        // Note: Events that carried an explicit non-null `sourceNoteId` that did not exist in OSMD
+        // are intentionally NOT guessed here to prevent stale IDs from cross-matching wrong notes.
+        val unstampedEvents = activeEvents.filter { it.sourceNoteId == null && !coords.containsKey(it.eventId) }
+        if (unstampedEvents.isNotEmpty() && osmdElements.isNotEmpty()) {
+            val eventsByMeasureKey = unstampedEvents.groupBy {
+                if (hasReliableMeasureIndex) it.measureIndex else it.measureNumber
             }
-            if (candidate != null) {
-                osmdAssignedEvent[candidate.id] = event
-                coords[event.eventId] = NoteCoordinate(candidate.x, candidate.y, candidate.width, candidate.height, candidate.id)
+            val osmdByMeasureKey = osmdElements.withIndex().groupBy { (_, elem) ->
+                if (hasReliableMeasureIndex) elem.measureIndex else elem.measureNumber
+            }
+
+            val allMeasureKeys = (eventsByMeasureKey.keys + osmdByMeasureKey.keys).distinct().sorted()
+
+            for (mKey in allMeasureKeys) {
+                val mEvents = eventsByMeasureKey[mKey] ?: continue
+                val mOsmd = osmdByMeasureKey[mKey] ?: continue
+
+                val staffEvents = mEvents.groupBy { resolveExpectedStaffIdx(it) }
+                val staffOsmd = mOsmd.groupBy { it.value.staffIdx }
+                val allStaves = (staffEvents.keys + staffOsmd.keys).distinct().sorted()
+
+                for (staffIdx in allStaves) {
+                    val sEvents = (staffEvents[staffIdx] ?: emptyList())
+                        .sortedWith(compareBy<MusicalEvent>({ scaleEventTickToOsmd(it) }, { -it.pitchMidi }))
+                    val sOsmd = (staffOsmd[staffIdx] ?: emptyList())
+                        .sortedWith(compareBy<IndexedValue<OsmdNoteElement>>({ it.value.tick }, { it.value.x }, { -it.value.midiNote }))
+
+                    // Pass 2A: Same Measure + Same Staff + Compatible Voice + Exact Pitch + Nearest Tick
+                    for (event in sEvents) {
+                        if (coords.containsKey(event.eventId)) continue
+                        val eventTick480 = scaleEventTickToOsmd(event)
+                        val best = sOsmd
+                            .filter { (idx, elem) ->
+                                isElementAvailableFor(idx, event) &&
+                                    elem.midiNote == event.pitchMidi &&
+                                    isVoiceCompatible(event.satbVoice, elem.part)
+                            }
+                            .minByOrNull { (_, elem) -> abs(elem.tick - eventTick480) }
+                        if (best != null) {
+                            val elem = best.value
+                            claimedByElementIdx[best.index] = event
+                            coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+                            tier2Matched++
+                        }
+                    }
+
+                    // Pass 2B: Same Measure + Same Staff + Exact Pitch + Nearest Tick
+                    for (event in sEvents) {
+                        if (coords.containsKey(event.eventId)) continue
+                        val eventTick480 = scaleEventTickToOsmd(event)
+                        val best = sOsmd
+                            .filter { (idx, elem) ->
+                                isElementAvailableFor(idx, event) &&
+                                    elem.midiNote == event.pitchMidi
+                            }
+                            .minByOrNull { (_, elem) -> abs(elem.tick - eventTick480) }
+                        if (best != null) {
+                            val elem = best.value
+                            claimedByElementIdx[best.index] = event
+                            coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+                            tier2Matched++
+                        }
+                    }
+                }
+
+                // Pass 2C: Same Measure + Cross-Staff Fallback (e.g., condensed grand staff index shift) + Exact Pitch
+                val remainingInMeasure = mEvents
+                    .filter { !coords.containsKey(it.eventId) }
+                    .sortedWith(compareBy<MusicalEvent>({ scaleEventTickToOsmd(it) }, { -it.pitchMidi }))
+                for (event in remainingInMeasure) {
+                    val eventTick480 = scaleEventTickToOsmd(event)
+                    val best = mOsmd
+                        .filter { (idx, elem) ->
+                            isElementAvailableFor(idx, event) &&
+                                elem.midiNote == event.pitchMidi
+                        }
+                        .minByOrNull { (_, elem) ->
+                            val voicePenalty = if (isVoiceCompatible(event.satbVoice, elem.part)) 0 else 480
+                            voicePenalty + abs(elem.tick - eventTick480)
+                        }
+                    if (best != null) {
+                        val elem = best.value
+                        claimedByElementIdx[best.index] = event
+                        coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+                        tier2Matched++
+                    }
+                }
+            }
+
+            // Pass 2D: Adjacent Measure (+/- 1) + Same Staff + Exact Pitch (page-break split measure guard for legacy measure_number streams)
+            val remainingUnstamped = unstampedEvents
+                .filter { !coords.containsKey(it.eventId) }
+                .sortedWith(compareBy<MusicalEvent>({ it.measureNumber }, { scaleEventTickToOsmd(it) }, { -it.pitchMidi }))
+            for (event in remainingUnstamped) {
+                val expectedStaff = resolveExpectedStaffIdx(event)
+                val eventTick480 = scaleEventTickToOsmd(event)
+                val best = osmdElements.withIndex()
+                    .filter { (idx, elem) ->
+                        val mDist = if (hasReliableMeasureIndex) {
+                            abs(elem.measureIndex - event.measureIndex)
+                        } else {
+                            abs(elem.measureNumber - event.measureNumber)
+                        }
+                        isElementAvailableFor(idx, event) &&
+                            mDist <= 1 &&
+                            elem.staffIdx == expectedStaff &&
+                            elem.midiNote == event.pitchMidi
+                    }
+                    .minByOrNull { (_, elem) -> abs(elem.tick - eventTick480) }
+                if (best != null) {
+                    val elem = best.value
+                    claimedByElementIdx[best.index] = event
+                    coords[event.eventId] = NoteCoordinate(elem.x, elem.y, elem.width, elem.height, elem.id)
+                    tier2Matched++
+                }
             }
         }
 
         coordinateMap.putAll(coords)
 
-        // Compile match results to assess bipartite matching confidence
+        val matched = coords.size
         val totalEvents = activeEvents.size
-        val totalOsmdNodes = osmdElements.size
-
-        val osmdByTickPitchGroup = osmdElements.groupBy { "t${it.tick}-m${it.midiNote}" }
-        
-        for (event in activeEvents) {
-            val isMatched = coords.containsKey(event.eventId)
-            val groupOsmd = osmdByTickPitchGroup["t${event.tickPosition}-m${event.pitchMidi}"]
-            val isDuplicate = (groupOsmd?.size ?: 0) > 1
-            matchResults.add(MatchResult(event.eventId, isMatched, isDuplicate))
-        }
-
-        val matchedPairs = matchResults.count { it.matched }
-        val duplicateMatches = matchResults.count { it.duplicateMatch }
-
-        val rawConfidence = if (totalEvents > 0) {
-            matchedPairs.toFloat() / totalEvents.toFloat()
-        } else 0f
-
-        syncConfidence = rawConfidence.coerceIn(0f, 1f)
+        syncConfidence = if (totalEvents > 0) (matched.toFloat() / totalEvents.toFloat()).coerceIn(0f, 1f) else 0f
         totalMappings = totalEvents
-        successfulMappings = matchedPairs
-
-        // Gate highlight mode by confidence thresholds
+        successfulMappings = matched
         highlightMode = when {
             syncConfidence >= 0.70f -> HighlightMode.NOTE_LEVEL
             syncConfidence >= 0.30f -> HighlightMode.MEASURE_LEVEL
             else -> HighlightMode.DISABLED
         }
 
-        Log.i(TAG, "BuildMapping completed: layout=$layoutHash, events=$totalEvents, osmd=$totalOsmdNodes, " +
-                "matched=$matchedPairs, duplicates=$duplicateMatches, rawConf=$rawConfidence, " +
-                "finalConf=$syncConfidence, mode=$highlightMode")
-
+        Log.i(
+            TAG,
+            "Hybrid mapping completed: layout=$layoutHash, events=$totalEvents, osmd=${osmdElements.size}, " +
+                "tier1Exact=$tier1Matched, tier2Structural=$tier2Matched, matched=$matched, " +
+                "unmatched=${totalEvents - matched}, conf=$syncConfidence, mode=$highlightMode"
+        )
         listener?.onSyncConfidenceChanged(syncConfidence)
         listener?.onHighlightModeChanged(highlightMode)
     }
 
-    // ─── Data Classes ──────────────────────────────────────────────────
-    /**
-     * Screen coordinate of a rendered note in the WebView.
-     */
     data class NoteCoordinate(
         val x: Float,
         val y: Float,
@@ -393,9 +383,6 @@ class SyncManager {
         val id: Int = 0
     )
 
-    /**
-     * Raw note element extracted from OSMD via JavaScript.
-     */
     data class OsmdNoteElement(
         val id: Int = 0,
         val eventId: String? = null,

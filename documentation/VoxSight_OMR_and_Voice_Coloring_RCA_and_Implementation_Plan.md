@@ -1,282 +1,120 @@
-# VoxSight: Root Cause Analysis (RCA) and Phased Implementation Plan
-## Preserving Audiveris OMR Fidelity and Resolving Vocal-Part Classification & Color-Coding Inaccuracies
+# VoxSight OMR Fidelity, Staff Order, and Vocal-Color RCA
 
-> **Document Status**: Complete Root Cause Analysis & Proposed Implementation Plan (Awaiting Review & Approval)  
-> **Investigation Date**: October 2026  
-> **Scope**: Backend OMR Pipeline, Python Post-Processors, Android MusicXML Parser, Review Screen, and OSMD WebViews  
+**Status:** Implementation changes are in place; backend, Android, Python, and JavaScript verification passed. The real Awit comparison remains pending because its scan and Audiveris export are not in the workspace.
+**Investigation date:** October 2026
+**Scope:** Audiveris to MusicXML, backend SATB analysis, Android import/review/playback, OSMD rendering, and vocal-part color resolution.
 
----
+## Summary
 
-## Executive Summary
+The errors described are introduced downstream of Audiveris. The code review found several independent ways that valid MusicXML could be changed or its note identities and voice labels could be lost:
 
-When identical sheet music is processed directly in **Audiveris** standalone, the resulting MusicXML transcription is **nearly 100% accurate**: staves, notes, accidentals, clefs, stems (`<stem>up</stem>` / `<stem>down</stem>`), dynamics, and lyrics faithfully match the printed score.
+1. Runtime cleanup paths rewrote MusicXML after Audiveris, and the WebView cleanup routines could delete parts, reorder staves, strip score data, and apply a bass-pitch correction.
+2. The WebView part sorter normalized “Baritone Solo” to `baritonesolo` but ranked only exact `baritone` as a baritone. The solo part therefore fell to the unknown rank after Bass. This explains the reported staff-order error.
+3. Direct MusicXML import bypassed backend analysis. Review confirmation then rebuilt playback events locally, discarding the backend’s labels and note identity.
+4. SATB score aggregation computed voice-signature evidence but omitted it from the final score. A note-density heuristic also inferred cross-staff unisons without evidence that both voices sang the same pitch.
+5. Renderer/editor matching had permissive time, proximity, sequence, and arbitrary fallback joins. Playback synchronization separately matched by musical similarity. Repeated pitches and nearby notes could inherit another note's voice and color; identical duplicate notes could also be paired by list order.
+6. Several layers used different color palettes and guessed voice identity when explicit assignment data was absent.
 
-However, when that same sheet music is imported into **VoxSight**, severe inaccuracies appear:
-1. **Pitches and notes are altered or deleted** (e.g., bass notes in Measure 19 are forcibly rewritten to F2; solo/voice staves are deleted entirely).
-2. **Lyrics from one voice part bleed into completely different parts and rests** (e.g., Soprano lyrics appear under Bass notes and piano chords).
-3. **Notes are consistently misclassified and incorrectly colored** (e.g., Sopranos singing below A4 become Alto; Tenors singing below F3 become Bass; rests are colored Dark Orange as "Baritone Solo").
-4. **Users are forced into tedious manual note-by-note corrections** in the Note Editor to re-assign voice parts that Audiveris had already accurately captured.
+The implementation now removes destructive transforms from the runtime import path, analyzes direct MusicXML and edited XML through the shared backend, carries a stable note ID from MusicXML through analysis and playback, preserves explicitly user-marked voice edits, rejects ambiguous graphical joins, and applies the required family palette. Generic or unstamped parts now display as Unknown instead of receiving a guessed SATB color.
 
-### Root Cause Conclusion
-**Audiveris is NOT the source of these errors.** The deviations are introduced downstream by:
-1. **Destructive heuristics and hardcoded hacks in `musicxml_cleaner.py`** (stripping parts, overwriting pitches, deleting dynamics).
-2. **Flawed, stem-blind classification heuristics in `satb_analyzer.py`** (using rigid pitch thresholds instead of XML stem direction, and blind divisi/unison assumptions).
-3. **Cross-part lyric pooling pollution in `MusicXmlParser.kt`** (copying lyrics across distinct parts at matching tick onsets).
-4. **Four independent, divergent classification engines** (`satb_analyzer.py`, `MusicXmlParser.kt`, `ScoreReviewScreen.kt`, and `renderer.html` / `interactive_editor.html`) that disagree whenever notes are unstamped or ambiguous.
+The original scan and its standalone Audiveris MusicXML for “Awit ng Paghahangad” are not present in this workspace. The code-level findings are confirmed; a byte/semantic comparison against that exact score is still required once both artifacts are available.
 
----
+## Data flow and earliest confirmed deviations
 
-## 1. End-to-End Pipeline & Error Injection Map
-
-The diagram below traces the path of sheet music data through VoxSight and identifies the exact points where errors are injected:
-
-```mermaid
-flowchart TD
-    A[Scanned Score Image / PDF] --> B[Audiveris OMR Engine]
-    B -->|High-Accuracy MusicXML| C[musicxml_cleaner.py]
-    
-    subgraph Error_Injection_Point_1 [Breakage 1: Destructive Cleaner]
-        C -->|HACK 1: Purges 'Voice' / 'Solo' staves| C1[Part Deletion]
-        C -->|HACK 2: Measure 19 bass note forced to F2| C2[Pitch Corruption]
-        C -->|HACK 3: Deletes dynamics & ornaments| C3[Expression Loss]
-        C -->|HACK 4: Reorders XML parts by regex| C4[Structural Mutation]
-    end
-
-    C -->|Mutated MusicXML| D[satb_analyzer.py]
-    
-    subgraph Error_Injection_Point_2 [Breakage 2: Stem-Blind SATB Classifier]
-        D -->|HACK 5: Pitch < 69 on Staff 1 = ALTO| D1[Soprano Misclassified]
-        D -->|HACK 6: Pitch < 53 on Staff 2 = BASS| D2[Tenor Misclassified]
-        D -->|HACK 7: Stem direction UP/DOWN ignored| D3[Stem Data Wasted]
-        D -->|HACK 8: Rests excluded from stamping| D4[Unstamped Rests]
-    end
-
-    D -->|Partially Stamped XML + Events JSON| E[Spring Boot OmrController]
-    E -->|HTTP Response| F[Android MusicXmlParser.kt]
-
-    subgraph Error_Injection_Point_3 [Breakage 3: Cross-Part Lyric Pollution]
-        F -->|HACK 9: measureLyricPool pulls all parts| F1[Lyrics Bleed Across Staves]
-        F -->|HACK 10: Divergent fallback ladder| F2[Voice Code Disagreement]
-    end
-
-    F --> G[ScoreReviewScreen.kt & NoteEditorBottomSheet.kt]
-    G --> H[WebView: interactive_editor.html & renderer.html]
-
-    subgraph Error_Injection_Point_4 [Breakage 4: Divergent Rendering Fallbacks]
-        H -->|HACK 11: Unstamped rests colored Dark Orange| H1[Rests Treated as Solo]
-        H -->|HACK 12: Independent JS classifier getVocalPartInfo| H2[Color-Coding Mismatch]
-    end
+```text
+Image/PDF ──> OmrController ──> Audiveris MusicXML
+                                  │
+MusicXML/MXL import ──────────────┘
+                                  ▼
+                          SatbAnalysisService
+                                  ▼
+                            satb_analyzer.py
+                    events + note assignment metadata
+                                  ▼
+                  review editor ──> shared backend reanalysis
+                                  ▼
+                score model + backend event JSON
+                                  ▼
+        renderer note mapping ──> exact data-vx-id sync
+                                  ▼
+             SATB colors / playback highlights
 ```
 
----
+| Stage | Confirmed cause | Earliest effect | Implemented correction |
+|---|---|---|---|
+| Post-Audiveris | `OmrController` invoked `musicxml_cleaner.py`; Python analysis also invoked the cleaner. That script includes part reconciliation, ordering, and score mutations. | Audiveris XML could be changed before response. | Removed both runtime cleaner invocations and the controller helper. The standalone cleaner utility remains for its own tests, but is no longer on the import path. |
+| WebView load | `cleanMusicXmlDom` contained part purging, part-list sorting, lyric cleanup, and a measure-specific bass pitch routine. | Review/render XML could differ from the backend XML. | Removed calls from renderer/editor load paths; MusicXML is passed through without cleanup. Credit blocks and note identity attributes are no longer stripped by renderer sanitization. |
+| Baritone Solo ordering | Sort rank recognized exact `baritone`, but not normalized `baritonesolo`; unknown rank sorted after Bass. Both `score-part` and `part` nodes were reordered. | Original vertical part order was lost in the editor/renderer. | The destructive load-time sorting path is disabled; source part order remains authoritative. |
+| MusicXML import | `UploadScoreScreen` sent XML directly to review instead of `/api/analyze`. | No shared event classification or stable note metadata on imported XML. | XML, MusicXML, and MXL now use the same upload/analyze flow; backend recognizes those extensions and skips Audiveris. |
+| Review confirmation | `AppNavigation` used `regenerateEventsJsonFromScore`, applying a second local classifier after editing. | Backend SATB labels and source-note references were replaced in the playback timeline. | Edited XML is reanalyzed by `/api/analyze`; returned event and metadata JSON are stored with the analyzed XML. |
+| SATB classification | Global score aggregation calculated `score_voice_signature()` but did not include that evidence. Cross-staff density could create a unison from one note on a staff when the other staff was denser. Explicit MusicXML stem direction was also too weak to resolve adjacent voice ranges. | Voice labels and colors could be wrong even when the note transcription was intact. | Included signature evidence in the weighted score; increased explicit stem/voice evidence for condensed scores; removed density-only cross-staff unison inference. The global score weights are pitch 0.31, staff 0.18, signature 0.13, voice/stem 0.25, and continuity 0.13. Unison requires same-staff pitch/voice evidence. |
+| Assignment and identity | Renderer/editor used permissive matching fallbacks and greedily paired identical staff/time/pitch candidates by list order; `SyncManager` used pitch/time/staff proximity. Unknown labels were not consistently stampable, and any unmarked existing label could be mistaken for a user edit. | A correct event label could attach to the wrong displayed note or be silently guessed. | Added unique `data-vx-id`, `source_note_id`, and `source_part_id`; renderer/editor now require mutual one-to-one matches, prefer matching MusicXML voice numbers, and leave ambiguous duplicates unmapped. Sync joins only exact IDs. Only `data-vx-voice-source="user"` or `user_override` preserves a user assignment. |
+| Color resolution | Web, editor, Compose, legends, and divisi used different colors; unmarked generic or condensed parts were inferred from staff/voice order. | The same voice could be shown in different colors, and generic notes could be miscolored. | Unified the required palette and made ambiguous fallback classification fail closed to Unknown. |
 
-## 2. Confirmed Root Causes & Technical Evidence
+The Android parser still normalizes local score structures for the UI and retains fallback event generation for older local scores with no backend event payload. New imports and review confirmations now use backend events as their playback source. Local fallback behavior remains a regression target for legacy saved files.
 
-### Root Cause 1: Destructive Deletions and Score-Specific Hacks in `musicxml_cleaner.py`
+## Files changed by the implementation
 
-| File | Affected Lines | Mechanism & Evidence | Musical Consequence |
-| :--- | :--- | :--- | :--- |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 249–260, 349–351** (`reconcile_choral_parts`) | Staves named `"Voice"`, `"Vocal"`, `"Solo"`, `"Lead"`, or `"Part"` are flagged by `is_stray_voice_name(name)`. The script copies non-rest measures into Soprano 2 and then **unconditionally removes the entire part from the MusicXML tree** (`root.remove(p_stray)` and `p_list_elem.remove(sp_stray)`). | When Audiveris correctly outputs a Solo or Vocal staff, `musicxml_cleaner.py` permanently purges it from the score! |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 453–471** (`fix_bass_cadence_whole_notes`) | Hardcoded hack: `if m_num == '19': step_el.text = 'F'; oct_el.text = '2'`. Also forces any whole note on F with octave $\ge$ 3 to octave 2. | In Measure 19 of **every single score**, any bass note is forcibly rewritten to F2, regardless of what the composer wrote or Audiveris recognized! |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 1060–1066, 1096–1097, 1163–1164** | Searches for `"awit ng paghahangad"`, `"paghahangad"`, or `"borela"`. If found, or if intro measures exist before polyphony, it forces part names to `"Baritone Solo"`. | Overrides legitimate Solo and SATB voice identities with a hardcoded song-specific label. |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 746–776** (`clean_musicxml_tree`) | Unconditionally removes all `<dynamics>` (p, f, mf, mp, pp, ff) and sound dynamics attributes. Also strips all ornaments (`trill-mark`, `mordent`, `turn`, `shake`, `tremolo`). | Strips all dynamics and ornaments that Audiveris accurately transcribed. |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 357–419** (`harmonize_choral_key_signatures`) | Overwrites key signatures across parts in measures based on a majority vote. | Corrupts polytonal scores or measures where individual parts have legitimate accidentals/key changes. |
-| [`musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py) | **Lines 1573–1616** (`_get_sort_rank`) | Physically reorders `<part>` elements in the MusicXML file based on regex rank patterns. | Rearranges score staves, breaking original score layout and vertical alignment. |
+- `voxsight/src/main/java/edu/cit/capstone/voxsight/controller/OmrController.java`: removed cleaner calls; direct MusicXML/MXL analysis route; analysis cache version bump.
+- `voxsight/src/main/java/edu/cit/capstone/voxsight/service/SatbAnalysisService.java`: corrected pipeline contract and cleaner description.
+- `voxsight/scripts/satb_analyzer.py`: stable note IDs and source part IDs, explicit assignment-source handling, unknown stamping, score-signature weighting, and removal of density-only unisons.
+- `mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/upload/UploadScoreScreen.kt`: direct MusicXML import uses shared upload/analyze path.
+- `mobile/app/src/main/java/com/cit/kaido/voxsight/ui/navigation/AppNavigation.kt`: review confirmation reanalyzes edited MusicXML and saves backend events/metadata.
+- `mobile/app/src/main/java/com/cit/kaido/voxsight/model/MusicalEvent.kt`: event source identity fields.
+- `mobile/app/src/main/java/com/cit/kaido/voxsight/playback/SyncManager.kt`: exact-ID-only coordinate joins.
+- `mobile/app/src/main/assets/renderer.html` and `interactive_editor.html`: preserve imported XML, require mutual one-to-one note joins, fail closed for ambiguous voice classification, preserve IDs and editor override source.
+- `mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/practice/VoicePart.kt`, `PracticeScreen.kt`, `NoteEditorBottomSheet.kt`, `ScoreReviewScreen.kt`, `PracticeActivity.kt`, and `MidiPlaybackEngine.kt`: consistent voice palette and visual indicators.
+- Regression tests updated under `voxsight/scripts/tests/` and `mobile/app/src/test/`.
 
----
+## Prioritized implementation and verification plan
 
-### Root Cause 2: Stem-Blind SATB Classification & Stamping Failures in `satb_analyzer.py`
+### Phase 1 — Preserve the upstream score (implemented)
 
-| File | Affected Lines | Mechanism & Evidence | Musical Consequence |
-| :--- | :--- | :--- | :--- |
-| [`satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py) | **Lines 1605–1635** (`Global SATB optimization`) | In 2-staff choral scores (Staff 1: S/A, Staff 2: T/B), when a single melody note appears on Staff 1, it checks: <br>`if pitch >= 69: S=0.8, A=0.2 else S=0.2, A=0.8`<br>On Staff 2, it checks: <br>`if pitch >= 53: T=0.8, B=0.2 else T=0.2, B=0.8` | **Sopranos singing below A4 (G4, F4, E4, D4, C4) are misclassified as Alto!** <br>**Tenors singing below F3 (E3, D3, C3) are misclassified as Bass!** <br>**Basses singing above F3 are misclassified as Tenor!** |
-| [`satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py) | **Ignored: `<stem>` tags** | Choral engraving standard: **Staff 1: Stem UP = Soprano, Stem DOWN = Alto; Staff 2: Stem UP = Tenor, Stem DOWN = Bass.** Audiveris faithfully transcribes `<stem>up</stem>` and `<stem>down</stem>`. `satb_analyzer.py` ignores stem direction and relies on static pitch thresholds! | Ignores the single most reliable notation cue for choral voice separation. |
-| [`satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py) | **Lines 1220–1225** (`detect_unisons_and_divisi`) | Heuristic: `if len(s1_notes) >= 2 and len(s2_notes) == 1 -> s2_notes[0]['satb_voice'] = 'UNISON_TB'`. | If Tenor is resting and Bass is singing alone, the note is falsely tagged as a Tenor/Bass unison! If Soprano is resting and Alto sings alone, it is falsely tagged as a Soprano/Alto unison! |
-| [`satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py) | **Lines 742–745** (`prescan_musicxml`) | `if is_rest: continue`. Rest notes are explicitly skipped during pre-scanning and are **never stamped with `data-vx-voice`**. | Downstream renderers receive unstamped rests and fall back to part-level defaults, causing rests to be classified and colored as "Baritone Solo" (Dark Orange). |
-| [`satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py) | **Lines 820–1060** (`match_and_stamp_voices`) | The 9-step matching between `music21` objects and ElementTree XML fails on grace notes, ties, tuplets, or measure offsets, leaving notes unstamped. | Any unstamped note drops into divergent fallback ladders in the Android app. |
+- Bypass cleanup/reconciliation code in production import flow.
+- Keep original part/staff order through review and renderer loading.
+- Do not remove lyrics, notes, key signatures, dynamics, or ornaments as a side effect of loading.
+- Compare the original Audiveris and VoxSight-returned XML semantically, ignoring only VoxSight `data-vx-*` metadata.
 
----
+### Phase 2 — Use one analysis contract (implemented)
 
-### Root Cause 3: Cross-Part Lyric Pooling Pollution in `MusicXmlParser.kt`
+- Route PDF/image imports through Audiveris and then the shared SATB analyzer.
+- Route XML/MusicXML/MXL imports straight to the shared analyzer, without running Audiveris.
+- On review confirmation, analyze edited XML through the same endpoint and use its event stream and metadata.
+- Keep user assignments distinguishable from backend assignments so reanalysis preserves only explicit user overrides.
 
-| File | Affected Lines | Mechanism & Evidence | Musical Consequence |
-| :--- | :--- | :--- | :--- |
-| [`MusicXmlParser.kt`](file:///c:/Projects/VoxSight/mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/practice/MusicXmlParser.kt) | **Lines 738–749 & 824–826** | `measureLyricPool` collects lyrics across **all parts** at every tick. Line 825: If a note has no lyric, it inherits `mPool[note.startTimeDivisions]`. | If Soprano sings a lyric while Bass holds a note or rests, or while Piano plays chords, the Soprano lyric is forcibly injected into the Bass and Piano notes! |
-| [`MusicXmlParser.kt`](file:///c:/Projects/VoxSight/mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/practice/MusicXmlParser.kt) | **Lines 769–820** (`isolatedVoice`) | Fallback logic for unstamped notes in 2-part scores: if `!isChordGroup`, note 1 on staff 1 is ALWAYS Soprano, note 1 on staff 2 is ALWAYS Tenor. | Disagrees with `satb_analyzer.py`'s pitch heuristics and causes voice flipping during playback. |
+### Phase 3 — Make note identity and vocal assignment deterministic (implemented; sample coverage pending)
 
----
+- Maintain unique note IDs in MusicXML and attach them to analysis events.
+- Map renderer coordinates and playback events by the same note ID; do not use pitch or proximity as an identity substitute.
+- Leave unmatched graphical notes uncolored and unmapped; surface mismatch counts in logs.
+- Use evidence-based SATB scoring and do not infer unison from staff note density alone.
 
-### Root Cause 4: Four Divergent Classification Engines & Color Resolution Disconnect
+### Phase 4 — Keep color resolution consistent (implemented)
 
-VoxSight currently maintains **four separate, unaligned voice classification implementations**:
+| Part | Required color |
+|---|---|
+| Soprano, including S1/S2 | `#FF69B4` |
+| Alto, including A1/A2 | `#9B59B6` |
+| Tenor, including T1/T2 | `#3498DB` |
+| Bass, including B1/B2 | `#2ECC71` |
+| Solo, Baritone Solo, and Tutti | `#F1C40F` |
+| Others | `#546E7A` |
+| Unknown/unmatched | `#808080` |
 
-```
-[Audiveris Raw Score]
-         │
-         ├── 1. satb_analyzer.py (Python Backend)
-         │      • Evaluates: Pitch ranges (C4-C6, F3-D5, C3-A4, C2-C4), nearest neighbor, pitch thresholds (69, 53)
-         │      • Stamps: data-vx-voice attribute on XML <note> elements
-         │
-         ├── 2. MusicXmlParser.kt (Android Parser)
-         │      • Evaluates: universalPartMap, chord sorting by MIDI pitch, hardcoded 2-part staff rules
-         │      • Generates: MusicalEvent stream for audio playback
-         │
-         ├── 3. ScoreReviewScreen.kt (Android Review UI)
-         │      • Evaluates: String pattern matching on customVoiceStr, score title keywords (isAwit), measure < 6 checks
-         │      • Displays: Review chips, note editor modal
-         │
-         └── 4. renderer.html / interactive_editor.html (WebView Engraving)
-                • Evaluates: getVocalPartInfo() / getVocalPartColor() with DOM queries, SVG notehead matching
-                • Applies: Direct SVG fills and canvas glowing auras
-```
+Unison notes use a participating family’s base color (S/A uses Soprano pink; T/B uses Tenor blue). Pitch-match feedback remains a separate green/red feedback state.
 
-#### Why Notes Are Miscolored and Require Manual Correction:
-1. **Unstamped Notes Trigger Divergent Fallbacks**: If `satb_analyzer.py` fails to stamp a note (e.g., grace note, tuplet, rest, or tie), the 3 downstream components each guess differently:
-   - `MusicXmlParser.kt` may call it Tenor.
-   - `ScoreReviewScreen.kt` may call it Bass.
-   - `renderer.html` may color it as Soprano or Solo.
-2. **Rest Notes Colored as Baritone Solo (Dark Orange)**:
-   - Because rests never get a `data-vx-voice` stamp, `renderer.html` falls back to Priority 2 (`getVocalPartInfo`).
-   - If `musicxml_cleaner.py` renamed the part to `"Solo"` or `"Baritone Solo"` based on intro measures or `is_awit_score`, `renderer.html` colors every rest note on that staff with `#FF6D00` (Dark Orange).
-3. **Color Palette Disconnect**:
-   - `renderer.html` and `VoicePart.kt` previously lacked a unified, family-based color system. Noteheads, stems, tails, and canvas glow layers received mismatched color codes.
+### Phase 5 — Golden-score regression and acceptance (pending the score artifacts)
 
----
+Use the same original scan/PDF in Audiveris and VoxSight. Preserve the Audiveris MusicXML as the baseline and compare the returned VoxSight MusicXML and rendered score. Include the “Awit ng Paghahangad” case with Baritone Solo above Soprano.
 
-## 3. Data Flow & Component Breakdown Matrix
+Acceptance criteria:
 
-| Pipeline Stage | Component | Input | Transformation | Output | Error Injected? |
-| :--- | :--- | :--- | :--- | :--- | :---: |
-| **1. OMR Vision** | `AudiverisService.java` / `Audiveris.exe` | Score Image/PDF | Optical Music Recognition (OMR) | Raw MusicXML | ❌ **No (Accurate)** |
-| **2. Post-OMR Clean** | `musicxml_cleaner.py` | Raw MusicXML | Part merging, dynamic stripping, pitch hacks | Modified MusicXML | ⚠️ **YES (Severe)** |
-| **3. SATB Analysis** | `satb_analyzer.py` | Modified MusicXML | Pitch-based SATB scoring, unisons, XML stamping | Stamped MusicXML + JSON | ⚠️ **YES (Severe)** |
-| **4. Backend REST** | `OmrController.java` | Stamped MusicXML + JSON | Bundles into `OmrAnalysisResponse` | JSON Response | ❌ No |
-| **5. Mobile Parsing** | `MusicXmlParser.kt` | MusicXML string | Standardizes TPQ=480, cross-part lyric pool | `MusicalEvent` list | ⚠️ **YES (Moderate)** |
-| **6. Review UI** | `ScoreReviewScreen.kt` | Parsed score & events | Builds review UI, passes XML to WebView | Interactive Score View | ⚠️ **YES (Minor)** |
-| **7. Note Editing** | `interactive_editor.html` | Stamped MusicXML | OSMD SVG rendering, note touch-tap, XML editing | Updated MusicXML string | ⚠️ **YES (Minor)** |
-| **8. Playback Render** | `renderer.html` | Cleaned MusicXML | OSMD SVG engraving, SVG coloring, Canvas 60 FPS | Visual Accompaniment | ⚠️ **YES (Minor)** |
+1. Note count, part IDs/order, staff numbers, pitch/alteration, duration, onset, voice number, ties, lyrics, rests, clefs, key/time signatures, and measure order match the Audiveris baseline. Differences are limited to VoxSight metadata attributes.
+2. Baritone Solo remains above Soprano in the rendered system and does not move below Bass.
+3. Every pitched event in the supported fixture has a unique source note ID and maps to exactly one source note and rendered coordinate; no fallback coordinate or part assignment is used.
+4. Event pitch, onset, duration, measure, staff, and part match the source note for every mapped event. Divisi and chord members retain their original starts/durations.
+5. Backend-assigned or explicitly user-assigned vocal labels agree across MusicXML attributes, event JSON, editor display, playback filtering, and renderer color. User overrides survive confirm/reanalysis.
+6. Exact palette values above appear in editor options, review legend, notehead fills, and playback highlights. Unknown and unmatched notes are gray, and rests receive no vocal notehead color.
+7. Automated tests pass: Python analyzer/stamping tests, JS renderer/editor tests, Android unit tests, Android Kotlin compilation, and backend Maven tests (`mvnw.cmd test`).
 
----
-
-## 4. Prioritized, Phased Implementation Plan
-
-### Phase 1: Audiveris Fidelity & Sanitizer Neutralization
-**Goal**: Ensure VoxSight receives 100% of Audiveris's accurate transcription without destructive alterations.
-
-* **Target File**: [`voxsight/scripts/musicxml_cleaner.py`](file:///c:/Projects/VoxSight/voxsight/scripts/musicxml_cleaner.py)
-* **Tasks**:
-  1. **Disable Part Purging in `reconcile_choral_parts`**:
-     - Remove `root.remove(p_stray)` and `p_list_elem.remove(sp_stray)`.
-     - Staves named `"Voice"`, `"Solo"`, or `"Vocal"` must be **preserved as valid parts**, never merged into Soprano 2 and deleted.
-  2. **Remove Measure 19 F2 Override and Cadence Pitch Hack**:
-     - Completely delete `fix_bass_cadence_whole_notes` (lines 422–472). No note pitch or octave may ever be hardcoded based on measure numbers.
-  3. **Remove Hardcoded Song Checks**:
-     - Remove all occurrences of `is_awit_score` (`"awit ng paghahangad"`, `"paghahangad"`, `"borela"`). Score processing must be 100% score-agnostic.
-  4. **Preserve Dynamics & Musical Ornaments**:
-     - Remove lines 744–776 that strip `<dynamics>` and `<notations>` ornaments (`trill-mark`, `mordent`, `turn`).
-  5. **Preserve Original Score Part Order & Key Signatures**:
-     - Disable `_get_sort_rank` part reordering (lines 1573–1616). Preserve the exact part ordering from Audiveris.
-     - Remove `harmonize_choral_key_signatures` (lines 357–419).
-
----
-
-### Phase 2: Stem-Aware SATB & Divisi Classification Engine
-**Goal**: Make vocal-part classification deterministic, accurate, and faithful to standard choral engraving rules.
-
-* **Target File**: [`voxsight/scripts/satb_analyzer.py`](file:///c:/Projects/VoxSight/voxsight/scripts/satb_analyzer.py)
-* **Tasks**:
-  1. **Implement Stem-Direction-First Classification for 2-Staff Choral Scores**:
-     - Replace static pitch thresholds (69 and 53) in lines 1605–1635:
-       - **Staff 1 (Treble)**: If `<stem>up</stem>` $\rightarrow$ assign **Soprano (`S`)**; if `<stem>down</stem>` $\rightarrow$ assign **Alto (`A`)**.
-       - **Staff 2 (Bass)**: If `<stem>up</stem>` $\rightarrow$ assign **Tenor (`T`)**; if `<stem>down</stem>` $\rightarrow$ assign **Bass (`B`)**.
-       - Only if stems are missing or directionless (e.g. whole notes), use contrapuntal voice-leading continuity (`c_scores`) rather than hard pitch cutoffs.
-  2. **Eliminate Blind Divisi / Unison Assumptions**:
-     - Remove lines 1220–1225 (`if len(s1) >= 2 and len(s2) == 1 -> UNISON_TB`).
-     - A note is only a Unison if:
-       - Two notes share identical start tick and pitch on the same staff, OR
-       - A note has two stems (up & down) on a single notehead, OR
-       - The score contains an explicit *"unis."* or *"a2"* direction.
-  3. **Neutral Handling for Rest Notes**:
-     - Rest notes must be marked with a neutral tag (`data-vx-voice="REST"` or omitted from vocal scoring) so they are **never colored as Solo or Baritone Solo**.
-  4. **Guarantee 100% Stamping Coverage**:
-     - Fix matching between `music21` events and ElementTree XML to ensure every sounding note receives its exact `data-vx-voice` attribute.
-
----
-
-### Phase 3: Lyric Integrity & Parser Normalization
-**Goal**: Eliminate cross-part lyric pollution while preserving homophonic chord text.
-
-* **Target File**: [`mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/practice/MusicXmlParser.kt`](file:///c:/Projects/VoxSight/mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/practice/MusicXmlParser.kt)
-* **Tasks**:
-  1. **Eliminate Cross-Part `measureLyricPool`**:
-     - Remove lines 738–749 and 824–826.
-     - Lyric inheritance must be strictly restricted to the **same voice and staff** (e.g. within a chord group on the same part).
-     - Under no circumstances may a lyric from Part 1 (Soprano) be copied onto Part 4 (Bass) or Part 5 (Accompaniment).
-  2. **Align Fallback Logic with `satb_analyzer.py`**:
-     - Update lines 769–820 to honor `data-vx-voice` as the single authoritative source of truth.
-
----
-
-### Phase 4: Unified Voice Resolution Contract & Color Palette
-**Goal**: Unify all presentation layers under a single voice contract and apply the user's family-based color palette.
-
-* **Target Files**:
-  - [`mobile/app/src/main/java/com/cit/kaido/voxsight/model/VoicePart.kt`](file:///c:/Projects/VoxSight/mobile/app/src/main/java/com/cit/kaido/voxsight/model/VoicePart.kt)
-  - [`mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/upload/ScoreReviewScreen.kt`](file:///c:/Projects/VoxSight/mobile/app/src/main/java/com/cit/kaido/voxsight/ui/screens/upload/ScoreReviewScreen.kt)
-  - [`mobile/app/src/main/assets/renderer.html`](file:///c:/Projects/VoxSight/mobile/app/src/main/assets/renderer.html)
-  - [`mobile/app/src/main/assets/interactive_editor.html`](file:///c:/Projects/VoxSight/mobile/app/src/main/assets/interactive_editor.html)
-* **Tasks**:
-  1. **Unified Token Vocabulary**:
-     - Single canonical token set: `S`, `S1`, `S2`, `A`, `A1`, `A2`, `T`, `T1`, `T2`, `B`, `B1`, `B2`, `UNISON_SA`, `UNISON_TB`, `TUTTI`, `SOLO`, `OTHERS`.
-  2. **Strict Guard Against Coloring Rests**:
-     - In both `renderer.html` and `interactive_editor.html`, ensure rest elements (`isRest === true`) are strictly skipped from receiving any vocal color fill.
-  3. **Restore Family-Based Visual Palette**:
-     - Apply distinct shades within each vocal family:
-       - **Soprano Family (Rose/Pink)**: Soprano (`#E11D48`), Soprano 1 (`#FB7185`), Soprano 2 (`#881337`)
-       - **Alto Family (Purple)**: Alto (`#8E24AA`), Alto 1 (`#C084FC`), Alto 2 (`#4C1D95`)
-       - **Tenor Family (Blue)**: Tenor (`#2563EB`), Tenor 1 (`#0284C7`), Tenor 2 (`#1E3A8A`)
-       - **Bass Family (Green)**: Bass (`#16A34A`), Bass 1 (`#65A30D`), Bass 2 (`#064E3B`)
-       - **Solo**: Unified Tangerine Orange (`#FF6D00`) for all solo designations
-       - **Accompaniment / Others**: Slate Grey (`#546E7A`)
-       - **Unisons**: Blended tones (e.g. S/A Unison `#4F46E5`, T/B Unison `#0D9488`, Tutti `#CA8A04`)
-
----
-
-### Phase 5: Regression Test Suite & End-to-End Validation
-**Goal**: Verify that identical scores imported into Audiveris and VoxSight maintain complete fidelity.
-
-* **Target Files**:
-  - [`voxsight/scripts/tests/`](file:///c:/Projects/VoxSight/voxsight/scripts/tests/)
-  - [`mobile/app/src/test/java/com/cit/kaido/voxsight/`](file:///c:/Projects/VoxSight/mobile/app/src/test/java/com/cit/kaido/voxsight/)
-* **Test Fixtures & Scenarios**:
-  1. **Test Score 1: Standard 4-Staff Open SATB**:
-     - Verify all 4 vocal parts are preserved in exact score order.
-     - Verify no parts are merged or deleted.
-     - Verify dynamics (p, f, mf) remain intact.
-  2. **Test Score 2: Condensed 2-Staff Choral (Treble = S/A, Bass = T/B)**:
-     - Verify Soprano melody singing below A4 (e.g. E4, F4, G4) with stem UP is classified as **Soprano**, NOT Alto.
-     - Verify Tenor singing below F3 (e.g. D3, E3) with stem UP is classified as **Tenor**, NOT Bass.
-  3. **Test Score 3: Score with Measure 19**:
-     - Verify Measure 19 notes retain their original composer pitches and are NOT rewritten to F2.
-  4. **Test Score 4: Solo + SATB Choir**:
-     - Verify Solo line is retained as a distinct part and colored Orange.
-     - Verify Solo lyrics do NOT bleed onto choir staves or rests.
-     - Verify rests are NOT colored Dark Orange.
-  5. **Test Score 5: Divisi & Unison**:
-     - Verify S1/S2 and B1/B2 divisi maintain their family colors.
-     - Verify same-staff unisons between subdivisions use core voice color.
-
----
-
-## 5. Objective Acceptance Criteria
-
-| # | Criterion | Verification Method | Target Status |
-| :---: | :--- | :--- | :--- |
-| **AC-1** | **Audiveris Part Preservation** | Compare raw Audiveris MusicXML part count with VoxSight cleaned MusicXML part count. | `part_count` matches 100%; zero staves deleted. |
-| **AC-2** | **Pitch Integrity** | Inspect pitch elements in Measure 19 across all parts. | 0% forced F2 pitch mutations; all pitches match original score. |
-| **AC-3** | **Dynamics & Expression Preservation** | Check for presence of `<dynamics>` elements in output MusicXML. | All dynamics (`p`, `f`, `mf`, `mp`, cresc.) preserved. |
-| **AC-4** | **Stem-Aware SATB Classification** | Test condensed 2-staff scores with low Soprano notes (G4/F4) and low Tenor notes (D3/E3). | Stem UP on Staff 1 = 100% Soprano; Stem UP on Staff 2 = 100% Tenor. |
-| **AC-5** | **Zero Cross-Part Lyric Bleed** | Check lyrics in Bass and Accompaniment parts during Soprano/Solo phrases. | 0 Soprano lyrics injected into Bass or Accompaniment. |
-| **AC-6** | **Rest Note Neutrality** | Inspect rest elements rendered in OSMD WebViews. | 0 rests colored with vocal part colors (e.g. no Dark Orange rests). |
-| **AC-7** | **Family Color-Coding Parity** | Verify notehead, stem, and glowing aura colors across Review, Editor, and Playback screens. | 100% visual parity across all screens using family palette. |
-| **AC-8** | **Elimination of Manual Corrections** | Load test scores in the app and inspect note assignments before user touch-editing. | Accurate part assignment out-of-the-box; zero required user edits. |
+The paired Awit scan and Audiveris export should be added as a versioned regression fixture when available. Until then, no claim of score-specific parity is made.

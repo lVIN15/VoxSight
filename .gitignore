@@ -1,5 +1,9 @@
 temporary-ui/
+tmp/
 .agent/
+.agents/
+musicsheets/
+AGENTS.md
 scratch/
 *.log
 log_output.txt
@@ -14,6 +18,7 @@ voxsight/scratch_*.py
 voxsight/scratch_*.js
 *.apk
 *.bak*
+/.gradle-user-home/
 documentation/STD.pdf
 documentation/VoxSight_STD_Audit_Report.pdf
 documentation/VoxSight_STD_Updated_Review.pdf

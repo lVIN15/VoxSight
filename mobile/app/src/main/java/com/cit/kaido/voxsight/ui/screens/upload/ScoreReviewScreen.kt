@@ -401,7 +401,8 @@ fun ScoreReviewScreen(
                                     isWebLoaded = true
                                     // Inject raw MusicXML into page using Base64 to avoid quoting issues
                                     val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
-                                    evaluateJavascript("loadScoreBase64('$encoded');", null)
+                                    val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
+                                    evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded');", null)
                                 }
                             }
                             addJavascriptInterface(EditorJsBridge(), "VoxSightBridge")
@@ -635,12 +636,13 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
             0.0
         }
         val isBaritoneSoloPart = nameLower.contains("baritone") || nameLower.contains("solo") ||
-            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant")
+            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") ||
+            nameLower.contains("sol.") || nameLower.trim() == "sol" || Regex("(?i)\\bsol\\b").containsMatchIn(nameLower)
 
         val isCondensedSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||
-            nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower == "sa"
+            nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower.contains("s. a.") || nameLower == "sa"
         val isCondensedTB = (nameLower.contains("tenor") && nameLower.contains("bass")) ||
-            nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower == "tb"
+            nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower.contains("t. b.") || nameLower == "tb"
 
         part.notes.forEach { note ->
             // Priority 1: Explicit user override from data-vx-voice (customVoiceStr or customVoice)

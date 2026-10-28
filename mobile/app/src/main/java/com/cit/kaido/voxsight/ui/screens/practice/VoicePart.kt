@@ -193,6 +193,18 @@ fun isEventMatchingFocusOrPart(targetPart: String?, event: MusicalEvent): Boolea
     return false
 }
 
+object VoicePalette {
+    const val SOPRANO = "#E11D48"
+    const val ALTO = "#8E24AA"
+    const val TENOR = "#2563EB"
+    const val BASS = "#16A34A"
+    const val SOLO = "#FF6D00"
+    const val OTHER = "#546E7A"
+    const val UNKNOWN = "#808080"
+
+    fun asJson(): String = """{"S":"$SOPRANO","A":"$ALTO","T":"$TENOR","B":"$BASS","SOLO":"$SOLO","OTHER":"$OTHER","UNKNOWN":"$UNKNOWN"}"""
+}
+
 fun getVoiceHexColor(partCode: String): String = when (partCode.trim().uppercase()) {
     "S", "SOPRANO" -> "#E11D48"
     "S1", "SOPRANO 1", "SOPRANO1" -> "#FB7185"
@@ -335,13 +347,20 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
                 "OTHERS", "OTHER" -> hasOthers = true
             }
         }
-        when (note.voice) {
-            1 -> hasSoprano = true
-            2 -> hasAlto = true
-            3 -> hasTenor = true
-            4 -> hasBass = true
-            5 -> hasSolo = true
-            6 -> hasOthers = true
+        if (note.customVoiceStr.isNullOrBlank() && score.parts.size >= 4) {
+            when (note.voice) {
+                1 -> hasSoprano = true
+                2 -> hasAlto = true
+                3 -> hasTenor = true
+                4 -> hasBass = true
+                5 -> hasSolo = true
+                6 -> hasOthers = true
+            }
+        } else if (note.customVoiceStr.isNullOrBlank()) {
+            when (note.voice) {
+                5 -> hasSolo = true
+                6 -> hasOthers = true
+            }
         }
     }
 
@@ -367,16 +386,38 @@ fun detectAvailableParts(score: MusicXmlScore): List<VoicePart> {
         if (nameLower.contains("bass 1") || nameLower == "b1" || nameLower == "b 1") hasBass1 = true
         if (nameLower.contains("bass 2") || nameLower == "b2" || nameLower == "b 2") hasBass2 = true
 
-        if (!hasSoprano1 && !hasSoprano2 && (nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(nameLower))) hasSoprano = true
-        if (!hasAlto1 && !hasAlto2 && (nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(nameLower))) hasAlto = true
-        if (!hasTenor1 && !hasTenor2 && (nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower))) hasTenor = true
-        if (!hasBass1 && !hasBass2 && (nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower))) hasBass = true
+        val isSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||
+            nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower.contains("s. a.") || nameLower == "sa"
+        val isTB = (nameLower.contains("tenor") && nameLower.contains("bass")) ||
+            nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower.contains("t. b.") || nameLower == "tb"
 
-        if (listOf("solo", "cantor", "leader", "descant", "baritone").any { nameLower.contains(it) }) hasSolo = true
+        if (isSA) {
+            hasSoprano = true
+            hasAlto = true
+        } else {
+            if (!hasSoprano1 && !hasSoprano2 && (nameLower.contains("soprano") || nameLower == "s" || nameLower.startsWith("s.") || Regex("(?i)\\bs\\b").containsMatchIn(nameLower))) hasSoprano = true
+            if (!hasAlto1 && !hasAlto2 && (nameLower.contains("alto") || nameLower == "a" || nameLower.startsWith("a.") || Regex("(?i)\\ba\\b").containsMatchIn(nameLower))) hasAlto = true
+        }
+
+        if (isTB) {
+            hasTenor = true
+            hasBass = true
+        } else {
+            if (!hasTenor1 && !hasTenor2 && (nameLower.contains("tenor") || nameLower == "t" || nameLower.startsWith("t.") || Regex("(?i)\\bt\\b").containsMatchIn(nameLower))) hasTenor = true
+            if (!hasBass1 && !hasBass2 && (nameLower.contains("bass") || nameLower == "b" || nameLower.startsWith("b.") || Regex("(?i)\\bb\\b").containsMatchIn(nameLower))) hasBass = true
+        }
+
+        if (listOf("solo", "cantor", "leader", "descant", "baritone", "sol.", "sol").any { nameLower.contains(it) }) hasSolo = true
         if (nameLower.contains("other")) hasOthers = true
     }
 
     val result = mutableListOf<VoicePart>()
+
+    // Sibling divisi promotion: If sub-voice 2 is present along with generic voice, promote generic voice to Voice 1
+    if (hasSoprano2 && hasSoprano) hasSoprano1 = true
+    if (hasAlto2 && hasAlto) hasAlto1 = true
+    if (hasTenor2 && hasTenor) hasTenor1 = true
+    if (hasBass2 && hasBass) hasBass1 = true
 
     // Soprano Section
     if (hasSoprano1 && hasSoprano2) {

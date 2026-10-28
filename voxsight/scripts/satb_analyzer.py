@@ -347,8 +347,7 @@ def score_voice_signature(signature: str) -> dict:
 def classify_satb(pitch_scores: dict, staff_scores: dict,
                   sig_scores: dict) -> tuple:
     """
-    3-signal weighted model:
-      pitch (0.50) + staff (0.30) + voice_signature (0.20)
+    Initial 3-signal model used before voice-level evidence is available.
 
     Returns (voice, confidence).
     """
@@ -449,8 +448,9 @@ ACCOMP_KEYWORDS = [
 ]
 
 SOLO_KEYWORDS = [
-    "solo", "soloist", "cantor", "leader", "voice solo", "vocal solo",
-    "solo voice", "duet", "lead sheet", "baritone solo"
+    "solo", "sol", "sol.", "soloist", "cantor", "leader", "voice solo", "vocal solo",
+    "solo voice", "duet", "lead sheet", "baritone solo", "bar. solo", "baritone", "tenor solo",
+    "soprano solo", "alto solo", "bass solo", "descant"
 ]
 
 VOCAL_KEYWORDS = [
@@ -466,8 +466,9 @@ ALLOWED_VOCAL_COMPANIONS = {
     "i", "ii", "iii", "iv", "v", "vi",
     "a", "b", "c", "d",
     "voice", "voices", "vocal", "vocals",
-    "solo", "soloist", "soloists",
-    "choir", "chorus", "choral", "coro",
+    "oohs", "aahs", "ooh", "aah", "ahs", "mmms", "mmm", "hum", "humming",
+    "solo", "soloist", "soloists", "cantor",
+    "choir", "chorus", "choral", "coro", "ensemble",
     "part", "pt", "staff", "stave", "line",
     "divisi", "div", "unison", "unis",
     "lead", "leader", "section",
@@ -479,7 +480,7 @@ ALLOWED_VOCAL_COMPANIONS = {
     "baritone", "baritones", "bar",
     "mezzo", "contralto",
     "cantus", "altus", "bassus", "treble", "descant",
-    "satb", "ssaa", "ttbb", "ssatb",
+    "satb", "ssaa", "ttbb", "ssatb", "saatb", "satbb", "sab", "ssa", "ttb",
     "and", "or"
 }
 
@@ -643,6 +644,37 @@ VOICE_CODE_MAP = {
 }
 
 
+def canonical_voice_label(value: str) -> str:
+    """Normalize stored editor/backend voice tokens to the event vocabulary."""
+    token = str(value or '').strip().upper().replace('_', ' ')
+    aliases = {
+        '1': 'S', 'S': 'S', 'SOPRANO': 'S',
+        'S1': 'S1', 'SOPRANO1': 'S1', 'SOPRANO 1': 'S1',
+        'S2': 'S2', 'SOPRANO2': 'S2', 'SOPRANO 2': 'S2',
+        '2': 'A', 'A': 'A', 'ALTO': 'A',
+        'A1': 'A1', 'ALTO1': 'A1', 'ALTO 1': 'A1',
+        'A2': 'A2', 'ALTO2': 'A2', 'ALTO 2': 'A2',
+        '3': 'T', 'T': 'T', 'TENOR': 'T',
+        'T1': 'T1', 'TENOR1': 'T1', 'TENOR 1': 'T1',
+        'T2': 'T2', 'TENOR2': 'T2', 'TENOR 2': 'T2',
+        '4': 'B', 'B': 'B', 'BASS': 'B',
+        'B1': 'B1', 'BASS1': 'B1', 'BASS 1': 'B1',
+        'B2': 'B2', 'BASS2': 'B2', 'BASS 2': 'B2',
+        '5': 'Solo', 'SOLO': 'Solo', 'SOL': 'Solo', 'SOL.': 'Solo', 'SOLOIST': 'Solo', 'CANTOR': 'Solo', 'BAR. SOLO': 'Baritone Solo', 'BAR': 'Baritone Solo',
+        'BARITONE': 'Baritone Solo', 'BARITONE SOLO': 'Baritone Solo',
+        '6': 'Others', 'OTHER': 'Others', 'OTHERS': 'Others',
+        'UNISON TB': 'UNISON_TB', 'TB': 'UNISON_TB',
+        'UNISON SA': 'UNISON_SA', 'SA': 'UNISON_SA',
+        'UNISON S1S2': 'UNISON_S1S2', 'S1S2': 'UNISON_S1S2',
+        'UNISON A1A2': 'UNISON_A1A2', 'A1A2': 'UNISON_A1A2',
+        'UNISON T1T2': 'UNISON_T1T2', 'T1T2': 'UNISON_T1T2',
+        'UNISON B1B2': 'UNISON_B1B2', 'B1B2': 'UNISON_B1B2',
+        'TUTTI': 'TUTTI', 'UNISON ALL': 'TUTTI', 'ALL': 'TUTTI',
+        'UNKNOWN': 'UNKNOWN',
+    }
+    return aliases.get(token, 'UNKNOWN')
+
+
 STEP_SEMITONES = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 
 
@@ -684,6 +716,37 @@ def prescan_musicxml(root: ET.Element) -> tuple:
     """
     parts_data = {}
     xml_notes_by_source_id = {}
+
+    # Stable note IDs are non-musical metadata used to join MusicXML notes to
+    # events and OSMD coordinates. Preserve valid existing IDs and repair only
+    # missing/duplicate IDs.
+    all_note_elements = root.findall('.//note')
+    reserved_ids = set()
+    for note_elem in all_note_elements:
+        try:
+            existing_id = int(note_elem.get('data-vx-id', ''))
+            if existing_id >= 0:
+                reserved_ids.add(existing_id)
+        except (TypeError, ValueError):
+            pass
+    used_ids = set()
+    next_vx_id = max(reserved_ids, default=-1) + 1
+    vx_ids = {}
+    for note_elem in all_note_elements:
+        try:
+            candidate_id = int(note_elem.get('data-vx-id', ''))
+        except (TypeError, ValueError):
+            candidate_id = -1
+        if candidate_id >= 0 and candidate_id not in used_ids:
+            vx_id = candidate_id
+        else:
+            while next_vx_id in reserved_ids or next_vx_id in used_ids:
+                next_vx_id += 1
+            vx_id = next_vx_id
+            next_vx_id += 1
+            note_elem.set('data-vx-id', str(vx_id))
+        used_ids.add(vx_id)
+        vx_ids[note_elem] = vx_id
 
     parts = root.findall('part')
     for p_idx, part in enumerate(parts):
@@ -780,6 +843,7 @@ def prescan_musicxml(root: ET.Element) -> tuple:
                     except ValueError:
                         staff_int = 1
 
+                    vx_id = vx_ids[elem]
                     source_note_id = f"p[{clean_part_id}]_m{m_idx:04d}_n{xml_note_index:04d}"
 
                     divs_per_q = current_divisions if current_divisions > 0 else 1
@@ -805,11 +869,16 @@ def prescan_musicxml(root: ET.Element) -> tuple:
                         "voice": voice_txt,
                         "staff": staff_int,
                         "source_note_id": source_note_id,
+                        "vx_id": vx_id,
+                        "source_part_id": str(raw_part_id),
                     }
                     measure_note_records.append(record)
                     xml_notes_by_source_id[source_note_id] = record
 
-            part_measures[mnum] = measure_note_records
+            if mnum in part_measures:
+                part_measures[mnum].extend(measure_note_records)
+            else:
+                part_measures[mnum] = measure_note_records
 
         parts_data[clean_part_id] = part_measures
 
@@ -870,11 +939,22 @@ def match_and_stamp_voices(root: ET.Element, events: list, measure_offsets: dict
                         pass
                 curr_offset += curr_ts_quarters
 
-    # Group events by (clean_part_id, measure_number)
+    use_measure_index = bool(events) and all(ev.get('measure_index') is not None for ev in events)
+
+    # Build XML candidate buckets keyed by measure_index when available, else measure_number
+    xml_buckets = {}
+    for clean_pid, measures in parts_data.items():
+        xml_buckets[clean_pid] = {}
+        for mnum, records in measures.items():
+            for rec in records:
+                m_key = rec['measure_index'] if use_measure_index else mnum
+                xml_buckets[clean_pid].setdefault(m_key, []).append(rec)
+
+    # Group events by (clean_part_id, measure_key)
     events_by_pm = {}
     for ev in events:
         p_num = ev.get('part_id', 1)
-        mnum = ev.get('measure_number', 1)
+        m_key = ev.get('measure_index') if use_measure_index else ev.get('measure_number', 1)
 
         if p_num in part_mapping:
             raw_pid = part_mapping[p_num]
@@ -889,12 +969,52 @@ def match_and_stamp_voices(root: ET.Element, events: list, measure_offsets: dict
             continue
 
         clean_pid = urllib.parse.quote(str(raw_pid), safe="")
-        events_by_pm.setdefault((clean_pid, mnum), []).append(ev)
+        events_by_pm.setdefault((clean_pid, m_key), []).append(ev)
 
     stamped_count = 0
 
-    # Execute 9-step matching for each (clean_part_id, measure_number)
-    for clean_pid, measures in parts_data.items():
+    def apply_assignment(xn, ev):
+        nonlocal stamped_count
+        note_elem = xn['note_elem']
+        existing_voice = note_elem.get('data-vx-voice')
+        voice_source = (note_elem.get('data-vx-voice-source') or '').strip().lower()
+        # Only the editor's explicit marker denotes a user decision. Older
+        # backend-stamped labels without a source marker must be reclassified.
+        is_user_override = bool(existing_voice) and voice_source in ('user', 'user_override')
+
+        if is_user_override:
+            voice_label = canonical_voice_label(existing_voice)
+            assignment_source = 'user_override'
+            ev['satb_voice'] = voice_label
+            ev['satb_confidence'] = 1.0 if voice_label != 'UNKNOWN' else 0.0
+        else:
+            raw_ev_voice = ev.get('satb_voice')
+            voice_label = canonical_voice_label(raw_ev_voice) if raw_ev_voice in VOICE_CODE_MAP else str(raw_ev_voice or 'UNKNOWN')
+            assignment_source = 'backend'
+
+        # Always bind deterministic note identity on unambiguously matched events for 60 FPS playback sync
+        ev['source_note_id'] = xn['vx_id']
+        ev['source_part_id'] = xn['source_part_id']
+
+        voice_code = VOICE_CODE_MAP.get(voice_label)
+        if voice_code is not None:
+            note_elem.set('data-vx-voice', voice_code)
+            note_elem.set('data-vx-voice-source', assignment_source)
+            ev['assignment_source'] = assignment_source
+
+            # Keep all event metadata derived from the same final label written
+            # to MusicXML, including explicit editor overrides.
+            metadata = derive_event_v11_metadata(
+                ev.get('satb_voice', voice_label), ev.get('xml_element_order', -1)
+            )
+            ev['participating_parts'] = metadata['participating_parts']
+            ev['is_vocal'] = metadata['is_vocal']
+            ev['is_unison'] = metadata['is_unison']
+            ev['unison_type'] = metadata['unison_type']
+            stamped_count += 1
+
+    # Execute 9-step matching for each (clean_part_id, measure_key)
+    for clean_pid, measures in xml_buckets.items():
         for mnum, xml_candidates in measures.items():
             ev_candidates = events_by_pm.get((clean_pid, mnum), [])
             if not xml_candidates or not ev_candidates:
@@ -905,11 +1025,7 @@ def match_and_stamp_voices(root: ET.Element, events: list, measure_offsets: dict
                 for idx, xn in enumerate(xml_candidates):
                     if idx < len(ev_candidates):
                         ev = ev_candidates[idx]
-                        v_label = ev.get('satb_voice')
-                        v_str = VOICE_CODE_MAP.get(v_label)
-                        if v_str is not None:
-                            xn['note_elem'].set('data-vx-voice', v_str)
-                            stamped_count += 1
+                        apply_assignment(xn, ev)
                 continue
 
             # Step 1: Partition by pitch_midi
@@ -1052,11 +1168,7 @@ def match_and_stamp_voices(root: ET.Element, events: list, measure_offsets: dict
 
                 # Apply stamps for successfully matched pairs
                 for xn, ev in matched_pairs:
-                    v_label = ev.get('satb_voice')
-                    v_str = VOICE_CODE_MAP.get(v_label)
-                    if v_str is not None:
-                        xn['note_elem'].set('data-vx-voice', v_str)
-                        stamped_count += 1
+                    apply_assignment(xn, ev)
 
     return stamped_count
 
@@ -1084,7 +1196,9 @@ def stamp_voices_into_xml(filepath: str, events: list, measure_offsets: dict = N
                 other_files = {n: z.read(n) for n in z.namelist() if n != xml_name}
 
             root = ET.fromstring(xml_data)
-            match_and_stamp_voices(root, events, measure_offsets, part_mapping, part_staff_mapping)
+            total_notes = sum(1 for n in root.findall('.//note') if n.find('pitch') is not None)
+            stamped_count = match_and_stamp_voices(root, events, measure_offsets, part_mapping, part_staff_mapping)
+            log.info("MusicXML assignment coverage: %s/%s pitched notes stamped", stamped_count, total_notes)
             new_xml_data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             with zipfile.ZipFile(filepath, 'w', compression=zipfile.ZIP_DEFLATED) as z:
                 z.writestr(xml_name, new_xml_data)
@@ -1094,7 +1208,9 @@ def stamp_voices_into_xml(filepath: str, events: list, measure_offsets: dict = N
         else:
             tree = ET.parse(filepath)
             root = tree.getroot()
-            match_and_stamp_voices(root, events, measure_offsets, part_mapping, part_staff_mapping)
+            total_notes = sum(1 for n in root.findall('.//note') if n.find('pitch') is not None)
+            stamped_count = match_and_stamp_voices(root, events, measure_offsets, part_mapping, part_staff_mapping)
+            log.info("MusicXML assignment coverage: %s/%s pitched notes stamped", stamped_count, total_notes)
             tree.write(filepath, encoding='utf-8', xml_declaration=True)
             return True
     except Exception as e:
@@ -1204,9 +1320,23 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
                                         if x.get('satb_voice') in ('S', 'A', 'S1', 'S2', 'A1', 'A2'):
                                             x['satb_voice'] = 'UNISON_SA'
 
-    # 2. Condensed 2-Staff Choral Scores (Staff 1 = SA, Staff 2 = TB)
-    # Strictly for condensed scores with 2 staves (not open 4-part SATB)
+    # 2. Condensed 2-Staff Choral Scores (Staff 1 = SA, Staff 2 = TB):
+    # Distinguish a solo voice entrance (where the partner voice has an explicit
+    # concurrent rest or directional stem) from a shared stemless unison notehead.
     if not is_open_choral_score and 1 in all_staves and 2 in all_staves:
+        rests_by_staff = {}
+        for r_ev in raw_events:
+            if r_ev.get('is_rest', False) and r_ev.get('duration_ticks', 0) > 0:
+                rests_by_staff.setdefault(r_ev.get('staff_id', 1), []).append(
+                    (r_ev.get('tick_position', 0), r_ev.get('tick_position', 0) + r_ev.get('duration_ticks', 0))
+                )
+
+        def has_concurrent_rest(s_id: int, tick_pos: int) -> bool:
+            for r_start, r_end in rests_by_staff.get(s_id, ()):
+                if r_start <= tick_pos < r_end:
+                    return True
+            return False
+
         by_tick_vocal = {}
         for e in sounding_notes:
             by_tick_vocal.setdefault(e['tick_position'], []).append(e)
@@ -1221,12 +1351,12 @@ def detect_unisons_and_divisi(raw_events: list, choral_part_indices: list = None
                 s2_notes = staves_at_tick[2]
                 if len(s1_notes) >= 2 and len(s2_notes) == 1:
                     s2_stem = s2_notes[0].get('stem', '')
-                    if not s2_stem or s2_stem in ('none', 'unspecified', 'nostem'):
+                    if (not s2_stem or s2_stem in ('none', 'unspecified', 'nostem')) and not has_concurrent_rest(2, tick):
                         if s2_notes[0].get('satb_voice') in ('T', 'B'):
                             s2_notes[0]['satb_voice'] = 'UNISON_TB'
                 elif len(s2_notes) >= 2 and len(s1_notes) == 1:
                     s1_stem = s1_notes[0].get('stem', '')
-                    if not s1_stem or s1_stem in ('none', 'unspecified', 'nostem'):
+                    if (not s1_stem or s1_stem in ('none', 'unspecified', 'nostem')) and not has_concurrent_rest(1, tick):
                         if s1_notes[0].get('satb_voice') in ('S', 'A'):
                             s1_notes[0]['satb_voice'] = 'UNISON_SA'
 
@@ -1248,13 +1378,6 @@ def analyze(xml_path: str) -> dict:
     if is_unsupported:
         log.warn(f"[Upload Validation Gate] Rejecting unsupported score: {reason}")
         return _error_response(reason)
-
-    # Clean and merge duplicate parts / strip credit lyrics before music21 parsing
-    try:
-        from musicxml_cleaner import clean_musicxml_file
-        clean_musicxml_file(xml_path)
-    except Exception as e:
-        log.warn(f"Pre-analysis musicxml clean error: {e}")
 
     try:
         score = music21.converter.parse(xml_path)
@@ -1376,7 +1499,8 @@ def analyze(xml_path: str) -> dict:
         is_baritone_solo = "baritone" in combined_name and (is_solo or not is_accomp)
 
         has_lyrics = p_lyrics > 0
-        is_vocal = (is_vocal_part_name(combined_name) or has_lyrics or is_solo or is_baritone_solo) and not is_accomp
+        declared_name = f"{p_name} {p_abbr}".strip()
+        is_vocal = (is_vocal_part_name(declared_name) or is_vocal_part_name(combined_name) or has_lyrics or is_solo or is_baritone_solo) and not is_accomp
 
         if is_accomp:
             part_categories[p_idx + 1] = "Others"
@@ -1392,6 +1516,185 @@ def analyze(xml_path: str) -> dict:
             choral_part_indices.append(p_idx + 1)
         else:
             part_categories[p_idx + 1] = "UNKNOWN"
+
+    # ─── Step 0.5: Structural Ensemble & Soloist Role Resolution ──────
+    # Resolves unnamed/generic OMR staves ('Voice' / 'Voice Oohs') and locks
+    # dedicated open-score sections so cross-part register dips never miscolor notes.
+    xml_clef_map = {}
+    if root_elem is not None:
+        for p_el in root_elem.findall(".//part"):
+            pid = p_el.get("id", "")
+            clef_el = p_el.find(".//attributes/clef")
+            if clef_el is not None:
+                c_sign = (clef_el.findtext("sign") or "G").strip().upper()
+                try:
+                    c_line = int((clef_el.findtext("line") or "2").strip())
+                except ValueError:
+                    c_line = 2
+                try:
+                    c_oct = int((clef_el.findtext("clef-octave-change") or "0").strip())
+                except ValueError:
+                    c_oct = 0
+                xml_clef_map[pid] = (c_sign, c_line, c_oct)
+
+    def detect_explicit_choral_section(name_str: str, multi_staff: bool):
+        if multi_staff:
+            return None
+        clean_lbl = re.sub(r"[^a-z0-9/]", " ", name_str.lower()).strip()
+        if not clean_lbl:
+            return None
+        if any(tok in clean_lbl for tok in ("s/a", "t/b", "soprano/alto", "tenor/bass", "women", "men", "satb", "ssaa", "ttbb", "ssatb")):
+            return None
+        words_set = set(clean_lbl.split())
+        if ("soprano" in words_set and ("1" in words_set or "i" in words_set)) or "s1" in words_set:
+            return "S1"
+        if ("soprano" in words_set and ("2" in words_set or "ii" in words_set)) or "s2" in words_set:
+            return "S2"
+        if ("alto" in words_set and ("1" in words_set or "i" in words_set)) or "a1" in words_set:
+            return "A1"
+        if ("alto" in words_set and ("2" in words_set or "ii" in words_set)) or "a2" in words_set:
+            return "A2"
+        if ("tenor" in words_set and ("1" in words_set or "i" in words_set)) or "t1" in words_set:
+            return "T1"
+        if ("tenor" in words_set and ("2" in words_set or "ii" in words_set)) or "t2" in words_set:
+            return "T2"
+        if ("bass" in words_set and ("1" in words_set or "i" in words_set)) or "b1" in words_set:
+            return "B1"
+        if ("bass" in words_set and ("2" in words_set or "ii" in words_set)) or "b2" in words_set:
+            return "B2"
+        has_s = bool(words_set & {"soprano", "sopranos", "sop", "s", "cantus", "treble"})
+        has_a = bool(words_set & {"alto", "altos", "alt", "a", "altus", "contralto", "mezzo"})
+        has_t = bool(words_set & {"tenor", "tenors", "ten", "t"})
+        has_b = bool(words_set & {"bass", "basses", "bas", "b", "bassus"})
+        if sum([has_s, has_a, has_t, has_b]) == 1:
+            if has_s:
+                return "S"
+            if has_a:
+                return "A"
+            if has_t:
+                return "T"
+            if has_b:
+                return "B"
+        return None
+
+    part_structural_info = {}
+    explicit_part_sections = {}
+    for p_idx, part in enumerate(parts):
+        p_num = p_idx + 1
+        p_name = (part.partName or "").strip().lower()
+        p_abbr = (part.partAbbreviation or "").strip().lower()
+        base_id = str(part.id).split("-")[0] if "-" in str(part.id) else str(part.id)
+        is_ms = (
+            isinstance(part, music21.stream.PartStaff) or
+            xml_staves_map.get(str(part.id), 1) >= 2 or
+            xml_staves_map.get(base_id, 1) >= 2
+        )
+        active_m = 0
+        p_midis = []
+        for m in part.getElementsByClass(music21.stream.Measure):
+            m_midis = []
+            for n in m.flatten().notes:
+                if n.isNote:
+                    m_midis.append(n.pitch.midi)
+                elif n.isChord:
+                    m_midis.extend(cp.midi for cp in n.pitches)
+            if m_midis:
+                active_m += 1
+                p_midis.extend(m_midis)
+        c_sign, c_line, c_oct = xml_clef_map.get(str(part.id)) or xml_clef_map.get(base_id) or ("G", 2, 0)
+        avg_m = (sum(p_midis) / len(p_midis)) if p_midis else 60.0
+        part_structural_info[p_num] = {
+            "active_measures": active_m,
+            "note_count": len(p_midis),
+            "avg_midi": avg_m,
+            "clef_sign": c_sign,
+            "clef_line": c_line,
+            "clef_oct": c_oct,
+            "is_multi_staff": is_ms,
+        }
+        if part_categories.get(p_num) == "SATB":
+            exp_sec = detect_explicit_choral_section(f"{p_name} {p_abbr}", is_ms)
+            if exp_sec:
+                explicit_part_sections[p_num] = exp_sec
+
+    # Detect structural Solo / Obligato staves in >=5-part vocal ensembles with generic OMR names
+    if len(choral_part_indices) >= 5:
+        active_sorted = sorted((part_structural_info[p]["active_measures"] for p in choral_part_indices), reverse=True)
+        m_core = active_sorted[3]
+        core_pool = [p for p in choral_part_indices if part_structural_info[p]["active_measures"] >= max(1, 0.5 * m_core)]
+        treble_core = [
+            p for p in core_pool
+            if part_structural_info[p]["clef_sign"] == "G" and part_structural_info[p]["clef_oct"] >= 0
+        ]
+        anchor_pool = treble_core if treble_core else core_pool
+        soprano_anchor = max(anchor_pool, key=lambda p: part_structural_info[p]["avg_midi"]) if anchor_pool else None
+
+        for p_num in list(choral_part_indices):
+            if len(choral_part_indices) <= 4:
+                break
+            if p_num in explicit_part_sections or part_structural_info[p_num]["is_multi_staff"]:
+                continue
+            p_inf = part_structural_info[p_num]
+            is_sparse_solo = (m_core >= 4 and p_inf["active_measures"] < 0.45 * m_core)
+            is_above_choir_solo = (
+                soprano_anchor is not None and
+                p_num < soprano_anchor and
+                (p_inf["clef_sign"] == "F" or p_inf["avg_midi"] < part_structural_info[soprano_anchor]["avg_midi"] - 3.0)
+            )
+            if is_sparse_solo or is_above_choir_solo:
+                part_categories[p_num] = "Solo"
+                choral_part_indices.remove(p_num)
+                solo_part_indices.append(p_num)
+
+    # Resolve dedicated section roles (S, A, T, B) for open single-staff choral scores
+    resolved_part_sections = dict(explicit_part_sections)
+    open_single_staff_choral = [p for p in choral_part_indices if not part_structural_info[p]["is_multi_staff"]]
+    if len(open_single_staff_choral) >= 3 and len(open_single_staff_choral) == len(choral_part_indices):
+        unassigned = [p for p in open_single_staff_choral if p not in resolved_part_sections]
+        if unassigned:
+            def is_lower_vocal_clef(p_num: int) -> bool:
+                inf = part_structural_info[p_num]
+                return (
+                    inf["clef_sign"] == "F" or
+                    (inf["clef_sign"] == "G" and inf["clef_oct"] < 0) or
+                    (inf["clef_sign"] == "C" and inf["clef_line"] >= 4)
+                )
+
+            treble_unassigned = sorted(
+                [p for p in unassigned if not is_lower_vocal_clef(p)],
+                key=lambda p: (round(part_structural_info[p]["avg_midi"], 2), -p),
+                reverse=True,
+            )
+            lower_unassigned = sorted(
+                [p for p in unassigned if is_lower_vocal_clef(p)],
+                key=lambda p: (round(part_structural_info[p]["avg_midi"], 2), -p),
+                reverse=True,
+            )
+
+            taken = set(resolved_part_sections.values())
+            if len(lower_unassigned) == 1 and len(treble_unassigned) >= 3 and "T" not in taken:
+                treble_slots = [v for v in ("S", "A", "T") if v not in taken]
+            else:
+                treble_slots = [v for v in ("S", "A", "T", "B") if v not in taken]
+
+            for idx_t, p_num in enumerate(treble_unassigned):
+                if idx_t < len(treble_slots):
+                    resolved_part_sections[p_num] = treble_slots[idx_t]
+                    taken.add(treble_slots[idx_t])
+                else:
+                    resolved_part_sections[p_num] = "A" if part_structural_info[p_num]["avg_midi"] < 65.0 else "S"
+
+            lower_slots = [v for v in ("T", "B") if v not in taken]
+            if len(lower_unassigned) == 1 and lower_slots == ["T", "B"]:
+                # Single lower-clef stave in 3-part SAB vs SAT
+                resolved_part_sections[lower_unassigned[0]] = "B" if part_structural_info[lower_unassigned[0]]["avg_midi"] < 56.0 else "T"
+            else:
+                for idx_l, p_num in enumerate(lower_unassigned):
+                    if idx_l < len(lower_slots):
+                        resolved_part_sections[p_num] = lower_slots[idx_l]
+                        taken.add(lower_slots[idx_l])
+                    else:
+                        resolved_part_sections[p_num] = "B"
 
     # Count staves
     staff_count = 0
@@ -1415,27 +1718,26 @@ def analyze(xml_path: str) -> dict:
     raw_events = []
     xml_order = 0
 
-    # ─── New Global Measure Offset Strategy (Fix for OMR sync drift) ───
+    # ─── Sequential Measure-Index Offset Strategy (Zero Page-Break Collision) ───
     global_measure_offsets = {}
-    measure_durations = {}
+    measure_durations_by_idx = {}
     for part in parts:
-        for measure in part.getElementsByClass(music21.stream.Measure):
-            m_num = measure.number if measure.number is not None else 0
-            dur = measure.quarterLength
-            # Take the max duration across all staves for this measure
-            if m_num not in measure_durations:
-                measure_durations[m_num] = dur
+        for m_idx, measure in enumerate(part.getElementsByClass(music21.stream.Measure)):
+            dur = float(measure.quarterLength)
+            if m_idx not in measure_durations_by_idx:
+                measure_durations_by_idx[m_idx] = dur
             else:
-                measure_durations[m_num] = max(measure_durations[m_num], dur)
+                measure_durations_by_idx[m_idx] = max(measure_durations_by_idx[m_idx], dur)
 
     current_offset = 0.0
-    for m_num in sorted(measure_durations.keys(), key=lambda x: int(x) if isinstance(x, (int, float, str)) and str(x).isdigit() else 9999):
-        global_measure_offsets[m_num] = current_offset
-        current_offset += measure_durations[m_num]
+    for m_idx in sorted(measure_durations_by_idx.keys()):
+        global_measure_offsets[m_idx] = current_offset
+        current_offset += measure_durations_by_idx[m_idx]
 
     for part_idx, part in enumerate(parts):
         part_num = part_idx + 1
         part_category = part_categories.get(part_num, "SATB")
+        locked_section = resolved_part_sections.get(part_num)
 
         # Compute staff pitch range for voice_signature
         pitches_in_part = []
@@ -1454,13 +1756,13 @@ def analyze(xml_path: str) -> dict:
         # Count staves
         staves_in_part = set()
 
-        for measure in part.getElementsByClass(music21.stream.Measure):
-            measure_num = measure.number if measure.number is not None else 0
+        for m_idx, measure in enumerate(part.getElementsByClass(music21.stream.Measure)):
+            measure_num = measure.number if measure.number is not None else (m_idx + 1)
 
             for element in measure.flatten().notesAndRests:
-                # Compute tick position
-                offset_in_measure = element.offset
-                measure_offset = global_measure_offsets.get(measure_num, measure.offset)
+                # Compute tick position using sequential measure_index offset
+                offset_in_measure = float(element.offset)
+                measure_offset = global_measure_offsets.get(m_idx, float(measure.offset))
                 global_offset = measure_offset + offset_in_measure
                 tick_position = normalize_to_ticks(global_offset, tpq)
                 duration_ticks = normalize_to_ticks(element.quarterLength, tpq)
@@ -1488,7 +1790,9 @@ def analyze(xml_path: str) -> dict:
 
                 if element.isRest:
                     raw_events.append({
+                        "measure_index": m_idx,
                         "measure_number": measure_num,
+                        "onset_quarters": offset_in_measure,
                         "tick_position": tick_position,
                         "pitch_midi": 0,
                         "pitch_name": "rest",
@@ -1543,6 +1847,9 @@ def analyze(xml_path: str) -> dict:
                     elif part_category == "UNKNOWN":
                         satb_voice = "UNKNOWN"
                         satb_confidence = 0.0
+                    elif locked_section is not None:
+                        satb_voice = locked_section
+                        satb_confidence = 1.0 if part_num in explicit_part_sections else 0.96
                     else:
                         choral_rank = choral_part_indices.index(part_num) + 1 if part_num in choral_part_indices else staff_id
                         pitch_scores = score_pitch(pitch_midi)
@@ -1553,7 +1860,9 @@ def analyze(xml_path: str) -> dict:
                         )
 
                     raw_events.append({
+                        "measure_index": m_idx,
                         "measure_number": measure_num,
+                        "onset_quarters": offset_in_measure,
                         "tick_position": tick_position,
                         "pitch_midi": pitch_midi,
                         "pitch_name": pitch_name,
@@ -1562,6 +1871,7 @@ def analyze(xml_path: str) -> dict:
                         "voice_source": voice_source,
                         "staff_id": staff_id,
                         "part_id": part_num,
+                        "locked_section": locked_section,
                         "is_rest": False,
                         "is_chord_member": is_chord,
                         "tie_type": tie_type,
@@ -1579,8 +1889,14 @@ def analyze(xml_path: str) -> dict:
 
     # ─── Global Melodic & Vertical Voice Assignment Optimization ─────
     try:
-        # Only optimize choral SATB events (skip Solo, Others, and UNKNOWN to preserve them 1:1)
-        non_rests = [e for e in raw_events if not e["is_rest"] and e.get("satb_voice") not in ["Solo", "SOLO", "Baritone Solo", "BARITONE SOLO", "Others", "UNKNOWN"]]
+        # Only run probabilistic melodic optimization on condensed/unlocked choral staves;
+        # dedicated open-score staves retain their resolved section identity (and split divisi in Step 3.5).
+        non_rests = [
+            e for e in raw_events
+            if not e["is_rest"]
+            and not e.get("locked_section")
+            and e.get("satb_voice") not in ["Solo", "SOLO", "Baritone Solo", "BARITONE SOLO", "Others", "UNKNOWN"]
+        ]
 
         by_tick = {}
         for e in non_rests:
@@ -1611,9 +1927,21 @@ def analyze(xml_path: str) -> dict:
                         v_scores[default_v] = 1.0
                     else:
                         stem = tn.get("stem", "")
+                        # In a condensed two-staff score an explicit MusicXML
+                        # stem is part-separation evidence. Use it before pitch
+                        # ranking, since the same pitch range can belong to
+                        # either neighboring voice (for example low Soprano or
+                        # high Alto). For simultaneous notes without usable
+                        # stems, retain the established pitch-rank fallback.
                         if staff_id == 1:
                             if len(staff_notes) >= 2:
-                                if rank == 0:
+                                if stem == "up":
+                                    v_scores["S"] = 0.95
+                                    v_scores["A"] = 0.05
+                                elif stem == "down":
+                                    v_scores["S"] = 0.05
+                                    v_scores["A"] = 0.95
+                                elif rank == 0:
                                     v_scores["S"] = 0.95
                                     v_scores["A"] = 0.05
                                 else:
@@ -1635,7 +1963,13 @@ def analyze(xml_path: str) -> dict:
                                         v_scores["A"] = 0.8
                         else:
                             if len(staff_notes) >= 2:
-                                if rank == 0:
+                                if stem == "up":
+                                    v_scores["T"] = 0.95
+                                    v_scores["B"] = 0.05
+                                elif stem == "down":
+                                    v_scores["T"] = 0.05
+                                    v_scores["B"] = 0.95
+                                elif rank == 0:
                                     v_scores["T"] = 0.95
                                     v_scores["B"] = 0.05
                                 else:
@@ -1678,9 +2012,6 @@ def analyze(xml_path: str) -> dict:
                                     c_scores[v] = 0.05
 
                     combined = {}
-                    sig = tn.get("voice_signature", "")
-                    sig_scores = score_voice_signature(sig)
-
                     for v in "SATB":
                         combined[v] = (
                             0.40 * p_scores.get(v, 0.0) +
@@ -1758,7 +2089,9 @@ def analyze(xml_path: str) -> dict:
                     "chord_index": chord_idx,
                     "content_hash": content_hash,
                 },
+                "measure_index": event.get("measure_index", 0),
                 "measure_number": event["measure_number"],
+                "onset_quarters": event.get("onset_quarters", 0.0),
                 "tick_position": tick,
                 "ticks_per_quarter": tpq,
                 "pitch_midi": event["pitch_midi"],
@@ -1768,6 +2101,9 @@ def analyze(xml_path: str) -> dict:
                 "voice_source": event["voice_source"],
                 "staff_id": event["staff_id"],
                 "part_id": part,
+                "source_part_id": None,
+                "source_note_id": None,
+                "assignment_source": "backend",
                 "is_rest": False,
                 "is_chord_member": event["is_chord_member"],
                 "tie_type": event["tie_type"],
@@ -1828,13 +2164,13 @@ def analyze(xml_path: str) -> dict:
             satb_label = "Baritone Solo"
             part_key = "BARITONE SOLO"
             part_role = "VOCAL"
-            parent_section = None
+            parent_section = "Solo"
             is_accompaniment = False
         elif p_cat == "Solo":
             satb_label = "Solo"
             part_key = "SOLO"
             part_role = "VOCAL"
-            parent_section = None
+            parent_section = "Solo"
             is_accompaniment = False
         elif p_cat == "UNKNOWN":
             satb_label = "UNKNOWN"
@@ -1868,6 +2204,10 @@ def analyze(xml_path: str) -> dict:
                         satb_label = "Baritone Solo"
                         part_key = "BARITONE SOLO"
                         parent_section = "Solo"
+                    elif maj in ("Solo", "SOLO", "Soloist", "SOLOIST", "Cantor", "CANTOR", "Leader", "LEADER", "Descant", "DESCANT") or "SOLO" in maj.upper():
+                        satb_label = "Solo" if maj.upper() == "SOLO" else maj
+                        part_key = "SOLO"
+                        parent_section = "Solo"
                     elif maj in ("S1", "S2"):
                         satb_label = f"Soprano {maj[1]}"
                         part_key = maj
@@ -1887,7 +2227,10 @@ def analyze(xml_path: str) -> dict:
                     else:
                         satb_label = {"S": "Soprano", "A": "Alto", "T": "Tenor", "B": "Bass"}.get(maj, maj)
                         norm = satb_label.upper()
-                        if "SOPRANO" in norm or norm.startswith("S"):
+                        if "SOLO" in norm:
+                            parent_section = "Solo"
+                            part_key = "SOLO"
+                        elif "SOPRANO" in norm or norm.startswith("S"):
                             parent_section = "Soprano"
                             part_key = "S"
                         elif "ALTO" in norm or norm.startswith("A"):
@@ -1899,6 +2242,9 @@ def analyze(xml_path: str) -> dict:
                         elif "BASS" in norm or norm.startswith("B"):
                             parent_section = "Bass"
                             part_key = "B"
+                        else:
+                            parent_section = "Others"
+                            part_key = "OTHER"
 
             part_role = "VOCAL"
             is_accompaniment = False

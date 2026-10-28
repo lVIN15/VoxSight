@@ -22,11 +22,13 @@ import com.cit.kaido.voxsight.ui.screens.practice.VoicePart
 import com.cit.kaido.voxsight.ui.screens.practice.toSATBVoice
 import com.cit.kaido.voxsight.ui.screens.upload.UploadScoreScreen
 import com.cit.kaido.voxsight.ui.screens.upload.ScoreReviewScreen
-import com.cit.kaido.voxsight.ui.screens.upload.regenerateEventsJsonFromScore
 import com.cit.kaido.voxsight.ui.viewmodel.PracticeViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import io.github.jan.supabase.postgrest.postgrest
 
 @Composable
@@ -514,40 +516,69 @@ fun AppNavigation() {
                                 output.write(modifiedXml.toByteArray(Charsets.UTF_8))
                             }
                         }
-                        
-                        // Parse local XML into score structure
-                        val parsedScore = com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore(
-                            context,
-                            android.net.Uri.fromFile(xmlTempFile),
-                            practiceViewModel.pendingScoreTitle
-                        )
-                        
-                        if (parsedScore != null) {
-                            // Generate playback events locally
-                            val eventsJson = withContext(Dispatchers.Default) {
-                                regenerateEventsJsonFromScore(parsedScore)
+
+                        // Attempt backend re-analysis first so full SATB metadata & note IDs stay synced;
+                        // degrade seamlessly to local MusicXmlParser when offline or when connected to
+                        // a backend deployment that does not yet accept direct .musicxml uploads.
+                        val remoteAnalysis = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val requestFile = xmlTempFile.asRequestBody("application/xml".toMediaTypeOrNull())
+                                val body = MultipartBody.Part.createFormData("musicFile", xmlTempFile.name, requestFile)
+                                com.cit.kaido.voxsight.network.ApiClient.omrService.analyzeScore(
+                                    body,
+                                    bypassCache = true
+                                )
+                            }.getOrNull()
+                        }
+
+                        val hasValidRemoteAnalysis = remoteAnalysis != null &&
+                            remoteAnalysis.success &&
+                            !remoteAnalysis.musicXml.isNullOrBlank() &&
+                            !remoteAnalysis.events.isNullOrEmpty() &&
+                            remoteAnalysis.events.any { it.sourceNoteId != null }
+
+                        if (hasValidRemoteAnalysis) {
+                            val analyzedXml = remoteAnalysis.musicXml.orEmpty()
+                            withContext(Dispatchers.IO) {
+                                xmlTempFile.writeText(analyzedXml, Charsets.UTF_8)
                             }
-                            
-                            val finalScore = parsedScore.copy(
-                                eventsJson = eventsJson,
-                                metadataJson = parsedScore.metadataJson
+                        }
+
+                        val parsedScore = withContext(Dispatchers.IO) {
+                            com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlScore(
+                                context,
+                                android.net.Uri.fromFile(xmlTempFile),
+                                practiceViewModel.pendingScoreTitle
                             )
-                            
-                            // Save to cache
-                            val savedMeta = withContext(Dispatchers.IO) {
-                                com.cit.kaido.voxsight.storage.LocalScoreManager.saveScore(context, finalScore)
-                            }
-                            
-                            // Redirect to Mode Gatekeeper with the saved score's assigned ID
-                            val scoreWithId = finalScore.copy(id = savedMeta.id)
-                            practiceViewModel.setCurrentScore(scoreWithId)
-                            com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
-                            navController.navigate("select_mode") {
-                                popUpTo("upload") { inclusive = false }
-                            }
+                        }
+                        if (parsedScore == null) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Failed to parse score",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            return@launch
+                        }
+
+                        val gson = com.google.gson.Gson()
+                        val finalScore = if (hasValidRemoteAnalysis) {
+                            parsedScore.copy(
+                                eventsJson = gson.toJson(remoteAnalysis.events),
+                                metadataJson = remoteAnalysis.scoreMetadata?.let { gson.toJson(it) }
+                                    ?: parsedScore.metadataJson
+                            )
                         } else {
-                            android.widget.Toast.makeText(context, "Failed to parse modified score", android.widget.Toast.LENGTH_SHORT).show()
-                            navController.popBackStack()
+                            parsedScore
+                        }
+
+                        val savedMeta = withContext(Dispatchers.IO) {
+                            com.cit.kaido.voxsight.storage.LocalScoreManager.saveScore(context, finalScore)
+                        }
+                        val scoreWithId = finalScore.copy(id = savedMeta.id)
+                        practiceViewModel.setCurrentScore(scoreWithId)
+                        com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
+                        navController.navigate("select_mode") {
+                            popUpTo("upload") { inclusive = false }
                         }
                     }
                 },

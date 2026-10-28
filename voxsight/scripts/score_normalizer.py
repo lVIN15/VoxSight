@@ -26,7 +26,8 @@ except ImportError:
     HAS_NUMPY = False
 
 MAX_SAFE_PIXELS = 18_000_000  # Audiveris ceiling is 20,000,000 px
-TARGET_MAX_DIMENSION = 3300   # Standard 300 DPI A4/Letter max pixel dimension
+TARGET_MAX_DIMENSION = 3300   # Standard 300 DPI Letter max pixel dimension for camera photos
+PDF_MAX_SAFE_DIMENSION = 4800 # Preserves vector Letter, A4 (3508px), Folio/Long-Bond (3900px), and Legal (4200px) PDFs untouched
 
 
 def _trim_dark_borders(img: Image.Image, threshold_ratio: float = 0.45) -> Image.Image:
@@ -227,6 +228,12 @@ def _is_blank_or_non_music_page(img: Image.Image) -> tuple:
 def normalize_pdf(input_path: str, output_path: str) -> bool:
     pdfium = None
     fitz = None
+    pypdf_mod = None
+    try:
+        import pypdf as pypdf_mod
+    except ImportError:
+        pass
+
     try:
         import pypdfium2 as pdfium
     except ImportError:
@@ -235,94 +242,174 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
     if pdfium is None:
         try:
             import fitz
-        except ImportError:
-            pass
+        except Exception:
+            fitz = None
 
-    if pdfium is None and fitz is None:
-        print("[ScoreNormalizer] Neither pypdfium2 nor fitz available, skipping PDF normalization.")
+    if pdfium is None and fitz is None and pypdf_mod is None:
+        print("[ScoreNormalizer] No PDF library (pypdfium2/pypdf/fitz) available, skipping PDF normalization.")
         return False
 
     rendered_pages = []
     pruned_indices = []
+    kept_zero_based_indices = []
+    page_scale_factors = {}
     needs_downscale = False
+    page_count = 0
 
     if pdfium is not None:
         pdf = pdfium.PdfDocument(input_path)
-        page_count = len(pdf)
-        if page_count == 0:
-            return False
+        try:
+            page_count = len(pdf)
+            if page_count == 0:
+                return False
 
-        print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via pypdfium2...")
+            print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via pypdfium2...")
 
-        for i, page in enumerate(pdf):
-            w_pt, h_pt = page.get_size()
-            dpi_scale = 300.0 / 72.0
-            target_w = int(w_pt * dpi_scale)
-            target_h = int(h_pt * dpi_scale)
+            for i in range(page_count):
+                page = pdf[i]
+                w_pt, h_pt = page.get_size()
+                dpi_scale = 300.0 / 72.0
+                target_w = int(w_pt * dpi_scale)
+                target_h = int(h_pt * dpi_scale)
 
-            if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
-                needs_downscale = True
-                factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
-                dpi_scale *= factor
+                if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
+                    needs_downscale = True
+                    # Rescale oversized PDF coordinate boxes (e.g. 5x A4 2976x4209pt) cleanly to A4/3508px bounds
+                    safe_dim_target = 3508.0
+                    factor = min(
+                        safe_dim_target / max(1, max(target_w, target_h)),
+                        math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))
+                    )
+                    page_scale_factors[i] = factor
+                    dpi_scale *= factor
 
-            rendered_img = page.render(scale=dpi_scale).to_pil().convert("RGB")
+                rendered_img = page.render(scale=dpi_scale).to_pil().convert("RGB")
 
-            # Check if page is blank or non-music back matter
-            is_blank, reason = _is_blank_or_non_music_page(rendered_img)
-            if is_blank:
-                print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
-                pruned_indices.append(i + 1)
-            else:
-                print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
-                rendered_pages.append(rendered_img)
-    else:
+                is_blank, reason = _is_blank_or_non_music_page(rendered_img)
+                if is_blank:
+                    print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
+                    pruned_indices.append(i + 1)
+                else:
+                    print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
+                    rendered_pages.append(rendered_img)
+                    kept_zero_based_indices.append(i)
+
+            if not rendered_pages and page_count > 0:
+                print(f"[ScoreNormalizer] WARNING: All {page_count} page(s) were flagged as blank/non-music. Retaining page 1 as fallback.")
+                f0 = page_scale_factors.get(0, 1.0)
+                first_img = pdf[0].render(scale=(300.0 / 72.0) * f0).to_pil().convert("RGB")
+                rendered_pages.append(first_img)
+                kept_zero_based_indices = [0]
+                if 1 in pruned_indices:
+                    pruned_indices.remove(1)
+        finally:
+            try:
+                pdf.close()
+            except Exception:
+                pass
+    elif fitz is not None:
         doc = fitz.open(input_path)
-        page_count = len(doc)
+        try:
+            page_count = len(doc)
+            if page_count == 0:
+                return False
+
+            print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via PyMuPDF (fitz)...")
+
+            for i in range(page_count):
+                page = doc[i]
+                rect = page.rect
+                w_pt, h_pt = rect.width, rect.height
+                target_dpi = 300.0
+                target_w = int(w_pt * (target_dpi / 72.0))
+                target_h = int(h_pt * (target_dpi / 72.0))
+
+                if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
+                    needs_downscale = True
+                    safe_dim_target = 3508.0
+                    factor = min(
+                        safe_dim_target / max(1, max(target_w, target_h)),
+                        math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))
+                    )
+                    page_scale_factors[i] = factor
+                    target_dpi = 300.0 * factor
+
+                pix = page.get_pixmap(dpi=target_dpi)
+                rendered_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+                is_blank, reason = _is_blank_or_non_music_page(rendered_img)
+                if is_blank:
+                    print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
+                    pruned_indices.append(i + 1)
+                else:
+                    print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
+                    rendered_pages.append(rendered_img)
+                    kept_zero_based_indices.append(i)
+
+            if not rendered_pages and page_count > 0:
+                print(f"[ScoreNormalizer] WARNING: All {page_count} page(s) were flagged as blank/non-music. Retaining page 1 as fallback.")
+                f0 = page_scale_factors.get(0, 1.0)
+                pix0 = doc[0].get_pixmap(dpi=300.0 * f0)
+                first_img = Image.frombytes("RGB", [pix0.width, pix0.height], pix0.samples)
+                rendered_pages.append(first_img)
+                kept_zero_based_indices = [0]
+                if 1 in pruned_indices:
+                    pruned_indices.remove(1)
+        finally:
+            try:
+                doc.close()
+            except Exception:
+                pass
+    else:
+        # Pure-Python pypdf geometry check when no rasterizer is available
+        reader = pypdf_mod.PdfReader(input_path)
+        page_count = len(reader.pages)
         if page_count == 0:
             return False
-
-        print(f"[ScoreNormalizer] Inspecting PDF {input_path} ({page_count} page(s)) via PyMuPDF (fitz)...")
-
-        for i in range(page_count):
-            page = doc[i]
-            rect = page.rect
-            w_pt, h_pt = rect.width, rect.height
-            target_dpi = 300.0
-            target_w = int(w_pt * (target_dpi / 72.0))
-            target_h = int(h_pt * (target_dpi / 72.0))
-
-            if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > TARGET_MAX_DIMENSION:
+        for i, pg in enumerate(reader.pages):
+            w_pt = float(pg.mediabox.width)
+            h_pt = float(pg.mediabox.height)
+            target_w = int(w_pt * (300.0 / 72.0))
+            target_h = int(h_pt * (300.0 / 72.0))
+            if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
                 needs_downscale = True
-                factor = TARGET_MAX_DIMENSION / max(target_w, target_h)
-                target_dpi = 300.0 * factor
+                safe_dim_target = 3508.0
+                page_scale_factors[i] = min(
+                    safe_dim_target / max(1, max(target_w, target_h)),
+                    math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))
+                )
+            kept_zero_based_indices.append(i)
 
-            pix = page.get_pixmap(dpi=target_dpi)
-            rendered_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            is_blank, reason = _is_blank_or_non_music_page(rendered_img)
-            if is_blank:
-                print(f"[ScoreNormalizer] Page {i+1}/{page_count} pruned: {reason}")
-                pruned_indices.append(i + 1)
-            else:
-                print(f"[ScoreNormalizer] Page {i+1}/{page_count} kept: {reason} ({rendered_img.size[0]}x{rendered_img.size[1]})")
-                rendered_pages.append(rendered_img)
-
-    # Safety guard: if ALL pages were pruned, retain page 1 so downstream gets a valid sheet to inspect
-    if not rendered_pages and page_count > 0:
-        print(f"[ScoreNormalizer] WARNING: All {page_count} page(s) were flagged as blank/non-music. Retaining page 1 as fallback.")
-        first_img = pdf[0].render(scale=300.0 / 72.0).to_pil().convert("RGB")
-        rendered_pages.append(first_img)
-        if 1 in pruned_indices:
-            pruned_indices.remove(1)
-
-    # If no pages were pruned and no downscale needed, keep original file
+    # 1. Clean & within safe bounds -> keep original lossless PDF byte-for-byte
     if not pruned_indices and not needs_downscale:
-        print(f"[ScoreNormalizer] PDF {input_path} is clean and within safe bounds. No modification needed.")
+        print(f"[ScoreNormalizer] PDF {input_path} is clean and within safe bounds. Keeping original lossless PDF.")
         if input_path != output_path:
             shutil.copy2(input_path, output_path)
         return True
 
-    # Otherwise, write the cleaned/rescaled PDF
+    # 2. Vector-lossless slicing & coordinate scaling via pure-Python pypdf (preserves crisp vector fonts & staves)
+    if pypdf_mod is not None and kept_zero_based_indices:
+        try:
+            reader = pypdf_mod.PdfReader(input_path)
+            writer = pypdf_mod.PdfWriter()
+            for page_idx in kept_zero_based_indices:
+                pg = reader.pages[page_idx]
+                if page_idx in page_scale_factors:
+                    pg.scale_by(page_scale_factors[page_idx])
+                writer.add_page(pg)
+            with open(output_path, "wb") as out_f:
+                writer.write(out_f)
+            print(
+                f"[ScoreNormalizer] Saved lossless vector PDF ({len(kept_zero_based_indices)}/{page_count} pages, "
+                f"rescaled_pages={len(page_scale_factors)}) to: {output_path}"
+            )
+            if pruned_indices:
+                print(f"[ScoreNormalizer] Filtered out {len(pruned_indices)} blank/non-music page(s): pages {pruned_indices}")
+            return True
+        except Exception as e:
+            print(f"[ScoreNormalizer] pypdf vector transform fallback to raster save: {e}")
+
+    # 3. Fallback: write rendered 300 DPI PDF
     if rendered_pages:
         rendered_pages[0].save(
             output_path,
