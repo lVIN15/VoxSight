@@ -473,10 +473,10 @@ ALLOWED_VOCAL_COMPANIONS = {
     "divisi", "div", "unison", "unis",
     "lead", "leader", "section",
     "women", "men", "boys", "girls", "children",
-    "soprano", "sopranos", "sop", "s",
-    "alto", "altos", "alt", "a",
-    "tenor", "tenors", "ten", "t",
-    "bass", "basses", "bas", "b",
+    "soprano", "sopranos", "sop", "s", "s1", "s2", "sop1", "sop2",
+    "alto", "altos", "alt", "a", "a1", "a2", "alt1", "alt2",
+    "tenor", "tenors", "ten", "t", "t1", "t2", "ten1", "ten2",
+    "bass", "basses", "bas", "b", "b1", "b2", "bas1", "bas2",
     "baritone", "baritones", "bar",
     "mezzo", "contralto",
     "cantus", "altus", "bassus", "treble", "descant",
@@ -1546,26 +1546,34 @@ def analyze(xml_path: str) -> dict:
         if any(tok in clean_lbl for tok in ("s/a", "t/b", "soprano/alto", "tenor/bass", "women", "men", "satb", "ssaa", "ttbb", "ssatb")):
             return None
         words_set = set(clean_lbl.split())
-        if ("soprano" in words_set and ("1" in words_set or "i" in words_set)) or "s1" in words_set:
+        s_words = {"soprano", "sopranos", "sop", "sopr", "s", "cantus", "treble"}
+        a_words = {"alto", "altos", "alt", "a", "altus", "contralto", "mezzo"}
+        t_words = {"tenor", "tenors", "ten", "t"}
+        b_words = {"bass", "basses", "bas", "b", "bassus"}
+
+        has_num1 = bool(words_set & {"1", "i", "first", "one"})
+        has_num2 = bool(words_set & {"2", "ii", "second", "two"})
+
+        if (bool(words_set & s_words) and has_num1) or "s1" in words_set or "sop1" in words_set or "sopr1" in words_set:
             return "S1"
-        if ("soprano" in words_set and ("2" in words_set or "ii" in words_set)) or "s2" in words_set:
+        if (bool(words_set & s_words) and has_num2) or "s2" in words_set or "sop2" in words_set or "sopr2" in words_set:
             return "S2"
-        if ("alto" in words_set and ("1" in words_set or "i" in words_set)) or "a1" in words_set:
+        if (bool(words_set & a_words) and has_num1) or "a1" in words_set or "alt1" in words_set:
             return "A1"
-        if ("alto" in words_set and ("2" in words_set or "ii" in words_set)) or "a2" in words_set:
+        if (bool(words_set & a_words) and has_num2) or "a2" in words_set or "alt2" in words_set:
             return "A2"
-        if ("tenor" in words_set and ("1" in words_set or "i" in words_set)) or "t1" in words_set:
+        if (bool(words_set & t_words) and has_num1) or "t1" in words_set or "ten1" in words_set:
             return "T1"
-        if ("tenor" in words_set and ("2" in words_set or "ii" in words_set)) or "t2" in words_set:
+        if (bool(words_set & t_words) and has_num2) or "t2" in words_set or "ten2" in words_set:
             return "T2"
-        if ("bass" in words_set and ("1" in words_set or "i" in words_set)) or "b1" in words_set:
+        if (bool(words_set & b_words) and has_num1) or "b1" in words_set or "bas1" in words_set:
             return "B1"
-        if ("bass" in words_set and ("2" in words_set or "ii" in words_set)) or "b2" in words_set:
+        if (bool(words_set & b_words) and has_num2) or "b2" in words_set or "bas2" in words_set:
             return "B2"
-        has_s = bool(words_set & {"soprano", "sopranos", "sop", "s", "cantus", "treble"})
-        has_a = bool(words_set & {"alto", "altos", "alt", "a", "altus", "contralto", "mezzo"})
-        has_t = bool(words_set & {"tenor", "tenors", "ten", "t"})
-        has_b = bool(words_set & {"bass", "basses", "bas", "b", "bassus"})
+        has_s = bool(words_set & s_words)
+        has_a = bool(words_set & a_words)
+        has_t = bool(words_set & t_words)
+        has_b = bool(words_set & b_words)
         if sum([has_s, has_a, has_t, has_b]) == 1:
             if has_s:
                 return "S"
@@ -1672,29 +1680,42 @@ def analyze(xml_path: str) -> dict:
             )
 
             taken = set(resolved_part_sections.values())
-            if len(lower_unassigned) == 1 and len(treble_unassigned) >= 3 and "T" not in taken:
-                treble_slots = [v for v in ("S", "A", "T") if v not in taken]
+            # For unassigned parts:
+            # If there are 4 treble and 2 lower parts in a 6-part score:
+            if len(lower_unassigned) == 2 and len(treble_unassigned) == 4:
+                t_order = sorted(treble_unassigned)
+                resolved_part_sections[t_order[0]] = "S1"
+                resolved_part_sections[t_order[1]] = "S2"
+                resolved_part_sections[t_order[2]] = "A1"
+                resolved_part_sections[t_order[3]] = "A2"
+                l_order = sorted(lower_unassigned)
+                resolved_part_sections[l_order[0]] = "T"
+                resolved_part_sections[l_order[1]] = "B"
             else:
-                treble_slots = [v for v in ("S", "A", "T", "B") if v not in taken]
-
-            for idx_t, p_num in enumerate(treble_unassigned):
-                if idx_t < len(treble_slots):
-                    resolved_part_sections[p_num] = treble_slots[idx_t]
-                    taken.add(treble_slots[idx_t])
+                # Treble staves must NEVER receive T or B if lower clefs exist to take them!
+                if len(lower_unassigned) >= 1:
+                    treble_slots = [v for v in ("S", "A") if v not in taken]
                 else:
-                    resolved_part_sections[p_num] = "A" if part_structural_info[p_num]["avg_midi"] < 65.0 else "S"
+                    treble_slots = [v for v in ("S", "A", "T", "B") if v not in taken]
 
-            lower_slots = [v for v in ("T", "B") if v not in taken]
-            if len(lower_unassigned) == 1 and lower_slots == ["T", "B"]:
-                # Single lower-clef stave in 3-part SAB vs SAT
-                resolved_part_sections[lower_unassigned[0]] = "B" if part_structural_info[lower_unassigned[0]]["avg_midi"] < 56.0 else "T"
-            else:
-                for idx_l, p_num in enumerate(lower_unassigned):
-                    if idx_l < len(lower_slots):
-                        resolved_part_sections[p_num] = lower_slots[idx_l]
-                        taken.add(lower_slots[idx_l])
+                for idx_t, p_num in enumerate(treble_unassigned):
+                    if idx_t < len(treble_slots):
+                        resolved_part_sections[p_num] = treble_slots[idx_t]
+                        taken.add(treble_slots[idx_t])
                     else:
-                        resolved_part_sections[p_num] = "B"
+                        resolved_part_sections[p_num] = "A" if part_structural_info[p_num]["avg_midi"] < 65.0 else "S"
+
+                lower_slots = [v for v in ("T", "B") if v not in taken]
+                if len(lower_unassigned) == 1 and lower_slots == ["T", "B"]:
+                    # Single lower-clef stave in 3-part SAB vs SAT
+                    resolved_part_sections[lower_unassigned[0]] = "B" if part_structural_info[lower_unassigned[0]]["avg_midi"] < 56.0 else "T"
+                else:
+                    for idx_l, p_num in enumerate(lower_unassigned):
+                        if idx_l < len(lower_slots):
+                            resolved_part_sections[p_num] = lower_slots[idx_l]
+                            taken.add(lower_slots[idx_l])
+                        else:
+                            resolved_part_sections[p_num] = "B"
 
     # Count staves
     staff_count = 0

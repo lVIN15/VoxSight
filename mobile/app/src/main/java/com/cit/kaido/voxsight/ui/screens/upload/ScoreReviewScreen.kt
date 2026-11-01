@@ -102,6 +102,14 @@ fun ScoreReviewScreen(
         extractScorePartLegendItems(parsedScore, dynamicVoiceCodes)
     }
 
+    LaunchedEffect(musicXml, isWebLoaded) {
+        if (isWebLoaded && musicXml.isNotBlank()) {
+            val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
+            val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
+            webViewInstance?.evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded');", null)
+        }
+    }
+
     BackHandler(enabled = isFullscreen) {
         isFullscreen = false
         webViewInstance?.evaluateJavascript("zoomFit();", null)
@@ -389,8 +397,16 @@ fun ScoreReviewScreen(
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            val activityManager = ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                            val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
+                            if (isLowEnd) {
+                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                            } else {
+                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                            }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                             settings.allowFileAccess = true
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
@@ -399,10 +415,6 @@ fun ScoreReviewScreen(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoaded = true
-                                    // Inject raw MusicXML into page using Base64 to avoid quoting issues
-                                    val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
-                                    val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
-                                    evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded');", null)
                                 }
                             }
                             addJavascriptInterface(EditorJsBridge(), "VoxSightBridge")

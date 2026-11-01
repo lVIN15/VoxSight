@@ -306,6 +306,22 @@ open class MidiPlayerController(
         playbackEngine.stop()
     }
 
+
+    fun seekToTick(tick: Int, noteId: Int = 0) {
+        val targetTick = if (currentTpq > 0) {
+            val matchedEvent = if (noteId > 0) {
+                eventStream.find { it.sourceNoteId == noteId }
+            } else null
+            matchedEvent?.tickPosition ?: tick
+        } else {
+            tick
+        }
+        playbackEngine.seekToTick(targetTick)
+        if (playbackEngine.getState() != com.cit.kaido.voxsight.playback.NativePlaybackEngine.PlaybackState.PLAYING) {
+            play()
+        }
+    }
+
     fun seek(progressFraction: Float) {
         playbackEngine.seek(progressFraction)
     }
@@ -679,6 +695,14 @@ open class MidiPlayerController(
         @JavascriptInterface
         fun onLayoutChanged(layoutHash: String, coordinatesJson: String) {
             onRenderComplete(layoutHash, coordinatesJson)
+        }
+
+
+        @JavascriptInterface
+        fun onNoteClicked(tick: Int, noteId: Int, measureNumber: Int) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                seekToTick(tick, noteId)
+            }
         }
 
         @JavascriptInterface

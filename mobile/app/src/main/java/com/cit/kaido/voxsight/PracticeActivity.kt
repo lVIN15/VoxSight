@@ -153,6 +153,13 @@ class PracticeActivity : AppCompatActivity(),
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        val activityManager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
+        if (isLowEnd) {
+            webView.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+        } else {
+            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        }
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -610,6 +617,17 @@ class PracticeActivity : AppCompatActivity(),
         fun onLayoutChanged(layoutHash: String, coordinatesJson: String) {
             Log.w(TAG, "Layout changed — re-building sync mapping")
             onRenderComplete(layoutHash, coordinatesJson)
+        }
+
+
+        @JavascriptInterface
+        fun onNoteClicked(tick: Int, noteId: Int, measureNumber: Int) {
+            runOnUiThread {
+                playbackEngine.seekToTick(tick)
+                if (playbackEngine.getState() != com.cit.kaido.voxsight.playback.NativePlaybackEngine.PlaybackState.PLAYING) {
+                    onPlayClicked()
+                }
+            }
         }
 
         @JavascriptInterface
