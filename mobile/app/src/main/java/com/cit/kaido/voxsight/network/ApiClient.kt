@@ -60,7 +60,7 @@ object ApiClient {
     }
 
     private fun isLocalUrl(url: String): Boolean {
-        return url.contains("10.0.2.2") || url.contains("192.168.") || url.contains("localhost") || url.contains("127.0.0.1")
+        return url.contains("10.0.2.2") || url.contains("192.168.") || url.contains("://10.") || url.contains("localhost") || url.contains("127.0.0.1")
     }
 
     fun init(context: Context) {

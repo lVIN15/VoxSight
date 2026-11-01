@@ -105,13 +105,16 @@ class TestCadenceWholeNotesRegression(unittest.TestCase):
         slur_stop = n3.find('.//slur[@type="stop"]')
         self.assertIsNotNone(slur_stop, "Bass M3 whole note must have <slur type='stop'/> in notations")
 
-        # Slur start on first note of eighth-note cadence in M2 (note 1: A#3)
+        # Slur start on first note of eighth-note cadence in M2 (note 1: A#3) must be above noteheads
         m2_pitched = [n for n in m2.findall('note') if n.find('rest') is None]
         self.assertGreaterEqual(len(m2_pitched), 3)
         n1_m2 = m2_pitched[0]
         self.assertEqual(n1_m2.findtext('.//step'), 'A')
         self.assertEqual(n1_m2.findtext('.//alter'), '1')
-        self.assertIsNotNone(n1_m2.find('.//slur[@type="start"]'), "Bass M2 note 1 must have <slur type='start'/>")
+        slur_start = n1_m2.find('.//slur[@type="start"]')
+        self.assertIsNotNone(slur_start, "Bass M2 note 1 must have <slur type='start'/>")
+        self.assertEqual(slur_start.get('placement'), 'above', "Bass M2 slur must arc above the noteheads, not below the beam")
+        self.assertNotIn('default-y', slur_start.attrib, "Beam-derived default-y must be stripped from Bass M2 slur")
 
     def test_04_preservation_of_genuine_whole_measure_rest(self):
         root = copy.deepcopy(self.root)
@@ -288,8 +291,7 @@ class TestCadenceWholeNotesRegression(unittest.TestCase):
         self.assertEqual(stems, ['down', 'down', 'down', 'down'])
         self.assertEqual(types, ['eighth', 'eighth', 'quarter', 'quarter'])
         self.assertEqual(p_notes[3].findtext('accidental'), 'natural', "Tenor M1 C4 note 4 must have natural accidental")
-        self.assertIsNotNone(p_notes[0].find('.//slur[@type="start"]'), "Tenor M1 Note 1 must have slur start")
-        self.assertIsNotNone(p_notes[3].find('.//slur[@type="stop"]'), "Tenor M1 Note 4 must have slur stop")
+        self.assertIsNone(m1.find('.//slur'), "Tenor M1 must not contain any phantom slur")
 
     def test_15_soprano_measure_3_cadence_eighths(self):
         root = copy.deepcopy(self.root)
@@ -348,6 +350,218 @@ class TestCadenceWholeNotesRegression(unittest.TestCase):
         self.assertEqual(r.get('measure'), 'yes')
         self.assertIsNone(r.find('display-step'), "Bass M1 whole rest must not have display-step so OSMD hangs it from Line 4")
         self.assertIsNone(r.find('display-octave'), "Bass M1 whole rest must not have display-octave so OSMD hangs it from Line 4")
+
+
+class TestSlurAccuracyStandalone(unittest.TestCase):
+    """Self-contained regression tests that run without external local scratch fixtures."""
+
+    RAW_EXCERPT_XML = """<score-partwise version="4.0.3">
+      <identification><source>norm_LEAD_ME_LORD__SATB.pdf</source></identification>
+      <part-list>
+        <score-part id="P1"><part-name>Voice</part-name></score-part>
+        <score-part id="P2"><part-name>Voice</part-name></score-part>
+        <score-part id="P3"><part-name>Voice</part-name></score-part>
+        <score-part id="P4"><part-name>Voice</part-name></score-part>
+        <score-part id="P5"><part-name>Voice</part-name></score-part>
+        <score-part id="P6"><part-name>Voice</part-name></score-part>
+      </part-list>
+      <part id="P1"><measure number="1"><attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><rest measure="yes"/><duration>8</duration><voice>1</voice></note></measure></part>
+      <part id="P2"><measure number="1"><attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><rest measure="yes"/><duration>8</duration><voice>1</voice></note></measure></part>
+      <part id="P3"><measure number="1"><attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><rest measure="yes"/><duration>8</duration><voice>1</voice></note></measure></part>
+      <part id="P4"><measure number="1"><attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><rest measure="yes"/><duration>8</duration><voice>1</voice></note></measure></part>
+      <part id="P5">
+        <measure number="1">
+          <attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>
+          <note><rest/><duration>2</duration><voice>1</voice><type>quarter</type></note>
+          <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem>down</stem><notations><slur type="start" number="1" placement="below" default-y="-16"/></notations></note>
+          <note><pitch><step>E</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem>down</stem><notations><slur type="stop" number="1"/></notations></note>
+          <note><pitch><step>D</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem>down</stem></note>
+        </measure>
+        <measure number="2"/>
+      </part>
+      <part id="P6">
+        <measure number="1">
+          <attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>
+          <note><rest measure="yes"><display-step>F</display-step><display-octave>3</display-octave></rest><duration>8</duration><voice>1</voice></note>
+        </measure>
+        <measure number="2">
+          <note><rest><display-step>D</display-step><display-octave>3</display-octave></rest><duration>4</duration><voice>1</voice><type>half</type></note>
+          <note><rest><display-step>D</display-step><display-octave>3</display-octave></rest><duration>1</duration><voice>1</voice><type>eighth</type></note>
+          <note><pitch><step>A</step><alter>1</alter><octave>3</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="-40">down</stem><notations><slur type="start" number="1" placement="below" default-x="2" default-y="-37" bezier-x="16" bezier-y="-1"/></notations></note>
+          <note><pitch><step>G</step><alter>1</alter><octave>3</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="-40">down</stem></note>
+          <backup><duration>9</duration></backup>
+        </measure>
+        <measure number="3"/>
+        <measure number="4">
+          <note><rest><display-step>D</display-step><display-octave>3</display-octave></rest><duration>4</duration><voice>1</voice><type>half</type></note>
+          <note><rest><display-step>D</display-step><display-octave>3</display-octave></rest><duration>1</duration><voice>1</voice><type>eighth</type></note>
+          <note><pitch><step>A</step><octave>3</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><accidental>natural</accidental><stem default-y="-40">down</stem><notations><slur type="start" number="2" placement="above" default-x="8" default-y="11" bezier-x="16" bezier-y="7"/><slur type="start" number="3" placement="below" default-x="2" default-y="-37" bezier-x="16" bezier-y="-1"/></notations></note>
+          <note><pitch><step>G</step><alter>1</alter><octave>3</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="-40">down</stem></note>
+          <backup><duration>9</duration></backup>
+        </measure>
+      </part>
+    </score-partwise>"""
+
+    def test_tenor_m1_no_phantom_slur_and_bass_m2_m4_slurs_above(self):
+        root = ET.fromstring(self.RAW_EXCERPT_XML)
+        musicxml_cleaner.clean_musicxml_tree(root)
+
+        # 1. Tenor M1 has E#4 - D#4 - C#4 - C4 natural with NO slur
+        p5_m1 = root.find("part[@id='P5']/measure[@number='1']")
+        self.assertIsNotNone(p5_m1)
+        t_notes = [n for n in p5_m1.findall('note') if n.find('rest') is None]
+        self.assertEqual([n.findtext('.//step') for n in t_notes], ['E', 'D', 'C', 'C'])
+        self.assertIsNone(p5_m1.find('.//slur'), "Tenor M1 must not emit any phantom slur")
+
+        # 2. Bass M2 -> M3 slur starts ABOVE A#3 (beam-misread placement='below' overwritten) and stops on C#3
+        p6_m2 = root.find("part[@id='P6']/measure[@number='2']")
+        p6_m3 = root.find("part[@id='P6']/measure[@number='3']")
+        b_m2_notes = [n for n in p6_m2.findall('note') if n.find('rest') is None]
+        self.assertEqual(len(b_m2_notes), 3)
+        m2_slurs = p6_m2.findall('.//slur')
+        self.assertEqual(len(m2_slurs), 1)
+        self.assertEqual(m2_slurs[0].get('type'), 'start')
+        self.assertEqual(m2_slurs[0].get('placement'), 'above')
+        self.assertNotIn('default-y', m2_slurs[0].attrib)
+        self.assertIsNotNone(p6_m3.find('.//slur[@type="stop"][@number="1"]'))
+
+        # 3. Bass M4 strips bogus placement='below' beam-slur and closes upper slur on restored F#3
+        p6_m4 = root.find("part[@id='P6']/measure[@number='4']")
+        self.assertIsNone(p6_m4.find('.//slur[@placement="below"]'))
+        b_m4_notes = [n for n in p6_m4.findall('note') if n.find('rest') is None]
+        self.assertEqual(len(b_m4_notes), 3)
+        self.assertEqual(b_m4_notes[0].find('.//slur[@type="start"]').get('placement'), 'above')
+        self.assertIsNotNone(b_m4_notes[2].find('.//slur[@type="stop"][@number="2"]'))
+
+
+
+    def _assert_w3c_note_order_and_balanced_slurs(self, root: ET.Element):
+        order = [
+            'grace', 'chord', 'pitch', 'unpitched', 'rest', 'duration', 'tie',
+            'instrument', 'footnote', 'level', 'voice', 'type', 'dot',
+            'accidental', 'time-modification', 'stem', 'notehead', 'notehead-text',
+            'staff', 'beam', 'notations', 'lyric', 'play', 'listen',
+        ]
+        rank = {t: i for i, t in enumerate(order)}
+        for part in root.findall('part'):
+            open_slurs = {}
+            for m_idx, m in enumerate(part.findall('measure')):
+                for n in m.findall('note'):
+                    tags = [ch.tag for ch in n if ch.tag in rank]
+                    self.assertEqual([rank[t] for t in tags], sorted(rank[t] for t in tags))
+                    for s in n.findall('.//slur'):
+                        num = (s.get('number') or '1').strip()
+                        st = (s.get('type') or '').strip()
+                        if st == 'start':
+                            self.assertNotIn(num, open_slurs)
+                            open_slurs[num] = m_idx
+                        elif st == 'stop':
+                            self.assertIn(num, open_slurs)
+                            self.assertLessEqual(m_idx - open_slurs.pop(num), 4)
+            self.assertEqual(open_slurs, {})
+
+    def test_universal_up_stemmed_eighths_and_double_beamed_16ths(self):
+        xml = """<score-partwise version="4.0.3">
+          <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+          <part id="P1">
+            <measure number="17">
+              <attributes><divisions>2</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+              <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>half</type><stem default-y="0">up</stem></note>
+              <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="4">up</stem><notations><slur type="start" number="1" placement="above" default-x="12" default-y="1" bezier-x="25" bezier-y="1"/></notations></note>
+              <note><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="5">up</stem></note>
+              <note><pitch><step>A</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="7">up</stem></note>
+              <note><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="9">up</stem><notations><slur type="stop" number="1"/></notations><lyric number="1"><syllabic>single</syllabic><text>Lord</text></lyric></note>
+              <backup><duration>12</duration></backup>
+            </measure>
+            <measure number="27">
+              <note><pitch><step>A</step><alter>1</alter><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>half</type><stem default-y="10">up</stem></note>
+              <note><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><dot/><stem default-y="5">up</stem></note>
+              <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="0">up</stem><notations><slur type="start" number="1" placement="above" default-x="12" default-y="-3" bezier-x="8" bezier-y="0"/><slur type="start" number="2" placement="above" default-x="12" default-y="-11" bezier-x="8" bezier-y="0"/></notations></note>
+              <note><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><stem default-y="5">up</stem><notations><slur type="stop" number="1"/><slur type="stop" number="2"/></notations></note>
+            </measure>
+          </part>
+        </score-partwise>"""
+        root = ET.fromstring(xml)
+        musicxml_cleaner.clean_musicxml_tree(root)
+
+        # Divisions scaled 2 -> 4 so 16th notes have integer duration 1
+        self.assertEqual(root.findtext("part[@id='P1']/measure[@number='17']/attributes/divisions"), '4')
+
+        # M17: half + 4 beamed eighths, 0 slurs, backup updated 24 -> 16
+        m17 = root.find("part[@id='P1']/measure[@number='17']")
+        m17_notes = m17.findall('note')
+        self.assertEqual([n.findtext('type') for n in m17_notes], ['half', 'eighth', 'eighth', 'eighth', 'eighth'])
+        self.assertEqual([n.findtext("beam[@number='1']") for n in m17_notes[1:]], ['begin', 'continue', 'continue', 'end'])
+        self.assertIsNone(m17.find('.//slur'))
+        self.assertEqual(m17.findtext('backup/duration'), '16')
+
+        # M27: half(8) + dotted-quarter(6) + two double-beamed 16ths(1, 1) = 16, 0 slurs
+        m27 = root.find("part[@id='P1']/measure[@number='27']")
+        m27_notes = m27.findall('note')
+        self.assertEqual([n.findtext('type') for n in m27_notes], ['half', 'quarter', '16th', '16th'])
+        self.assertEqual([int(n.findtext('duration')) for n in m27_notes], [8, 6, 1, 1])
+        self.assertEqual([n.findtext("beam[@number='1']") for n in m27_notes[2:]], ['begin', 'end'])
+        self.assertEqual([n.findtext("beam[@number='2']") for n in m27_notes[2:]], ['begin', 'end'])
+        self.assertIsNone(m27.find('.//slur'))
+
+        self._assert_w3c_note_order_and_balanced_slurs(root)
+        self.assertFalse(musicxml_cleaner.fix_beam_misread_slurs_and_orphans(root))
+
+    def test_universal_mixed_beat_and_late_stop_and_coexisting_vocal_slur(self):
+        xml = """<score-partwise version="4.0.3">
+          <part-list><score-part id="P1"><part-name>Alto</part-name></score-part></part-list>
+          <part id="P1">
+            <measure number="15">
+              <attributes><divisions>3</divisions><key><fifths>6</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+              <note><pitch><step>C</step><alter>1</alter><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><stem default-y="-50">down</stem></note>
+              <note><pitch><step>D</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="-45">down</stem><notations><slur type="start" number="1" placement="above" default-x="6" default-y="18" bezier-x="18" bezier-y="11"/><slur type="start" number="2" placement="below" default-x="1" default-y="-41" bezier-x="16" bezier-y="-1"/></notations></note>
+              <note><pitch><step>E</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="-40">down</stem><notations><slur type="stop" number="1"/><slur type="stop" number="2"/></notations></note>
+            </measure>
+            <measure number="37">
+              <note default-x="40"><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><stem default-y="0">up</stem></note>
+              <note default-x="110"><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="0">up</stem></note>
+              <note default-x="171"><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="5">up</stem><notations><slur type="start" number="1" placement="above" default-x="12" default-y="2" bezier-x="20" bezier-y="1"/></notations></note>
+              <note default-x="209"><pitch><step>A</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="8">up</stem></note>
+              <note default-x="234"><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="5">up</stem><notations><slur type="stop" number="1"/></notations></note>
+            </measure>
+            <measure number="59">
+              <note><pitch><step>B</step><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="-55">down</stem></note>
+              <note><pitch><step>A</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="-58">down</stem><notations><slur type="start" number="1" placement="below" default-x="1" default-y="-55" bezier-x="22" bezier-y="0"/></notations></note>
+              <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>3</duration><voice>1</voice><type>quarter</type><stem default-y="-62">down</stem></note>
+              <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><stem default-y="0">up</stem><notations><slur type="stop" number="1"/></notations></note>
+            </measure>
+          </part>
+        </score-partwise>"""
+        root = ET.fromstring(xml)
+        musicxml_cleaner.clean_musicxml_tree(root)
+
+        # Divisions scaled 3 -> 12 so both eighths (6) and 16ths (3) are exact integers
+        self.assertEqual(root.findtext("part[@id='P1']/measure[@number='15']/attributes/divisions"), '12')
+
+        # M15: real vocal slur #1 (above) preserved, bogus beam-slur #2 (below) stripped
+        m15 = root.find("part[@id='P1']/measure[@number='15']")
+        self.assertIsNone(m15.find('.//slur[@placement="below"]'))
+        self.assertIsNotNone(m15.find('.//slur[@type="start"][@number="1"][@placement="above"]'))
+        self.assertIsNotNone(m15.find('.//slur[@type="stop"][@number="1"]'))
+
+        # M37: 8th + 16th + 16th reconstructed on beat 4 (dx1=38 > dx2=25)
+        m37 = root.find("part[@id='P1']/measure[@number='37']")
+        m37_notes = m37.findall('note')
+        self.assertEqual([n.findtext('type') for n in m37_notes], ['half', 'quarter', 'eighth', '16th', '16th'])
+        self.assertEqual([n.findtext("beam[@number='1']") for n in m37_notes[2:]], ['begin', 'continue', 'end'])
+        self.assertIsNone(m37_notes[2].find("beam[@number='2']"))
+        self.assertEqual([n.findtext("beam[@number='2']") for n in m37_notes[3:]], ['begin', 'end'])
+        self.assertIsNone(m37.find('.//slur'))
+
+        # M59: late stop on trailing half note trimmed, middle two quarters -> beamed eighths
+        m59 = root.find("part[@id='P1']/measure[@number='59']")
+        m59_notes = m59.findall('note')
+        self.assertEqual([n.findtext('type') for n in m59_notes], ['quarter', 'eighth', 'eighth', 'half'])
+        self.assertEqual([n.findtext("beam[@number='1']") for n in m59_notes[1:3]], ['begin', 'end'])
+        self.assertIsNone(m59.find('.//slur'))
+
+        self._assert_w3c_note_order_and_balanced_slurs(root)
+        self.assertFalse(musicxml_cleaner.fix_beam_misread_slurs_and_orphans(root))
 
 
 if __name__ == '__main__':

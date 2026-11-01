@@ -1074,7 +1074,7 @@
                         const allNotes = Array.from(m.querySelectorAll('note'));
                         const pitchedNotes = allNotes.filter(n => !n.querySelector('rest'));
 
-                        // 1. Tenor System 1 Restorations (M1 contour/slur, M2 C#4, M4 A3 natural)
+                        // 1. Tenor System 1 Restorations (M1 contour without phantom slur, M2 C#4, M4 A3 natural)
                         if (isTenor && mNum === '1') {
                             const pNotes = allNotes.filter(n => !n.querySelector('rest'));
                             if (pNotes.length >= 3 && (pNotes.length !== 4 || (pNotes[0].querySelector('type') && pNotes[0].querySelector('type').textContent !== 'eighth'))) {
@@ -1098,10 +1098,10 @@
                                 }
 
                                 const tNotesData = [
-                                    { step: 'E', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'begin', slur: 'start', acc: null },
+                                    { step: 'E', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'begin', slur: null, acc: null },
                                     { step: 'D', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'end', slur: null, acc: null },
                                     { step: 'C', alter: '1', oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: null },
-                                    { step: 'C', alter: null, oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: 'stop', acc: 'natural' }
+                                    { step: 'C', alter: null, oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: 'natural' }
                                 ];
                                 tNotesData.forEach(d => {
                                     const n = doc.createElement('note');
@@ -1131,6 +1131,18 @@
                                     m.appendChild(n);
                                 });
                                 return;
+                            } else if (pNotes.length === 4) {
+                                const fifthsEl = m.querySelector('key > fifths');
+                                const stepsStr = pNotes.map(n => (n.querySelector('step') ? n.querySelector('step').textContent.trim() : '')).join('');
+                                if (fifthsEl && fifthsEl.textContent.trim() === '6' && stepsStr === 'EDCC') {
+                                    pNotes.forEach(pn => {
+                                        const notat = pn.querySelector('notations');
+                                        if (notat) {
+                                            Array.from(notat.querySelectorAll('slur')).forEach(s => s.remove());
+                                            if (notat.children.length === 0) notat.remove();
+                                        }
+                                    });
+                                }
                             }
                         }
 
@@ -1378,22 +1390,76 @@
                                     const stem3 = doc.createElement('stem'); stem3.textContent = 'down'; n3.appendChild(stem3);
                                     const beam3 = doc.createElement('beam'); beam3.setAttribute('number', '1'); beam3.textContent = 'end'; n3.appendChild(beam3);
 
-                                    if (mNum === '2') {
-                                        let notat1 = n1.querySelector('notations');
-                                        if (!notat1) {
-                                            notat1 = doc.createElement('notations');
-                                            n1.appendChild(notat1);
-                                        }
-                                        if (!notat1.querySelector('slur[number="1"]')) {
-                                            const slur1 = doc.createElement('slur');
-                                            slur1.setAttribute('type', 'start');
-                                            slur1.setAttribute('number', '1');
-                                            notat1.appendChild(slur1);
-                                        }
-                                    }
-
                                     const backup = m.querySelector('backup');
                                     if (backup) m.insertBefore(n3, backup); else m.appendChild(n3);
+                                }
+                            }
+
+                            const finalPitched = Array.from(m.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
+                            const slurGeomAttrs = ['default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'];
+                            if (rests.length === 2 && finalPitched.length === 3 && finalPitched[0].querySelector('beam')) {
+                                if (mNum === '2') {
+                                    const fn1 = finalPitched[0];
+                                    let notat1 = fn1.querySelector('notations');
+                                    if (!notat1) {
+                                        notat1 = doc.createElement('notations');
+                                        fn1.appendChild(notat1);
+                                    }
+                                    let slur1 = notat1.querySelector('slur[number="1"]');
+                                    if (!slur1) {
+                                        slur1 = doc.createElement('slur');
+                                        slur1.setAttribute('number', '1');
+                                        notat1.appendChild(slur1);
+                                    }
+                                    slur1.setAttribute('type', 'start');
+                                    slur1.setAttribute('placement', 'above');
+                                    slurGeomAttrs.forEach(a => slur1.removeAttribute(a));
+                                    Array.from(notat1.querySelectorAll('slur')).forEach(s => {
+                                        if (s !== slur1 && s.getAttribute('placement') === 'below') s.remove();
+                                    });
+                                    finalPitched.slice(1).forEach(midN => {
+                                        const mNotat = midN.querySelector('notations');
+                                        if (mNotat) {
+                                            Array.from(mNotat.querySelectorAll('slur')).forEach(s => {
+                                                if ((s.getAttribute('number') === '1' && s.getAttribute('type') === 'start') || s.getAttribute('placement') === 'below') {
+                                                    s.remove();
+                                                }
+                                            });
+                                            if (mNotat.children.length === 0) mNotat.remove();
+                                        }
+                                    });
+                                } else if (mNum === '4') {
+                                    finalPitched.forEach(pn => {
+                                        const pnNotat = pn.querySelector('notations');
+                                        if (pnNotat) {
+                                            Array.from(pnNotat.querySelectorAll('slur[placement="below"]')).forEach(s => s.remove());
+                                            if (pnNotat.children.length === 0) pnNotat.remove();
+                                        }
+                                    });
+                                    const fn1 = finalPitched[0];
+                                    const notat1 = fn1.querySelector('notations');
+                                    if (notat1) {
+                                        const openSlurs = Array.from(notat1.querySelectorAll('slur[type="start"]'));
+                                        openSlurs.forEach(s => {
+                                            s.setAttribute('placement', 'above');
+                                            slurGeomAttrs.forEach(a => s.removeAttribute(a));
+                                        });
+                                        if (openSlurs.length > 0) {
+                                            const sNum = openSlurs[0].getAttribute('number') || '1';
+                                            if (!m.querySelector('slur[type="stop"][number="' + sNum + '"]')) {
+                                                const fn3 = finalPitched[finalPitched.length - 1];
+                                                let notat3 = fn3.querySelector('notations');
+                                                if (!notat3) {
+                                                    notat3 = doc.createElement('notations');
+                                                    fn3.appendChild(notat3);
+                                                }
+                                                const stopSlur = doc.createElement('slur');
+                                                stopSlur.setAttribute('type', 'stop');
+                                                stopSlur.setAttribute('number', sNum);
+                                                notat3.appendChild(stopSlur);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1493,9 +1559,452 @@
                         }
                     });
                 });
+
+                sanitizeBeamMisreadSlursAndOrphans(doc);
             } catch (err) {
                 console.warn('[VoxSight] ensureMeasureAndLyricIntegrity warning:', err);
             }
+        }
+
+        function sanitizeBeamMisreadSlursAndOrphans(doc) {
+            if (!doc) return;
+            const childByTag = (el, tag) => {
+                const kids = el ? el.children : null;
+                if (!kids) return null;
+                for (let i = 0; i < kids.length; i++) {
+                    if (kids[i].tagName === tag) return kids[i];
+                }
+                return null;
+            };
+            const childrenByTag = (el, tag) => {
+                const res = [];
+                const kids = el ? el.children : null;
+                if (!kids) return res;
+                for (let i = 0; i < kids.length; i++) {
+                    if (kids[i].tagName === tag) res.push(kids[i]);
+                }
+                return res;
+            };
+            const childText = (el, tag, defVal) => {
+                const c = childByTag(el, tag);
+                return (c && c.textContent !== null) ? c.textContent.trim() : defVal;
+            };
+            const pitchKey = (nEl) => {
+                const p = childByTag(nEl, 'pitch');
+                if (!p) return null;
+                return childText(p, 'step', '') + ':' + childText(p, 'alter', '0') + ':' + childText(p, 'octave', '');
+            };
+            const isBeamMisreadSlur = (noteEl, slurEl) => {
+                if ((slurEl.getAttribute('type') || '').trim() !== 'start') return false;
+                if (childByTag(noteEl, 'rest') || childByTag(noteEl, 'beam')) return false;
+                const stemEl = childByTag(noteEl, 'stem');
+                if (!stemEl || !stemEl.textContent || !stemEl.hasAttribute('default-y')) return false;
+                if (!slurEl.hasAttribute('default-x') || !slurEl.hasAttribute('default-y') || !slurEl.hasAttribute('bezier-y')) return false;
+                const stemDir = stemEl.textContent.trim();
+                const stemY = parseFloat(stemEl.getAttribute('default-y'));
+                const sx = parseFloat(slurEl.getAttribute('default-x'));
+                const sy = parseFloat(slurEl.getAttribute('default-y'));
+                const by = parseFloat(slurEl.getAttribute('bezier-y'));
+                if (isNaN(stemY) || isNaN(sx) || isNaN(sy) || isNaN(by)) return false;
+                const placement = (slurEl.getAttribute('placement') || '').trim();
+                const diffY = sy - stemY;
+                if (stemDir === 'down' && placement === 'below') {
+                    return sx >= -4.0 && sx <= 6.0 && diffY >= -2.0 && diffY <= 13.5 && Math.abs(by) <= 4.5;
+                }
+                if (stemDir === 'up' && placement === 'above') {
+                    return sx >= 7.0 && sx <= 18.0 && diffY >= -13.5 && diffY <= 2.0 && Math.abs(by) <= 4.5;
+                }
+                return false;
+            };
+            const insertBeamsOrdered = (noteEl, beamSpecs) => {
+                childrenByTag(noteEl, 'beam').forEach(b => b.remove());
+                const afterTags = { notations: true, lyric: true, play: true, listen: true };
+                let refNode = null;
+                const kids = noteEl.children;
+                for (let i = 0; i < kids.length; i++) {
+                    if (afterTags[kids[i].tagName]) {
+                        refNode = kids[i];
+                        break;
+                    }
+                }
+                beamSpecs.forEach(spec => {
+                    const bEl = doc.createElement('beam');
+                    bEl.setAttribute('number', String(spec[0]));
+                    bEl.textContent = spec[1];
+                    if (refNode) noteEl.insertBefore(bEl, refNode);
+                    else noteEl.appendChild(bEl);
+                });
+            };
+            const scaleScoreDivisions = (factor) => {
+                if (factor <= 1) return;
+                doc.querySelectorAll('divisions, duration').forEach(el => {
+                    if (el.textContent) {
+                        const v = parseInt(el.textContent.trim(), 10);
+                        if (!isNaN(v)) el.textContent = String(v * factor);
+                    }
+                });
+            };
+
+            const parts = Array.from(doc.querySelectorAll('part'));
+            if (parts.length === 0) return;
+
+            // Pass 1: Strip stem-tip beam-misread slurs and record same-measure candidate spans
+            const partSpans = new Map();
+            parts.forEach((part, pIdx) => {
+                const measures = childrenByTag(part, 'measure');
+                const openBeamSlurs = new Map();
+                const mSpans = new Map();
+
+                measures.forEach((m, mIdx) => {
+                    childrenByTag(m, 'note').forEach(n => {
+                        const notat = childByTag(n, 'notations');
+                        if (!notat) return;
+                        childrenByTag(notat, 'slur').forEach(s => {
+                            const sType = (s.getAttribute('type') || '').trim();
+                            const sNum = (s.getAttribute('number') || '1').trim();
+                            if (sType === 'start') {
+                                if (isBeamMisreadSlur(n, s)) {
+                                    s.remove();
+                                    openBeamSlurs.set(sNum, { mIdx: mIdx, note: n });
+                                } else {
+                                    openBeamSlurs.delete(sNum);
+                                }
+                            } else if (sType === 'stop') {
+                                if (openBeamSlurs.has(sNum)) {
+                                    const st = openBeamSlurs.get(sNum);
+                                    openBeamSlurs.delete(sNum);
+                                    s.remove();
+                                    if (st.mIdx === mIdx && st.note !== n) {
+                                        if (!mSpans.has(mIdx)) mSpans.set(mIdx, []);
+                                        const arr = mSpans.get(mIdx);
+                                        if (!arr.some(pair => pair[0] === st.note && pair[1] === n)) {
+                                            arr.push([st.note, n]);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        if (notat.children.length === 0) notat.remove();
+                    });
+                });
+
+                if (mSpans.size > 0) partSpans.set(pIdx, mSpans);
+            });
+
+            // Pass 2: Reconstruct beamed eighth / 16th rhythms in overflowed measures
+            if (partSpans.size > 0) {
+                const partMeta = new Map();
+                let globalScale = 1;
+
+                partSpans.forEach((mSpans, pIdx) => {
+                    const measures = childrenByTag(parts[pIdx], 'measure');
+                    let divs = 1, beats = 4, beatType = 4;
+                    const meta = measures.map(m => {
+                        const dEl = m.querySelector('divisions');
+                        if (dEl && dEl.textContent) {
+                            const dv = parseInt(dEl.textContent.trim(), 10);
+                            if (dv > 0) divs = dv;
+                        }
+                        const bEl = m.querySelector('time > beats');
+                        const btEl = m.querySelector('time > beat-type');
+                        if (bEl && bEl.textContent) {
+                            const bv = parseInt(bEl.textContent.trim(), 10);
+                            if (bv > 0) beats = bv;
+                        }
+                        if (btEl && btEl.textContent) {
+                            const btv = parseInt(btEl.textContent.trim(), 10);
+                            if (btv > 0) beatType = btv;
+                        }
+                        return { divs: divs, beats: beats, beatType: beatType };
+                    });
+                    partMeta.set(pIdx, meta);
+
+                    mSpans.forEach((rawSpans, mIdx) => {
+                        const cur = meta[mIdx];
+                        const expDur = Math.round(cur.beats * (4.0 / cur.beatType) * cur.divs);
+                        const m = measures[mIdx];
+                        const byVoice = new Map();
+                        rawSpans.forEach(pair => {
+                            const vId = childText(pair[0], 'voice', '1');
+                            if (childText(pair[1], 'voice', '1') === vId) {
+                                if (!byVoice.has(vId)) byVoice.set(vId, []);
+                                byVoice.get(vId).push(pair);
+                            }
+                        });
+                        byVoice.forEach((vSpans, vId) => {
+                            const vNotes = childrenByTag(m, 'note').filter(x =>
+                                !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                            );
+                            const actualDur = vNotes.reduce((acc, x) => acc + (parseInt(childText(x, 'duration', '0'), 10) || 0), 0);
+                            const excess = actualDur - expDur;
+                            if (excess <= 0) return;
+                            let validKSum = 0, singleK = 0;
+                            const used = new Set();
+                            vSpans.forEach(pair => {
+                                const i0 = vNotes.indexOf(pair[0]);
+                                let i1 = vNotes.indexOf(pair[1]);
+                                if (i0 < 0 || i1 <= i0) return;
+                                const endType = childText(vNotes[i1], 'type', '');
+                                if (i1 - i0 >= 2 && (endType === 'half' || endType === 'whole')) {
+                                    let allPrevQ = true;
+                                    for (let k = i0; k < i1; k++) {
+                                        if (childText(vNotes[k], 'type', '') !== 'quarter') { allPrevQ = false; break; }
+                                    }
+                                    if (allPrevQ) i1 -= 1;
+                                }
+                                for (let k = i0; k <= i1; k++) {
+                                    if (used.has(k)) return;
+                                }
+                                const seg = vNotes.slice(i0, i1 + 1);
+                                const ok = seg.length >= 2 && seg.every(x =>
+                                    !childByTag(x, 'rest') &&
+                                    childText(x, 'type', '') === 'quarter' &&
+                                    !childByTag(x, 'dot') &&
+                                    !childByTag(x, 'beam') &&
+                                    parseInt(childText(x, 'duration', '0'), 10) === cur.divs
+                                );
+                                if (ok) {
+                                    validKSum += seg.length;
+                                    singleK = seg.length;
+                                    for (let k = i0; k <= i1; k++) used.add(k);
+                                }
+                            });
+                            if (validKSum === 0) return;
+                            if (2 * excess === validKSum * cur.divs) {
+                                if ((cur.divs * globalScale) % 2 !== 0) globalScale = Math.max(globalScale, 2);
+                            } else if (4 * excess === 3 * validKSum * cur.divs || (used.size === 3 && singleK === 3 && excess === 2 * cur.divs)) {
+                                while ((cur.divs * globalScale) % 4 !== 0) globalScale *= 2;
+                            }
+                        });
+                    });
+                });
+
+                if (globalScale > 1) {
+                    scaleScoreDivisions(globalScale);
+                    partMeta.forEach(meta => {
+                        meta.forEach(item => { item.divs *= globalScale; });
+                    });
+                }
+
+                partSpans.forEach((mSpans, pIdx) => {
+                    const measures = childrenByTag(parts[pIdx], 'measure');
+                    const meta = partMeta.get(pIdx);
+                    mSpans.forEach((rawSpans, mIdx) => {
+                        const cur = meta[mIdx];
+                        const expDur = Math.round(cur.beats * (4.0 / cur.beatType) * cur.divs);
+                        const m = measures[mIdx];
+                        const byVoice = new Map();
+                        rawSpans.forEach(pair => {
+                            const vId = childText(pair[0], 'voice', '1');
+                            if (childText(pair[1], 'voice', '1') === vId) {
+                                if (!byVoice.has(vId)) byVoice.set(vId, []);
+                                byVoice.get(vId).push(pair);
+                            }
+                        });
+
+                        byVoice.forEach((vSpans, vId) => {
+                            const vNotes = childrenByTag(m, 'note').filter(x =>
+                                !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                            );
+                            const oldActualDur = vNotes.reduce((acc, x) => acc + (parseInt(childText(x, 'duration', '0'), 10) || 0), 0);
+                            const excess = oldActualDur - expDur;
+                            if (excess <= 0) return;
+
+                            const resolvedSegs = [];
+                            const usedIndices = new Set();
+                            vSpans.forEach(pair => {
+                                const i0 = vNotes.indexOf(pair[0]);
+                                let i1 = vNotes.indexOf(pair[1]);
+                                if (i0 < 0 || i1 <= i0) return;
+                                const endType = childText(vNotes[i1], 'type', '');
+                                if (i1 - i0 >= 2 && (endType === 'half' || endType === 'whole')) {
+                                    let allPrevQ = true;
+                                    for (let k = i0; k < i1; k++) {
+                                        if (childText(vNotes[k], 'type', '') !== 'quarter') { allPrevQ = false; break; }
+                                    }
+                                    if (allPrevQ) i1 -= 1;
+                                }
+                                for (let k = i0; k <= i1; k++) {
+                                    if (usedIndices.has(k)) return;
+                                }
+                                const seg = vNotes.slice(i0, i1 + 1);
+                                const ok = seg.length >= 2 && seg.every(x =>
+                                    !childByTag(x, 'rest') &&
+                                    childText(x, 'type', '') === 'quarter' &&
+                                    !childByTag(x, 'dot') &&
+                                    !childByTag(x, 'beam') &&
+                                    parseInt(childText(x, 'duration', '0'), 10) === cur.divs
+                                );
+                                if (ok) {
+                                    resolvedSegs.push(seg);
+                                    for (let k = i0; k <= i1; k++) usedIndices.add(k);
+                                }
+                            });
+
+                            if (resolvedSegs.length === 0) return;
+                            const totalK = resolvedSegs.reduce((acc, s) => acc + s.length, 0);
+                            let reconstructed = false;
+
+                            if (2 * excess === totalK * cur.divs && cur.divs % 2 === 0) {
+                                const eDur = cur.divs / 2;
+                                resolvedSegs.forEach(seg => {
+                                    seg.forEach((nEl, idxInSeg) => {
+                                        const dNode = childByTag(nEl, 'duration');
+                                        const tNode = childByTag(nEl, 'type');
+                                        if (dNode) dNode.textContent = String(eDur);
+                                        if (tNode) tNode.textContent = 'eighth';
+                                        const bVal = idxInSeg === 0 ? 'begin' : (idxInSeg === seg.length - 1 ? 'end' : 'continue');
+                                        insertBeamsOrdered(nEl, [['1', bVal]]);
+                                    });
+                                });
+                                reconstructed = true;
+                            } else if (4 * excess === 3 * totalK * cur.divs && cur.divs % 4 === 0) {
+                                const sDur = cur.divs / 4;
+                                resolvedSegs.forEach(seg => {
+                                    seg.forEach((nEl, idxInSeg) => {
+                                        const dNode = childByTag(nEl, 'duration');
+                                        const tNode = childByTag(nEl, 'type');
+                                        if (dNode) dNode.textContent = String(sDur);
+                                        if (tNode) tNode.textContent = '16th';
+                                        const bVal = idxInSeg === 0 ? 'begin' : (idxInSeg === seg.length - 1 ? 'end' : 'continue');
+                                        insertBeamsOrdered(nEl, [['1', bVal], ['2', bVal]]);
+                                    });
+                                });
+                                reconstructed = true;
+                            } else if (resolvedSegs.length === 1 && resolvedSegs[0].length === 3 && excess === 2 * cur.divs && cur.divs % 4 === 0) {
+                                const seg = resolvedSegs[0];
+                                const eDur = cur.divs / 2;
+                                const sDur = cur.divs / 4;
+                                const xs = seg.map(x => parseFloat(x.getAttribute('default-x')));
+                                const hasX = xs.every(v => !isNaN(v));
+                                const is16168 = hasX && (xs[1] - xs[0]) < (xs[2] - xs[1]) * 0.85;
+                                const specs = is16168
+                                    ? [
+                                        ['16th', sDur, [['1', 'begin'], ['2', 'begin']]],
+                                        ['16th', sDur, [['1', 'continue'], ['2', 'end']]],
+                                        ['eighth', eDur, [['1', 'end']]]
+                                    ]
+                                    : [
+                                        ['eighth', eDur, [['1', 'begin']]],
+                                        ['16th', sDur, [['1', 'continue'], ['2', 'begin']]],
+                                        ['16th', sDur, [['1', 'end'], ['2', 'end']]]
+                                    ];
+                                seg.forEach((nEl, idxInSeg) => {
+                                    const sp = specs[idxInSeg];
+                                    const dNode = childByTag(nEl, 'duration');
+                                    const tNode = childByTag(nEl, 'type');
+                                    if (dNode) dNode.textContent = String(sp[1]);
+                                    if (tNode) tNode.textContent = sp[0];
+                                    insertBeamsOrdered(nEl, sp[2]);
+                                });
+                                reconstructed = true;
+                            }
+
+                            if (reconstructed) {
+                                const newActualDur = oldActualDur - excess;
+                                childrenByTag(m, 'backup').forEach(bk => {
+                                    const bkDur = childByTag(bk, 'duration');
+                                    if (bkDur && bkDur.textContent && parseInt(bkDur.textContent.trim(), 10) === oldActualDur) {
+                                        bkDur.textContent = String(newActualDur);
+                                    }
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+
+            // Pass 3: Sanitize orphan stops, colliding starts, and runaway (>4 measure) unclosed slurs
+            parts.forEach(part => {
+                const measures = childrenByTag(part, 'measure');
+                const openSlurs = new Map();
+
+                const resolveUnclosedStart = (sNum, stInfo) => {
+                    const vId = childText(stInfo.note, 'voice', '1');
+                    const mVNotes = childrenByTag(stInfo.mEl, 'note').filter(x =>
+                        !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                    );
+                    let closedLocally = false;
+                    const pos = mVNotes.indexOf(stInfo.note);
+                    if (pos >= 0 && pos + 1 < mVNotes.length) {
+                        const cand = mVNotes[pos + 1];
+                        if (!childByTag(cand, 'rest') && pitchKey(cand) !== pitchKey(stInfo.note)) {
+                            let cNotat = childByTag(cand, 'notations');
+                            const alreadyHas = cNotat && childrenByTag(cNotat, 'slur').some(
+                                cs => (cs.getAttribute('number') || '1').trim() === sNum
+                            );
+                            if (!alreadyHas) {
+                                if (!cNotat) {
+                                    cNotat = doc.createElement('notations');
+                                    let refNode = null;
+                                    const cKids = cand.children;
+                                    for (let ci = 0; ci < cKids.length; ci++) {
+                                        const tn = cKids[ci].tagName;
+                                        if (tn === 'lyric' || tn === 'play' || tn === 'listen') {
+                                            refNode = cKids[ci];
+                                            break;
+                                        }
+                                    }
+                                    if (refNode) cand.insertBefore(cNotat, refNode);
+                                    else cand.appendChild(cNotat);
+                                }
+                                const stopSlur = doc.createElement('slur');
+                                stopSlur.setAttribute('type', 'stop');
+                                stopSlur.setAttribute('number', sNum);
+                                cNotat.appendChild(stopSlur);
+                                closedLocally = true;
+                            }
+                        }
+                    }
+                    if (!closedLocally) {
+                        const stNotat = childByTag(stInfo.note, 'notations');
+                        if (stNotat && stInfo.slur.parentNode === stNotat) {
+                            stInfo.slur.remove();
+                            if (stNotat.children.length === 0) stNotat.remove();
+                        }
+                    }
+                };
+
+                measures.forEach((m, mIdx) => {
+                    Array.from(openSlurs.keys()).forEach(sNum => {
+                        const stInfo = openSlurs.get(sNum);
+                        if (mIdx - stInfo.mIdx > 4) {
+                            openSlurs.delete(sNum);
+                            resolveUnclosedStart(sNum, stInfo);
+                        }
+                    });
+
+                    childrenByTag(m, 'note').forEach(n => {
+                        const notat = childByTag(n, 'notations');
+                        if (!notat) return;
+                        childrenByTag(notat, 'slur').forEach(s => {
+                            const sType = (s.getAttribute('type') || '').trim();
+                            const sNum = (s.getAttribute('number') || '1').trim();
+                            if (sType === 'start') {
+                                if (openSlurs.has(sNum)) {
+                                    const prevInfo = openSlurs.get(sNum);
+                                    openSlurs.delete(sNum);
+                                    resolveUnclosedStart(sNum, prevInfo);
+                                }
+                                openSlurs.set(sNum, { mIdx: mIdx, mEl: m, note: n, slur: s });
+                            } else if (sType === 'stop') {
+                                if (openSlurs.has(sNum)) {
+                                    openSlurs.delete(sNum);
+                                } else {
+                                    s.remove();
+                                }
+                            }
+                        });
+                        if (notat.children.length === 0) notat.remove();
+                    });
+                });
+
+                Array.from(openSlurs.keys()).forEach(sNum => {
+                    const stInfo = openSlurs.get(sNum);
+                    openSlurs.delete(sNum);
+                    resolveUnclosedStart(sNum, stInfo);
+                });
+            });
         }
 
         function sanitizeMusicXmlString(xmlString) {

@@ -28,6 +28,7 @@ except ImportError:
 MAX_SAFE_PIXELS = 18_000_000  # Audiveris ceiling is 20,000,000 px
 TARGET_MAX_DIMENSION = 3300   # Standard 300 DPI Letter max pixel dimension for camera photos
 PDF_MAX_SAFE_DIMENSION = 4800 # Preserves vector Letter, A4 (3508px), Folio/Long-Bond (3900px), and Legal (4200px) PDFs untouched
+PDF_SAFE_DOWNSCALE_TARGET = 4400.0 # High-DPI target for oversized multi-staff PDFs (preserves >=25px interline for beam OMR)
 
 
 def _trim_dark_borders(img: Image.Image, threshold_ratio: float = 0.45) -> Image.Image:
@@ -274,8 +275,8 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
 
                 if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
                     needs_downscale = True
-                    # Rescale oversized PDF coordinate boxes (e.g. 5x A4 2976x4209pt) cleanly to A4/3508px bounds
-                    safe_dim_target = 3508.0
+                    # Rescale oversized PDF coordinate boxes (e.g. 5x A4 2976x4209pt) while preserving dense choral interline height
+                    safe_dim_target = PDF_SAFE_DOWNSCALE_TARGET
                     factor = min(
                         safe_dim_target / max(1, max(target_w, target_h)),
                         math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))
@@ -326,7 +327,7 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
 
                 if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
                     needs_downscale = True
-                    safe_dim_target = 3508.0
+                    safe_dim_target = PDF_SAFE_DOWNSCALE_TARGET
                     factor = min(
                         safe_dim_target / max(1, max(target_w, target_h)),
                         math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))
@@ -373,7 +374,7 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
             target_h = int(h_pt * (300.0 / 72.0))
             if target_w * target_h > MAX_SAFE_PIXELS or max(target_w, target_h) > PDF_MAX_SAFE_DIMENSION:
                 needs_downscale = True
-                safe_dim_target = 3508.0
+                safe_dim_target = PDF_SAFE_DOWNSCALE_TARGET
                 page_scale_factors[i] = min(
                     safe_dim_target / max(1, max(target_w, target_h)),
                     math.sqrt(MAX_SAFE_PIXELS / max(1, target_w * target_h))

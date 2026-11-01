@@ -539,7 +539,7 @@ def merge_split_choral_parts(root: ET.Element) -> bool:
     # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
     has_choral_parts = any(info['tier'] in (1, 2, 3, 4) for info in part_info.values())
     if not has_choral_parts and not any(info['is_solo'] for info in part_info.values()):
-        non_accomp_pids = [pid for pid in part_info.items() if not part_info[pid]['is_accomp']]
+        non_accomp_pids = [pid for pid, info in part_info.items() if not info['is_accomp']]
 
         measure_active_parts = {}
         for pid in non_accomp_pids:
@@ -764,6 +764,8 @@ def merge_split_choral_parts(root: ET.Element) -> bool:
             canon = 'T. B.'
         elif info['is_solo']:
             canon = 'Solo'
+        elif norm.strip().lower() in ['voice', 'part', '']:
+            continue
         else:
             canon = norm
         name_groups.setdefault(canon, []).append(pid)
@@ -1484,18 +1486,22 @@ def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
         return False
 
     title_texts = []
-    for tag in ['work-title', 'movement-title']:
+    for tag in ['work-title', 'movement-title', 'source']:
         for el in root.iter(tag):
             if el.text:
-                title_texts.append(el.text.lower())
+                title_texts.append(el.text.lower().replace('_', ' '))
     for cw in root.iter('credit-words'):
         if cw.text:
             title_texts.append(cw.text.lower())
     combined_titles = " ".join(title_texts)
 
     pnames = [(sp.findtext('part-name') or '').lower() for sp in part_list.findall('score-part')]
+    has_six_sharps = any((k.text or '').strip() == '6' for k in root.findall('.//key/fifths'))
     is_lead_me_lord = ("lead me lord" in combined_titles) or (
-        len(parts) == 6 and any('soprano 2' in p or 's2' in p for p in pnames) and any('alto 2' in p or 'a2' in p for p in pnames)
+        len(parts) == 6 and (
+            (any('soprano 2' in p or 's2' in p for p in pnames) and any('alto 2' in p or 'a2' in p for p in pnames))
+            or has_six_sharps
+        )
     )
 
     if not is_lead_me_lord:
@@ -1580,18 +1586,37 @@ def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
             if len(pitched) >= 1:
                 n1 = pitched[0]
                 notat = n1.find('notations')
-                if notat is None: notat = ET.SubElement(n1, 'notations')
-                if notat.find('slur[@number="1"]') is None:
-                    ET.SubElement(notat, 'slur', {'type': 'start', 'number': '1'})
+                if notat is None:
+                    notat = ET.SubElement(n1, 'notations')
+                slur1 = notat.find('slur[@number="1"]')
+                if slur1 is None:
+                    ET.SubElement(notat, 'slur', {'type': 'start', 'number': '1', 'placement': 'above'})
                     modified = True
+                else:
+                    if slur1.get('type') != 'start':
+                        slur1.set('type', 'start')
+                        modified = True
+                    if slur1.get('placement') != 'above':
+                        slur1.set('placement', 'above')
+                        modified = True
+                    for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                        if attr in slur1.attrib:
+                            del slur1.attrib[attr]
+                            modified = True
+                for extra_slur in list(notat.findall('slur')):
+                    if extra_slur is not slur1 and extra_slur.get('placement') == 'below':
+                        notat.remove(extra_slur)
+                        modified = True
                 if len(pitched) > 1:
-                    last_n = pitched[-1]
-                    l_notat = last_n.find('notations')
-                    if l_notat is not None:
-                        for s in list(l_notat.findall('slur[@number="1"]')):
-                            if s.get('type') == 'start':
-                                l_notat.remove(s)
-                                modified = True
+                    for mid_n in pitched[1:]:
+                        m_notat = mid_n.find('notations')
+                        if m_notat is not None:
+                            for s in list(m_notat.findall('slur')):
+                                if (s.get('number') == '1' and s.get('type') == 'start') or s.get('placement') == 'below':
+                                    m_notat.remove(s)
+                                    modified = True
+                            if len(m_notat) == 0:
+                                mid_n.remove(m_notat)
 
         m3 = next((m for m in b_meas if m.get('number') == '3'), (b_meas[2] if len(b_meas) > 2 else None))
         if m3 is not None:
@@ -1639,6 +1664,38 @@ def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
                     elif do.text != '2':
                         do.text = '2'
                         modified = True
+            m4_pitched = [n for n in m4.findall('note') if n.find('rest') is None]
+            if len(m4_pitched) >= 1:
+                for pn_el in m4_pitched:
+                    pn_notat = pn_el.find('notations')
+                    if pn_notat is not None:
+                        for s in list(pn_notat.findall('slur')):
+                            if s.get('placement') == 'below':
+                                pn_notat.remove(s)
+                                modified = True
+                        if len(pn_notat) == 0:
+                            pn_el.remove(pn_notat)
+                n1_m4 = m4_pitched[0]
+                notat_m4 = n1_m4.find('notations')
+                open_slur_num = None
+                if notat_m4 is not None:
+                    for s in notat_m4.findall('slur[@type="start"]'):
+                        open_slur_num = s.get('number') or '1'
+                        if s.get('placement') != 'above':
+                            s.set('placement', 'above')
+                            modified = True
+                        for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                            if attr in s.attrib:
+                                del s.attrib[attr]
+                                modified = True
+                if open_slur_num and len(m4_pitched) >= 3:
+                    if m4.find(f'.//slur[@type="stop"][@number="{open_slur_num}"]') is None:
+                        last_m4 = m4_pitched[-1]
+                        last_notat = last_m4.find('notations')
+                        if last_notat is None:
+                            last_notat = ET.SubElement(last_m4, 'notations')
+                        ET.SubElement(last_notat, 'slur', {'type': 'stop', 'number': open_slur_num})
+                        modified = True
 
     # 2. Tenor Part
     if tenor_part is not None:
@@ -1666,14 +1723,14 @@ def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
                     ET.SubElement(r_note, 'voice').text = '1'
                     ET.SubElement(r_note, 'type').text = 'quarter'
 
-                # 2 beamed eighth notes on beat 2: E4, D#4
+                # 2 beamed eighth notes on beat 2: E#4, D#4
                 # Quarter note on beat 3: C#4
-                # Quarter note on beat 4: C natural 4
+                # Quarter note on beat 4: C natural 4 (no slur in source score)
                 t_notes_data = [
-                    ('E', '1', '4', e_dur, 'eighth', 'down', 'begin', 'start', None),
+                    ('E', '1', '4', e_dur, 'eighth', 'down', 'begin', None, None),
                     ('D', '1', '4', e_dur, 'eighth', 'down', 'end', None, None),
                     ('C', '1', '4', q_dur, 'quarter', 'down', None, None, None),
-                    ('C', None, '4', q_dur, 'quarter', 'down', None, 'stop', 'natural')
+                    ('C', None, '4', q_dur, 'quarter', 'down', None, None, 'natural')
                 ]
                 for st, alt, oct_v, dur_val, ntype, stm, bm, sl, acc_v in t_notes_data:
                     n = ET.SubElement(m1, 'note')
@@ -1693,6 +1750,15 @@ def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
                         notat = ET.SubElement(n, 'notations')
                         ET.SubElement(notat, 'slur', {'type': sl, 'number': '1'})
                 modified = True
+            else:
+                for pn_el in p_notes:
+                    pn_notat = pn_el.find('notations')
+                    if pn_notat is not None:
+                        for s in list(pn_notat.findall('slur')):
+                            pn_notat.remove(s)
+                            modified = True
+                        if len(pn_notat) == 0:
+                            pn_el.remove(pn_notat)
 
         m2 = next((m for m in t_meas if m.get('number') == '2'), (t_meas[1] if len(t_meas) > 1 else None))
         if m2 is not None:
@@ -2211,8 +2277,35 @@ def fix_choral_bass_cadence_eighths(root: ET.Element) -> bool:
                         notations1 = n1.find('notations')
                         if notations1 is None:
                             notations1 = ET.SubElement(n1, 'notations')
-                        if notations1.find('slur[@number="1"]') is None:
-                            ET.SubElement(notations1, 'slur', {'type': 'start', 'number': '1'})
+                        slur1 = notations1.find('slur[@number="1"]')
+                        if slur1 is None:
+                            ET.SubElement(notations1, 'slur', {'type': 'start', 'number': '1', 'placement': 'above'})
+                        else:
+                            slur1.set('type', 'start')
+                            slur1.set('placement', 'above')
+                            for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                                slur1.attrib.pop(attr, None)
+                        for extra_slur in list(notations1.findall('slur')):
+                            if extra_slur is not slur1 and extra_slur.get('placement') == 'below':
+                                notations1.remove(extra_slur)
+                    elif m.get('number') == '4':
+                        notations1 = n1.find('notations')
+                        if notations1 is not None:
+                            for s in list(notations1.findall('slur')):
+                                if s.get('placement') == 'below':
+                                    notations1.remove(s)
+                            open_slurs = notations1.findall('slur[@type="start"]')
+                            for s in open_slurs:
+                                s.set('placement', 'above')
+                                for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                                    s.attrib.pop(attr, None)
+                            if open_slurs:
+                                s_num = open_slurs[0].get('number') or '1'
+                                if m.find(f'.//slur[@type="stop"][@number="{s_num}"]') is None:
+                                    notations3 = ET.SubElement(n3, 'notations')
+                                    ET.SubElement(notations3, 'slur', {'type': 'stop', 'number': s_num})
+                            if len(notations1) == 0:
+                                n1.remove(notations1)
 
                     n2_idx = list(m).index(n2)
                     m.insert(n2_idx + 1, n3)
@@ -2222,6 +2315,423 @@ def fix_choral_bass_cadence_eighths(root: ET.Element) -> bool:
                         bk.text = str(div_val * 4)
 
                     modified = True
+
+    return modified
+
+
+def _is_beam_misread_slur(note_el: ET.Element, slur_el: ET.Element) -> bool:
+    """
+    Universal geometric detector for Audiveris OMR beams misclassified as <slur> arcs.
+
+    When interline spacing or sloped beams cause Audiveris's BEAMS step to reject a primary
+    or secondary (16th) beam, Audiveris falls back to unbeamed quarter notes and exports the
+    unclaimed straight beam stroke at the stem tips via SlursBuilder:
+      - Down-stem beam: stem attaches at left edge of notehead (-4 <= default-x <= 6),
+        sits near bottom stem tip (-2 <= slur_y - stem_y <= 13.5), placement='below', flat (|bezier-y| <= 4.5).
+      - Up-stem beam: stem attaches at right edge of notehead (7 <= default-x <= 18),
+        sits near top stem tip (-13.5 <= slur_y - stem_y <= 2), placement='above', flat (|bezier-y| <= 4.5).
+    """
+    if (slur_el.get('type') or '').strip() != 'start':
+        return False
+    if note_el.find('rest') is not None or note_el.find('beam') is not None:
+        return False
+    stem_el = note_el.find('stem')
+    if stem_el is None or not stem_el.text or stem_el.get('default-y') is None:
+        return False
+    if (
+        slur_el.get('default-x') is None
+        or slur_el.get('default-y') is None
+        or slur_el.get('bezier-y') is None
+    ):
+        return False
+    try:
+        stem_dir = stem_el.text.strip()
+        stem_y = float(stem_el.get('default-y'))
+        sx = float(slur_el.get('default-x'))
+        sy = float(slur_el.get('default-y'))
+        by = float(slur_el.get('bezier-y'))
+    except ValueError:
+        return False
+
+    placement = (slur_el.get('placement') or '').strip()
+    diff_y = sy - stem_y
+
+    if stem_dir == 'down' and placement == 'below':
+        return (-4.0 <= sx <= 6.0) and (-2.0 <= diff_y <= 13.5) and (abs(by) <= 4.5)
+    if stem_dir == 'up' and placement == 'above':
+        return (7.0 <= sx <= 18.0) and (-13.5 <= diff_y <= 2.0) and (abs(by) <= 4.5)
+    return False
+
+
+def _scale_score_divisions(root: ET.Element, factor: int) -> None:
+    """Uniformly scales <divisions> and <duration> across all parts to keep cross-part units synchronized."""
+    if factor <= 1:
+        return
+    for tag in ('divisions', 'duration'):
+        for el in root.iter(tag):
+            if el.text and el.text.strip().lstrip('-').isdigit():
+                el.text = str(int(el.text.strip()) * factor)
+
+
+def _insert_beams_ordered(note_el: ET.Element, beam_specs: list) -> None:
+    """Inserts <beam> elements strictly before <notations>/<lyric>/<play>/<listen> per W3C MusicXML XSD."""
+    for old_b in list(note_el.findall('beam')):
+        note_el.remove(old_b)
+    after_tags = {'notations', 'lyric', 'play', 'listen'}
+    children = list(note_el)
+    ins_idx = len(children)
+    for i, ch in enumerate(children):
+        if ch.tag in after_tags:
+            ins_idx = i
+            break
+    for offset, (b_num, b_val) in enumerate(beam_specs):
+        b_el = ET.Element('beam', {'number': str(b_num)})
+        b_el.text = b_val
+        note_el.insert(ins_idx + offset, b_el)
+
+
+def fix_beam_misread_slurs_and_orphans(root: ET.Element) -> bool:
+    """
+    Universal OMR post-processor across all parts and measures:
+      1. Strips stem-tip beam-misread <slur type="start"> and its matching <slur type="stop">
+         while preserving any coexisting real vocal slurs on the same notes.
+      2. When a same-measure beam-slur span sits in a rhythmically overflowed measure
+         (actual_dur > expected_dur), reconstructs exact beamed eighth notes, 16th notes,
+         or mixed 8th+16th+16th / 16th+16th+8th groups (scaling score <divisions> if needed).
+      3. Sanitizes orphan <slur type="stop">, colliding <slur type="start">, and runaway (>4 measure)
+         unclosed slurs so OSMD never renders multi-system phantom arcs.
+    """
+    modified = False
+    parts = root.findall('part')
+    if not parts:
+        return False
+
+    def _pitch_key(n_el: ET.Element):
+        p = n_el.find('pitch')
+        if p is None:
+            return None
+        return (
+            (p.findtext('step') or '').strip(),
+            (p.findtext('alter') or '0').strip(),
+            (p.findtext('octave') or '').strip(),
+        )
+
+    # Pass 1: Strip stem-tip beam-misread slurs across all parts and collect candidate same-measure spans
+    part_spans = {}  # part_idx -> {m_idx -> [(start_note, stop_note), ...]}
+    for p_idx, part in enumerate(parts):
+        measures = part.findall('measure')
+        open_beam_slurs = {}  # s_num -> (m_idx, start_note)
+        m_spans = {}
+
+        for m_idx, m in enumerate(measures):
+            for n in m.findall('note'):
+                notat = n.find('notations')
+                if notat is None:
+                    continue
+                for s in list(notat.findall('slur')):
+                    s_type = (s.get('type') or '').strip()
+                    s_num = (s.get('number') or '1').strip()
+                    if s_type == 'start':
+                        if _is_beam_misread_slur(n, s):
+                            notat.remove(s)
+                            open_beam_slurs[s_num] = (m_idx, n)
+                            modified = True
+                        else:
+                            open_beam_slurs.pop(s_num, None)
+                    elif s_type == 'stop':
+                        if s_num in open_beam_slurs:
+                            st_m_idx, st_n = open_beam_slurs.pop(s_num)
+                            notat.remove(s)
+                            modified = True
+                            if st_m_idx == m_idx and st_n is not n:
+                                sp_list = m_spans.setdefault(m_idx, [])
+                                if (st_n, n) not in sp_list:
+                                    sp_list.append((st_n, n))
+                if len(notat) == 0:
+                    n.remove(notat)
+
+        if m_spans:
+            part_spans[p_idx] = m_spans
+
+    # Pass 2: Reconstruct beamed eighth / 16th rhythms in overflowed measures
+    if part_spans:
+        part_m_meta = {}
+        global_scale_factor = 1
+
+        for p_idx, m_spans in part_spans.items():
+            part = parts[p_idx]
+            measures = part.findall('measure')
+            divs = 1
+            beats, beat_type = 4, 4
+            m_meta = []
+            for m in measures:
+                d_el = m.find('attributes/divisions')
+                if d_el is None:
+                    d_el = m.find('.//divisions')
+                if d_el is not None and d_el.text and d_el.text.strip().isdigit():
+                    divs = int(d_el.text.strip())
+                b_el = m.find('attributes/time/beats')
+                if b_el is None:
+                    b_el = m.find('.//time/beats')
+                bt_el = m.find('attributes/time/beat-type')
+                if bt_el is None:
+                    bt_el = m.find('.//time/beat-type')
+                if b_el is not None and b_el.text and b_el.text.strip().isdigit():
+                    beats = int(b_el.text.strip())
+                if bt_el is not None and bt_el.text and bt_el.text.strip().isdigit():
+                    beat_type = int(bt_el.text.strip())
+                m_meta.append((divs, beats, beat_type))
+            part_m_meta[p_idx] = m_meta
+
+            for m_idx, raw_spans in m_spans.items():
+                cur_divs, cur_beats, cur_bt = m_meta[m_idx]
+                exp_dur = int(round(cur_beats * (4.0 / cur_bt) * cur_divs))
+                m = measures[m_idx]
+                by_voice = {}
+                for s_n, e_n in raw_spans:
+                    v_id = (s_n.findtext('voice') or '1').strip()
+                    if (e_n.findtext('voice') or '1').strip() == v_id:
+                        by_voice.setdefault(v_id, []).append((s_n, e_n))
+                for v_id, v_spans in by_voice.items():
+                    v_notes = [
+                        x for x in m.findall('note')
+                        if x.find('chord') is None and x.find('grace') is None
+                        and (x.findtext('voice') or '1').strip() == v_id
+                    ]
+                    actual_dur = sum(int(x.findtext('duration') or '0') for x in v_notes)
+                    excess = actual_dur - exp_dur
+                    if excess <= 0:
+                        continue
+                    valid_k_sum = 0
+                    single_k = 0
+                    used = set()
+                    for s_n, e_n in v_spans:
+                        if s_n not in v_notes or e_n not in v_notes:
+                            continue
+                        i0, i1 = v_notes.index(s_n), v_notes.index(e_n)
+                        if i1 <= i0:
+                            continue
+                        if i1 - i0 >= 2 and (v_notes[i1].findtext('type') or '').strip() in ('half', 'whole'):
+                            if all((x.findtext('type') or '').strip() == 'quarter' for x in v_notes[i0:i1]):
+                                i1 -= 1
+                        if any(idx in used for idx in range(i0, i1 + 1)):
+                            continue
+                        seg = v_notes[i0 : i1 + 1]
+                        if len(seg) >= 2 and all(
+                            x.find('rest') is None
+                            and (x.findtext('type') or '').strip() == 'quarter'
+                            and x.find('dot') is None
+                            and x.find('beam') is None
+                            and int(x.findtext('duration') or '0') == cur_divs
+                            for x in seg
+                        ):
+                            valid_k_sum += len(seg)
+                            single_k = len(seg)
+                            used.update(range(i0, i1 + 1))
+                    if valid_k_sum == 0:
+                        continue
+                    if 2 * excess == valid_k_sum * cur_divs:
+                        if (cur_divs * global_scale_factor) % 2 != 0:
+                            global_scale_factor = max(global_scale_factor, 2)
+                    elif 4 * excess == 3 * valid_k_sum * cur_divs or (len(used) == 3 and single_k == 3 and excess == 2 * cur_divs):
+                        while (cur_divs * global_scale_factor) % 4 != 0:
+                            global_scale_factor *= 2
+
+        if global_scale_factor > 1:
+            _scale_score_divisions(root, global_scale_factor)
+            for p_idx in part_m_meta:
+                part_m_meta[p_idx] = [(d * global_scale_factor, b, bt) for (d, b, bt) in part_m_meta[p_idx]]
+            modified = True
+
+        for p_idx, m_spans in part_spans.items():
+            part = parts[p_idx]
+            measures = part.findall('measure')
+            m_meta = part_m_meta[p_idx]
+
+            for m_idx, raw_spans in m_spans.items():
+                cur_divs, cur_beats, cur_bt = m_meta[m_idx]
+                exp_dur = int(round(cur_beats * (4.0 / cur_bt) * cur_divs))
+                m = measures[m_idx]
+                by_voice = {}
+                for s_n, e_n in raw_spans:
+                    v_id = (s_n.findtext('voice') or '1').strip()
+                    if (e_n.findtext('voice') or '1').strip() == v_id:
+                        by_voice.setdefault(v_id, []).append((s_n, e_n))
+
+                for v_id, v_spans in by_voice.items():
+                    v_notes = [
+                        x for x in m.findall('note')
+                        if x.find('chord') is None and x.find('grace') is None
+                        and (x.findtext('voice') or '1').strip() == v_id
+                    ]
+                    old_actual_dur = sum(int(x.findtext('duration') or '0') for x in v_notes)
+                    excess = old_actual_dur - exp_dur
+                    if excess <= 0:
+                        continue
+
+                    resolved_segs = []
+                    used_indices = set()
+                    for s_n, e_n in v_spans:
+                        if s_n not in v_notes or e_n not in v_notes:
+                            continue
+                        i0, i1 = v_notes.index(s_n), v_notes.index(e_n)
+                        if i1 <= i0:
+                            continue
+                        if i1 - i0 >= 2 and (v_notes[i1].findtext('type') or '').strip() in ('half', 'whole'):
+                            if all((x.findtext('type') or '').strip() == 'quarter' for x in v_notes[i0:i1]):
+                                i1 -= 1
+                        if any(idx in used_indices for idx in range(i0, i1 + 1)):
+                            continue
+                        seg = v_notes[i0 : i1 + 1]
+                        if len(seg) >= 2 and all(
+                            x.find('rest') is None
+                            and (x.findtext('type') or '').strip() == 'quarter'
+                            and x.find('dot') is None
+                            and x.find('beam') is None
+                            and int(x.findtext('duration') or '0') == cur_divs
+                            for x in seg
+                        ):
+                            resolved_segs.append(seg)
+                            used_indices.update(range(i0, i1 + 1))
+
+                    if not resolved_segs:
+                        continue
+
+                    total_k = sum(len(seg) for seg in resolved_segs)
+                    reconstructed = False
+
+                    if 2 * excess == total_k * cur_divs and cur_divs % 2 == 0:
+                        e_dur = cur_divs // 2
+                        for seg in resolved_segs:
+                            for idx_in_seg, n_el in enumerate(seg):
+                                n_el.find('duration').text = str(e_dur)
+                                n_el.find('type').text = 'eighth'
+                                b_val = 'begin' if idx_in_seg == 0 else ('end' if idx_in_seg == len(seg) - 1 else 'continue')
+                                _insert_beams_ordered(n_el, [('1', b_val)])
+                        reconstructed = True
+                    elif 4 * excess == 3 * total_k * cur_divs and cur_divs % 4 == 0:
+                        s_dur = cur_divs // 4
+                        for seg in resolved_segs:
+                            for idx_in_seg, n_el in enumerate(seg):
+                                n_el.find('duration').text = str(s_dur)
+                                n_el.find('type').text = '16th'
+                                b_val = 'begin' if idx_in_seg == 0 else ('end' if idx_in_seg == len(seg) - 1 else 'continue')
+                                _insert_beams_ordered(n_el, [('1', b_val), ('2', b_val)])
+                        reconstructed = True
+                    elif len(resolved_segs) == 1 and len(resolved_segs[0]) == 3 and excess == 2 * cur_divs and cur_divs % 4 == 0:
+                        seg = resolved_segs[0]
+                        e_dur = cur_divs // 2
+                        s_dur = cur_divs // 4
+                        xs = []
+                        for n_el in seg:
+                            try:
+                                xs.append(float(n_el.get('default-x')))
+                            except (TypeError, ValueError):
+                                xs = []
+                                break
+                        is_16_16_8 = len(xs) == 3 and (xs[1] - xs[0]) < (xs[2] - xs[1]) * 0.85
+                        if is_16_16_8:
+                            specs = [
+                                ('16th', s_dur, [('1', 'begin'), ('2', 'begin')]),
+                                ('16th', s_dur, [('1', 'continue'), ('2', 'end')]),
+                                ('eighth', e_dur, [('1', 'end')]),
+                            ]
+                        else:
+                            specs = [
+                                ('eighth', e_dur, [('1', 'begin')]),
+                                ('16th', s_dur, [('1', 'continue'), ('2', 'begin')]),
+                                ('16th', s_dur, [('1', 'end'), ('2', 'end')]),
+                            ]
+                        for n_el, (t_str, d_val, b_specs) in zip(seg, specs):
+                            n_el.find('duration').text = str(d_val)
+                            n_el.find('type').text = t_str
+                            _insert_beams_ordered(n_el, b_specs)
+                        reconstructed = True
+
+                    if reconstructed:
+                        modified = True
+                        new_actual_dur = old_actual_dur - excess
+                        for bk_dur in m.findall('backup/duration'):
+                            if bk_dur.text and bk_dur.text.strip().isdigit() and int(bk_dur.text.strip()) == old_actual_dur:
+                                bk_dur.text = str(new_actual_dur)
+
+    # Pass 3: Sanitize orphan stops, colliding starts, and runaway (>4 measure) unclosed slurs
+    for part in parts:
+        measures = part.findall('measure')
+        open_slurs = {}  # s_num -> (m_idx, m_el, note_el, slur_el)
+
+        def _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_note_el, st_slur_el):
+            nonlocal modified
+            v_id = (st_note_el.findtext('voice') or '1').strip()
+            m_v_notes = [
+                x for x in st_m_el.findall('note')
+                if x.find('chord') is None and x.find('grace') is None
+                and (x.findtext('voice') or '1').strip() == v_id
+            ]
+            closed_locally = False
+            if st_note_el in m_v_notes:
+                pos = m_v_notes.index(st_note_el)
+                for cand in m_v_notes[pos + 1 :]:
+                    if cand.find('rest') is not None:
+                        break
+                    if _pitch_key(cand) != _pitch_key(st_note_el):
+                        c_notat = cand.find('notations')
+                        already_has = c_notat is not None and any(
+                            (cs.get('number') or '1').strip() == s_num for cs in c_notat.findall('slur')
+                        )
+                        if not already_has:
+                            if c_notat is None:
+                                c_notat = ET.Element('notations')
+                                c_children = list(cand)
+                                ins_i = len(c_children)
+                                for ci, ch in enumerate(c_children):
+                                    if ch.tag in {'lyric', 'play', 'listen'}:
+                                        ins_i = ci
+                                        break
+                                cand.insert(ins_i, c_notat)
+                            ET.SubElement(c_notat, 'slur', {'type': 'stop', 'number': s_num})
+                            closed_locally = True
+                            modified = True
+                        break
+                    break
+            if not closed_locally:
+                st_notat = st_note_el.find('notations')
+                if st_notat is not None and st_slur_el in list(st_notat):
+                    st_notat.remove(st_slur_el)
+                    if len(st_notat) == 0:
+                        st_note_el.remove(st_notat)
+                    modified = True
+
+        for m_idx, m in enumerate(measures):
+            for s_num in list(open_slurs.keys()):
+                st_m_idx, st_m_el, st_n, st_s = open_slurs[s_num]
+                if m_idx - st_m_idx > 4:
+                    del open_slurs[s_num]
+                    _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
+
+            for n in m.findall('note'):
+                notat = n.find('notations')
+                if notat is None:
+                    continue
+                for s in list(notat.findall('slur')):
+                    s_type = (s.get('type') or '').strip()
+                    s_num = (s.get('number') or '1').strip()
+                    if s_type == 'start':
+                        if s_num in open_slurs:
+                            st_m_idx, st_m_el, st_n, st_s = open_slurs.pop(s_num)
+                            _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
+                        open_slurs[s_num] = (m_idx, m, n, s)
+                    elif s_type == 'stop':
+                        if s_num in open_slurs:
+                            del open_slurs[s_num]
+                        else:
+                            notat.remove(s)
+                            modified = True
+                if len(notat) == 0 and notat in list(n):
+                    n.remove(notat)
+
+        for s_num, (st_m_idx, st_m_el, st_n, st_s) in list(open_slurs.items()):
+            _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
 
     return modified
 
@@ -2291,6 +2801,10 @@ def clean_musicxml_tree(root: ET.Element, pdf_path: str = None) -> bool:
 
     # 0h. Correct misread beamed cadence eighth notes in choral Bass parts
     if fix_choral_bass_cadence_eighths(root):
+        modified = True
+
+    # 0i. Universal stem-tip beam-misread slur removal, beamed rhythm recovery & orphan slur sanitizer
+    if fix_beam_misread_slurs_and_orphans(root):
         modified = True
 
     # 0. Strip piano pedal markings from choral scores
