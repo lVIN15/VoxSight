@@ -806,22 +806,22 @@ fun UploadScoreScreen(
                         )
                     },
                     text = {
-                        Column {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             Text(
-                                text = "Use your PC's local Spring Boot + Audiveris server to test lossless branch changes before merging to Railway main.",
+                                text = "Select backend server or enter a custom address:",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = VoxTextSecondary
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             androidx.compose.material3.OutlinedButton(
                                 onClick = {
-                                    ApiClient.setDebugServerOverride(context, ApiClient.DEFAULT_BASE_URL)
+                                    ApiClient.setDebugServerOverride(context, "http://192.168.1.12:8080/")
                                     activeBackendUrl = ApiClient.getBaseUrl(context)
                                     showDebugServerDialog = false
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Local Wi-Fi PC (${ApiClient.DEFAULT_BASE_URL})")
+                                Text("Local Wi-Fi PC (http://192.168.1.12:8080/)")
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             androidx.compose.material3.OutlinedButton(
@@ -844,6 +844,21 @@ fun UploadScoreScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Railway Cloud (main)")
+                            }
+                            if (ApiClient.DEFAULT_BASE_URL != "http://192.168.1.12:8080/" &&
+                                ApiClient.DEFAULT_BASE_URL != ApiClient.EMULATOR_BASE_URL &&
+                                ApiClient.DEFAULT_BASE_URL != ApiClient.PRODUCTION_BASE_URL) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = {
+                                        ApiClient.setDebugServerOverride(context, ApiClient.DEFAULT_BASE_URL)
+                                        activeBackendUrl = ApiClient.getBaseUrl(context)
+                                        showDebugServerDialog = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Configured Default (${ApiClient.DEFAULT_BASE_URL})")
+                                }
                             }
                             Spacer(modifier = Modifier.height(10.dp))
                             androidx.compose.material3.OutlinedTextField(
