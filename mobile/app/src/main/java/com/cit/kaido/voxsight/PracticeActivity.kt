@@ -153,6 +153,13 @@ class PracticeActivity : AppCompatActivity(),
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        val activityManager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
+        if (isLowEnd) {
+            webView.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+        } else {
+            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        }
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -286,7 +293,8 @@ class PracticeActivity : AppCompatActivity(),
     private fun renderScore() {
         val xml = musicXml ?: return
         val encoded = android.util.Base64.encodeToString(xml.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
-        webView.evaluateJavascript("loadScoreBase64('$encoded', 480);", null)
+        val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
+        webView.evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded', 480);", null)
         isRendered = true
         Log.i(TAG, "Score sent to OSMD renderer via Base64")
     }
@@ -589,7 +597,7 @@ class PracticeActivity : AppCompatActivity(),
                         voice = (raw["voice"] as? Number)?.toInt() ?: 1,
                         staffIdx = (raw["staffIdx"] as? Number)?.toInt() ?: 0,
                         part = (raw["part"] as? String) ?: "S",
-                        color = (raw["color"] as? String) ?: "#E91E63",
+                        color = (raw["color"] as? String) ?: "#E11D48",
                         x = (raw["x"] as? Number)?.toFloat() ?: 0f,
                         y = (raw["y"] as? Number)?.toFloat() ?: 0f,
                         width = (raw["width"] as? Number)?.toFloat() ?: 0f,
@@ -609,6 +617,17 @@ class PracticeActivity : AppCompatActivity(),
         fun onLayoutChanged(layoutHash: String, coordinatesJson: String) {
             Log.w(TAG, "Layout changed — re-building sync mapping")
             onRenderComplete(layoutHash, coordinatesJson)
+        }
+
+
+        @JavascriptInterface
+        fun onNoteClicked(tick: Int, noteId: Int, measureNumber: Int) {
+            runOnUiThread {
+                playbackEngine.seekToTick(tick)
+                if (playbackEngine.getState() != com.cit.kaido.voxsight.playback.NativePlaybackEngine.PlaybackState.PLAYING) {
+                    onPlayClicked()
+                }
+            }
         }
 
         @JavascriptInterface

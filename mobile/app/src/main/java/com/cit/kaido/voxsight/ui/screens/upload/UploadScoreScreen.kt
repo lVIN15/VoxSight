@@ -98,7 +98,6 @@ import com.cit.kaido.voxsight.ui.screens.camera.SheetMusicScannerScreen
 import com.cit.kaido.voxsight.ui.screens.practice.Module2PracticeScreen
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.ui.screens.practice.parseMusicXmlFromString
-import com.cit.kaido.voxsight.ui.screens.practice.readMusicXmlText
 import com.cit.kaido.voxsight.ui.screens.profile.UploadCreditCoinImage
 import com.cit.kaido.voxsight.ui.screens.profile.decodeBase64ToImageBitmap
 import com.cit.kaido.voxsight.ui.theme.VoxBackground
@@ -231,6 +230,8 @@ fun UploadScoreScreen(
     }
     var scoreToDelete by remember { mutableStateOf<RecentScoreItem?>(null) }
     var forceFreshScan by remember { mutableStateOf(false) }
+    var activeBackendUrl by remember { mutableStateOf(ApiClient.getBaseUrl(context)) }
+    var showDebugServerDialog by remember { mutableStateOf(false) }
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -247,6 +248,7 @@ fun UploadScoreScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ApiClient.init(context)
+                activeBackendUrl = ApiClient.getBaseUrl(context)
                 uploadCredits = PremiumManager.getUploadCredits(context)
                 profilePictureBase64 = prefs.getString("logged_in_profile_picture", null)
                 coroutineScope.launch {
@@ -317,22 +319,45 @@ fun UploadScoreScreen(
             selectedScore = null
 
             if (isMusicXmlFile(fileName)) {
-                coroutineScope.launch {
-                    val xmlText = withContext(Dispatchers.IO) {
-                        readMusicXmlText(context, it)
-                    }
-                    if (!xmlText.isNullOrBlank()) {
-                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(xmlText)
+                // Keep MusicXML on the same backend analysis path as scanned scores.
+                // The backend recognizes XML/MXL extensions and skips Audiveris.
+                onImageCaptured(
+                    context = context,
+                    imageUri = it,
+                    coroutineScope = coroutineScope,
+                    bypassCache = forceFreshScan,
+                    onProgress = { /* handled by UploadManager state */ },
+                    onSuccess = { musicXml, _ ->
+                        val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
                         if (unsupportedReason != null) {
                             activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                            UploadManager.clearReadyState()
                         } else {
                             val scoreTitle = deriveTitleFromFileName(fileName)
-                            onNavigateToReview(xmlText, scoreTitle)
+                            onNavigateToReview(musicXml, scoreTitle)
                         }
-                    } else {
-                        activeErrorDialog = resolveErrorDialogData("Failed to read MusicXML file: The file is empty or corrupted.")
+                    },
+                    onError = { error ->
+                        coroutineScope.launch {
+                            val localXml = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.cit.kaido.voxsight.ui.screens.practice.readMusicXmlText(context, it)
+                            }
+                            if (!localXml.isNullOrBlank()) {
+                                val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(localXml)
+                                if (unsupportedReason != null) {
+                                    activeErrorDialog = resolveErrorDialogData(unsupportedReason)
+                                    UploadManager.clearReadyState()
+                                } else {
+                                    UploadManager.clearReadyState()
+                                    val scoreTitle = deriveTitleFromFileName(fileName)
+                                    onNavigateToReview(localXml, scoreTitle)
+                                }
+                            } else {
+                                activeErrorDialog = resolveErrorDialogData(error)
+                            }
+                        }
                     }
-                }
+                )
             } else {
                 // Send image/PDF directly to /api/analyze OMR pipeline
                 onImageCaptured(
@@ -731,6 +756,124 @@ fun UploadScoreScreen(
                         )
                     )
                 }
+            }
+
+            if (com.cit.kaido.voxsight.BuildConfig.DEBUG) {
+                Spacer(modifier = Modifier.height(10.dp))
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = VoxCardBackground,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "OMR Server (Debug)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VoxTextPrimary
+                            )
+                            Text(
+                                text = activeBackendUrl,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VoxTextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        TextButton(onClick = { showDebugServerDialog = true }) {
+                            Text("SWITCH", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (com.cit.kaido.voxsight.BuildConfig.DEBUG && showDebugServerDialog) {
+                var customServerInput by remember(activeBackendUrl) { mutableStateOf(activeBackendUrl) }
+                AlertDialog(
+                    onDismissRequest = { showDebugServerDialog = false },
+                    title = {
+                        Text(
+                            text = "Select Debug OMR Server",
+                            fontWeight = FontWeight.Bold,
+                            color = VoxTextPrimary
+                        )
+                    },
+                    text = {
+                        Column {
+                            Text(
+                                text = "Use your PC's local Spring Boot + Audiveris server to test lossless branch changes before merging to Railway main.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VoxTextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    ApiClient.setDebugServerOverride(context, ApiClient.DEFAULT_BASE_URL)
+                                    activeBackendUrl = ApiClient.getBaseUrl(context)
+                                    showDebugServerDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Local Wi-Fi PC (${ApiClient.DEFAULT_BASE_URL})")
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    ApiClient.setDebugServerOverride(context, ApiClient.EMULATOR_BASE_URL)
+                                    activeBackendUrl = ApiClient.getBaseUrl(context)
+                                    showDebugServerDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Android Emulator (${ApiClient.EMULATOR_BASE_URL})")
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    ApiClient.setDebugServerOverride(context, ApiClient.PRODUCTION_BASE_URL)
+                                    activeBackendUrl = ApiClient.getBaseUrl(context)
+                                    showDebugServerDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Railway Cloud (main)")
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            androidx.compose.material3.OutlinedTextField(
+                                value = customServerInput,
+                                onValueChange = { customServerInput = it },
+                                label = { Text("Custom Server URL") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                ApiClient.setDebugServerOverride(context, customServerInput)
+                                activeBackendUrl = ApiClient.getBaseUrl(context)
+                                showDebugServerDialog = false
+                            }
+                        ) {
+                            Text("SAVE", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDebugServerDialog = false }) {
+                            Text("CANCEL", color = VoxTextSubtitle)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))

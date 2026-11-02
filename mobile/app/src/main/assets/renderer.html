@@ -23,7 +23,7 @@
 
         #score-container {
             position: relative;
-            width: 100%;
+            width: max(100%, 600px);
             min-height: 100vh;
             background: #ffffff;
             padding: 12px 16px;
@@ -31,7 +31,7 @@
 
         /* OSMD renders into this div */
         #osmd-render {
-            width: 100%;
+            width: max(100%, 600px);
             min-height: 200px;
         }
 
@@ -112,7 +112,13 @@
             display: none !important;
             visibility: hidden !important;
         }
-    </style>
+    
+        .vf-notehead path, [class*="notehead"] path {
+            fill-rule: evenodd !important;
+            -webkit-fill-rule: evenodd !important;
+            shape-rendering: geometricPrecision !important;
+        }
+</style>
 </head>
 
 <body>
@@ -187,6 +193,15 @@
 
         // ─── State ──────────────────────────────────────────────────────
         let osmd = null;
+        var VOICE_PALETTE = { S: '#E11D48', A: '#8E24AA', T: '#2563EB', B: '#16A34A', SOLO: '#FF6D00', OTHER: '#546E7A', UNKNOWN: '#808080' };
+        window.setVoicePalette = function(palette) {
+            if (!palette || typeof palette !== 'object') return;
+            ['S', 'A', 'T', 'B', 'SOLO', 'OTHER', 'UNKNOWN'].forEach(function(key) {
+                if (typeof palette[key] === 'string' && /^#[0-9A-F]{6}$/i.test(palette[key])) {
+                    VOICE_PALETTE[key] = palette[key];
+                }
+            });
+        };
         let highlightCtx = null;
         let layoutHash = null;
         let noteCoordinates = [];  // Extracted from OSMD after render
@@ -313,7 +328,7 @@
             return 1;
         }
 
-        // ─── Universal Musical Part Classifier (Clef + Tessitura) ───────
+        // ─── Universal Musical Part Classifier (Clef + Tessitura + Structural Soloist) ───────
         function buildXmlDocVocalPartMap(doc) {
             if (!doc) return [];
             var partsList = doc.getElementsByTagName('part');
@@ -323,36 +338,47 @@
 
             for (var i = 0; i < total; i++) {
                 var p = partsList[i];
-                var pid = p.getAttribute('id');
-                var sp = pid ? doc.querySelector("score-part[id='" + pid + "']") : null;
-                var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
-                var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
-                var combined = pName + " " + pAbbr;
+                var pid = (p && typeof p.getAttribute === 'function') ? p.getAttribute('id') : null;
+                var sp = (pid && typeof doc.querySelector === 'function') ? doc.querySelector("score-part[id='" + pid + "']") : null;
+                var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                var combined = (pName + " " + pAbbr).trim();
 
-                var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combined.indexOf(w) !== -1; });
+                var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant', 'baritone solo', 'baritone'].some(function(w) { return combined.indexOf(w) !== -1; });
                 var isAccomp = ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'].some(function(w) { return combined.indexOf(w) !== -1; });
-                
-                var isSoprano = combined.indexOf('soprano') !== -1 || combined.trim() === 's' || combined.trim() === 's.' || /\bs\b/i.test(combined);
-                var isAlto = combined.indexOf('alto') !== -1 || combined.trim() === 'a' || combined.trim() === 'a.' || /\ba\b/i.test(combined);
-                var isTenor = combined.indexOf('tenor') !== -1 || combined.trim() === 't' || combined.trim() === 't.' || /\bt\b/i.test(combined);
-                var isBass = combined.indexOf('bass') !== -1 || combined.trim() === 'b' || combined.trim() === 'b.' || /\bb\b/i.test(combined);
+                var isCondensedPair = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 't/b', 't / b', 'tenor / bass', 'tenor/bass', 'women', 'men'].some(function(w) { return combined.indexOf(w) !== -1; });
+
+                var isSoprano = !isCondensedPair && (combined.indexOf('soprano') !== -1 || combined.indexOf('sopr') !== -1 || combined.indexOf('sop') !== -1 || combined === 's' || combined === 's.' || /\bs\b/i.test(combined)) && combined.indexOf('alto') === -1;
+                var isAlto = !isCondensedPair && (combined.indexOf('alto') !== -1 || combined.indexOf('alt') !== -1 || combined === 'a' || combined === 'a.' || /\ba\b/i.test(combined)) && combined.indexOf('soprano') === -1;
+                var isTenor = !isCondensedPair && (combined.indexOf('tenor') !== -1 || combined.indexOf('ten') !== -1 || combined === 't' || combined === 't.' || /\bt\b/i.test(combined)) && combined.indexOf('bass') === -1;
+                var isBass = !isCondensedPair && (combined.indexOf('bass') !== -1 || combined.indexOf('bas') !== -1 || combined === 'b' || combined === 'b.' || /\bb\b/i.test(combined)) && combined.indexOf('tenor') === -1;
 
                 var hasFClef = false;
-                var clefSigns = p.querySelectorAll('clef > sign');
+                var clefSigns = (p && typeof p.querySelectorAll === 'function') ? p.querySelectorAll('clef > sign') : [];
                 for (var ci = 0; ci < clefSigns.length; ci++) {
                     if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') {
                         hasFClef = true;
                         break;
                     }
                 }
+                if (!hasFClef && p && typeof p.querySelectorAll === 'function') {
+                    var clefOcts = p.querySelectorAll('clef > clef-octave-change');
+                    for (var coi = 0; coi < clefOcts.length; coi++) {
+                        var octVal = parseInt((clefOcts[coi].textContent || '').trim(), 10);
+                        if (!isNaN(octVal) && octVal < 0) {
+                            hasFClef = true;
+                            break;
+                        }
+                    }
+                }
 
-                var noteEls = p.querySelectorAll('note');
+                var noteEls = (p && typeof p.querySelectorAll === 'function') ? p.querySelectorAll('note') : [];
                 var totalMidi = 0;
                 var noteCount = 0;
                 for (var ni = 0; ni < noteEls.length; ni++) {
                     var n = noteEls[ni];
-                    if (n.querySelector('rest')) continue;
-                    var pEl = n.querySelector('pitch');
+                    if (n.querySelector && n.querySelector('rest')) continue;
+                    var pEl = n.querySelector ? n.querySelector('pitch') : null;
                     if (!pEl) continue;
                     var step = (pEl.querySelector('step') ? pEl.querySelector('step').textContent.trim() : 'C').toUpperCase();
                     var oct = parseInt(pEl.querySelector('octave') ? pEl.querySelector('octave').textContent.trim() : '4', 10);
@@ -363,10 +389,33 @@
                 }
                 var avgMidi = noteCount > 0 ? (totalMidi / noteCount) : 0;
 
+                var activeMeasures = 0;
+                var measEls = (p && typeof p.getElementsByTagName === 'function') ? p.getElementsByTagName('measure')
+                    : ((p && typeof p.querySelectorAll === 'function') ? p.querySelectorAll('measure') : []);
+                if (measEls && measEls.length > 0) {
+                    for (var mi = 0; mi < measEls.length; mi++) {
+                        var mNotes = measEls[mi].querySelectorAll ? measEls[mi].querySelectorAll('note') : [];
+                        var hasPitched = false;
+                        for (var mni = 0; mni < mNotes.length; mni++) {
+                            var mn = mNotes[mni];
+                            if (mn.querySelector && !mn.querySelector('rest') && mn.querySelector('pitch')) {
+                                hasPitched = true;
+                                break;
+                            }
+                        }
+                        if (hasPitched) activeMeasures++;
+                    }
+                } else if (typeof p.activeMeasures === 'number') {
+                    activeMeasures = p.activeMeasures;
+                } else {
+                    activeMeasures = noteCount > 0 ? 1 : 0;
+                }
+
                 meta.push({
                     index: i,
                     pid: pid,
                     name: pName,
+                    combined: combined,
                     isExplicitSolo: isExplicitSolo,
                     isAccomp: isAccomp,
                     isSoprano: isSoprano,
@@ -375,6 +424,7 @@
                     isBass: isBass,
                     hasFClef: hasFClef,
                     noteCount: noteCount,
+                    activeMeasures: activeMeasures,
                     avgMidi: avgMidi
                 });
             }
@@ -384,10 +434,10 @@
 
             // Pass 1: Explicit Solo and Accompaniment
             meta.forEach(function(m) {
-                if (m.isExplicitSolo) {
-                    vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                if (m.isExplicitSolo && total > 1) {
+                    vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: VOICE_PALETTE.SOLO, partId: 5, participating: ["SOLO"] };
                 } else if (m.isAccomp) {
-                    vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                    vocalPartMap[m.index] = { voice: "OTHERS", part: "OTHERS", color: VOICE_PALETTE.OTHER, partId: 6, participating: ["OTHERS"] };
                 }
             });
 
@@ -395,19 +445,52 @@
             meta.forEach(function(m) {
                 if (vocalPartMap[m.index]) return;
                 if (m.isSoprano) {
-                    vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: VOICE_PALETTE.S, partId: 1, participating: ["S"] };
                     claimedRoles["SOPRANO"] = true;
                 } else if (m.isAlto) {
-                    vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                    vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: VOICE_PALETTE.A, partId: 2, participating: ["A"] };
                     claimedRoles["ALTO"] = true;
                 } else if (m.isTenor) {
-                    vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: VOICE_PALETTE.T, partId: 3, participating: ["T"] };
                     claimedRoles["TENOR"] = true;
                 } else if (m.isBass) {
-                    vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    vocalPartMap[m.index] = { voice: "BASS", part: "B", color: VOICE_PALETTE.B, partId: 4, participating: ["B"] };
                     claimedRoles["BASS"] = true;
                 }
             });
+
+            // Pass 2.5: Structural Soloist Detection for >= 5-part vocal ensembles with generic OMR part names
+            var hasAssignedSolo = vocalPartMap.some(function(entry) { return entry && entry.part === "SOLO"; });
+            var vocalCandidates = meta.filter(function(m) { return !m.isAccomp && m.activeMeasures > 0; });
+            if (vocalCandidates.length >= 5 && !hasAssignedSolo) {
+                var activeSorted = vocalCandidates.map(function(m) { return m.activeMeasures; }).sort(function(a, b) { return b - a; });
+                var mCore = activeSorted[3];
+                var coreCandidates = vocalCandidates.filter(function(m) { return mCore < 4 || m.activeMeasures >= mCore * 0.45; });
+                var sopranoAnchor = null;
+                coreCandidates.forEach(function(m) {
+                    if (!m.hasFClef && (!sopranoAnchor || m.avgMidi > sopranoAnchor.avgMidi)) {
+                        sopranoAnchor = m;
+                    }
+                });
+
+                vocalCandidates.forEach(function(m) {
+                    if (vocalPartMap[m.index]) return;
+                    var isSparseSolo = (mCore >= 4 && m.activeMeasures < mCore * 0.45);
+                    var isAboveChoirSolo = Boolean(
+                        sopranoAnchor &&
+                        m.index < sopranoAnchor.index &&
+                        (m.hasFClef || (m.avgMidi > 0 && m.avgMidi < sopranoAnchor.avgMidi - 3.0))
+                    );
+                    if (isSparseSolo || isAboveChoirSolo) {
+                        var remainingVocal = vocalCandidates.filter(function(cand) {
+                            return cand.index !== m.index && !(vocalPartMap[cand.index] && vocalPartMap[cand.index].part === "SOLO");
+                        }).length;
+                        if (remainingVocal >= 4) {
+                            vocalPartMap[m.index] = { voice: "SOLO", part: "SOLO", color: VOICE_PALETTE.SOLO, partId: 5, participating: ["SOLO"] };
+                        }
+                    }
+                });
+            }
 
             // Pass 3: Fill unassigned vocal parts using Clef + Tessitura against unclaimed roles
             var unassigned = meta.filter(function(m) { return !vocalPartMap[m.index]; });
@@ -418,33 +501,42 @@
                 unassignedBass.sort(function(a, b) { return b.avgMidi - a.avgMidi; });
                 unassignedTreble.sort(function(a, b) { return b.avgMidi - a.avgMidi; });
 
-                unassignedBass.forEach(function(m) {
-                    if (!claimedRoles["BASS"]) {
-                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                        claimedRoles["BASS"] = true;
-                    } else if (!claimedRoles["TENOR"]) {
-                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                unassignedTreble.forEach(function(m) {
+                    if (!claimedRoles["SOPRANO"]) {
+                        vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: VOICE_PALETTE.S, partId: 1, participating: ["S"] };
+                        claimedRoles["SOPRANO"] = true;
+                    } else if (!claimedRoles["ALTO"]) {
+                        vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: VOICE_PALETTE.A, partId: 2, participating: ["A"] };
+                        claimedRoles["ALTO"] = true;
+                    } else if (unassignedTreble.length >= 3 && unassignedBass.length <= 1 && !claimedRoles["TENOR"]) {
+                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: VOICE_PALETTE.T, partId: 3, participating: ["T"] };
                         claimedRoles["TENOR"] = true;
                     } else {
-                        var role = (m.avgMidi >= 55.0) ? "TENOR" : "BASS";
-                        var clr = (role === "TENOR") ? "#2196F3" : "#4CAF50";
-                        var pId = (role === "TENOR") ? 3 : 4;
-                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
+                        var role = (m.avgMidi >= 66.5) ? "SOPRANO" : "ALTO";
+                        var clr = (role === "SOPRANO") ? VOICE_PALETTE.S : VOICE_PALETTE.A;
+                        var pId = (role === "SOPRANO") ? 1 : 2;
+                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId, participating: [role[0]] };
                     }
                 });
 
-                unassignedTreble.forEach(function(m) {
-                    if (!claimedRoles["SOPRANO"]) {
-                        vocalPartMap[m.index] = { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                        claimedRoles["SOPRANO"] = true;
-                    } else if (!claimedRoles["ALTO"]) {
-                        vocalPartMap[m.index] = { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                        claimedRoles["ALTO"] = true;
+                unassignedBass.forEach(function(m) {
+                    if (unassignedBass.length >= 2 && !claimedRoles["TENOR"]) {
+                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: VOICE_PALETTE.T, partId: 3, participating: ["T"] };
+                        claimedRoles["TENOR"] = true;
+                    } else if (unassignedBass.length >= 2 && !claimedRoles["BASS"]) {
+                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: VOICE_PALETTE.B, partId: 4, participating: ["B"] };
+                        claimedRoles["BASS"] = true;
+                    } else if (claimedRoles["TENOR"] && !claimedRoles["BASS"]) {
+                        vocalPartMap[m.index] = { voice: "BASS", part: "B", color: VOICE_PALETTE.B, partId: 4, participating: ["B"] };
+                        claimedRoles["BASS"] = true;
+                    } else if (claimedRoles["BASS"] && !claimedRoles["TENOR"]) {
+                        vocalPartMap[m.index] = { voice: "TENOR", part: "T", color: VOICE_PALETTE.T, partId: 3, participating: ["T"] };
+                        claimedRoles["TENOR"] = true;
                     } else {
-                        var role = (m.avgMidi >= 66.5) ? "SOPRANO" : "ALTO";
-                        var clr = (role === "SOPRANO") ? "#E91E63" : "#9C27B0";
-                        var pId = (role === "SOPRANO") ? 1 : 2;
-                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId };
+                        var role = (m.avgMidi > 0 && m.avgMidi < 55.0) ? "BASS" : "TENOR";
+                        var clr = (role === "TENOR") ? VOICE_PALETTE.T : VOICE_PALETTE.B;
+                        var pId = (role === "TENOR") ? 3 : 4;
+                        vocalPartMap[m.index] = { voice: role, part: role[0], color: clr, partId: pId, participating: [role[0]] };
                     }
                 });
             }
@@ -453,51 +545,100 @@
         }
 
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
-        function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice) {
+        function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice, isDivisiChord) {
+            function applyInStaffDivisi(info) {
+                if (!isDivisiChord || !info || (chordPos !== 'top' && chordPos !== 'bottom')) return info;
+                var isTop = (chordPos === 'top');
+                switch (info.part) {
+                    case 'S':
+                        return isTop
+                            ? { voice: "SOPRANO 1", part: "S1", color: "#FB7185", partId: 11, participating: ["S1"] }
+                            : { voice: "SOPRANO 2", part: "S2", color: "#881337", partId: 12, participating: ["S2"] };
+                    case 'A':
+                        return isTop
+                            ? { voice: "ALTO 1", part: "A1", color: "#C084FC", partId: 21, participating: ["A1"] }
+                            : { voice: "ALTO 2", part: "A2", color: "#4C1D95", partId: 22, participating: ["A2"] };
+                    case 'T':
+                        return isTop
+                            ? { voice: "TENOR 1", part: "T1", color: "#0284C7", partId: 31, participating: ["T1"] }
+                            : { voice: "TENOR 2", part: "T2", color: "#1E3A8A", partId: 32, participating: ["T2"] };
+                    case 'B':
+                        return isTop
+                            ? { voice: "BASS 1", part: "B1", color: "#65A30D", partId: 41, participating: ["B1"] }
+                            : { voice: "BASS 2", part: "B2", color: "#064E3B", partId: 42, participating: ["B2"] };
+                    default:
+                        return info;
+                }
+            }
+            var isPartSolo = false;
+            if (xmlDoc && typeof partIdx === 'number') {
+                try {
+                    var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
+                    if (partsList && partIdx >= 0 && partIdx < partsList.length) {
+                        var pElem = partsList[partIdx];
+                        var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                        var sp = (pid && typeof xmlDoc.querySelector === 'function') ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
+                        var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                        var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                        var comb = pName + " " + pAbbr;
+                        var hasFClef = false;
+                        var clefSigns = (pElem && typeof pElem.querySelectorAll === 'function') ? pElem.querySelectorAll('clef > sign') : [];
+                        for (var ci = 0; ci < clefSigns.length; ci++) {
+                            if ((clefSigns[ci].textContent || '').trim().toUpperCase() === 'F') { hasFClef = true; break; }
+                        }
+                        var isSoloNamed = ['solo', 'cantor', 'leader', 'descant'].some(function(w) { return comb.indexOf(w) !== -1; });
+                        if (comb.indexOf('baritone') !== -1 || isSoloNamed) {
+                            isPartSolo = true;
+                        }
+                    }
+                } catch(e) {}
+            }
+
             // Priority 1: Explicit user override via data-vx-voice attribute
             if (customVoice !== null && customVoice !== undefined) {
                 var cv = String(customVoice).trim().toUpperCase();
                 if (cv !== "") {
                     switch (cv) {
                         case "1": case "S": case "SOPRANO":
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
+                            return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1, participating: ["S"] };
                         case "S1": case "SOPRANO1": case "SOPRANO 1":
-                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FB7185", partId: 11, participating: ["S1"] };
                         case "S2": case "SOPRANO2": case "SOPRANO 2":
-                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
+                            return { voice: "SOPRANO 2", part: "S2", color: "#881337", partId: 12, participating: ["S2"] };
                         case "2": case "A": case "ALTO":
                             return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] };
                         case "A1": case "ALTO1": case "ALTO 1":
-                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
+                            return { voice: "ALTO 1", part: "A1", color: "#C084FC", partId: 21, participating: ["A1"] };
                         case "A2": case "ALTO2": case "ALTO 2":
-                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
+                            return { voice: "ALTO 2", part: "A2", color: "#4C1D95", partId: 22, participating: ["A2"] };
                         case "3": case "T": case "TENOR":
-                            return { voice: "TENOR", part: "T", color: "#1976D2", partId: 3, participating: ["T"] };
+                            return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3, participating: ["T"] };
                         case "T1": case "TENOR1": case "TENOR 1":
-                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
+                            return { voice: "TENOR 1", part: "T1", color: "#0284C7", partId: 31, participating: ["T1"] };
                         case "T2": case "TENOR2": case "TENOR 2":
-                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
+                            return { voice: "TENOR 2", part: "T2", color: "#1E3A8A", partId: 32, participating: ["T2"] };
                         case "4": case "B": case "BASS":
-                            return { voice: "BASS", part: "B", color: "#2E7D32", partId: 4, participating: ["B"] };
+                            return { voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] };
                         case "B1": case "BASS1": case "BASS 1":
-                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
+                            return { voice: "BASS 1", part: "B1", color: "#65A30D", partId: 41, participating: ["B1"] };
                         case "B2": case "BASS2": case "BASS 2":
-                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
+                            return { voice: "BASS 2", part: "B2", color: "#064E3B", partId: 42, participating: ["B2"] };
                         case "UNISON_TB": case "TB":
-                            return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#00BFA5", partId: 34, participating: ["T", "B"] };
+                            return { voice: "TENOR / BASS", part: "UNISON_TB", color: "#0D9488", partId: 34, participating: ["T", "B"] };
                         case "UNISON_SA": case "SA":
-                            return { voice: "SOPRANO / ALTO", part: "UNISON_SA", color: "#D81B60", partId: 12, participating: ["S", "A"] };
+                            return { voice: "SOPRANO / ALTO", part: "UNISON_SA", color: "#4F46E5", partId: 12, participating: ["S", "A"] };
                         case "UNISON_S1S2": case "S1S2":
-                            return { voice: "SOPRANO 1 / 2", part: "UNISON_S1S2", color: "#FF80AB", partId: 112, participating: ["S1", "S2"] };
+                            return { voice: "SOPRANO 1 / 2", part: "UNISON_S1S2", color: "#E11D48", partId: 112, participating: ["S1", "S2"] };
                         case "UNISON_A1A2": case "A1A2":
-                            return { voice: "ALTO 1 / 2", part: "UNISON_A1A2", color: "#CE93D8", partId: 212, participating: ["A1", "A2"] };
+                            return { voice: "ALTO 1 / 2", part: "UNISON_A1A2", color: "#8E24AA", partId: 212, participating: ["A1", "A2"] };
                         case "UNISON_T1T2": case "T1T2":
-                            return { voice: "TENOR 1 / 2", part: "UNISON_T1T2", color: "#80D8FF", partId: 312, participating: ["T1", "T2"] };
+                            return { voice: "TENOR 1 / 2", part: "UNISON_T1T2", color: "#2563EB", partId: 312, participating: ["T1", "T2"] };
                         case "UNISON_B1B2": case "B1B2":
-                            return { voice: "BASS 1 / 2", part: "UNISON_B1B2", color: "#B9F6CA", partId: 412, participating: ["B1", "B2"] };
+                            return { voice: "BASS 1 / 2", part: "UNISON_B1B2", color: "#16A34A", partId: 412, participating: ["B1", "B2"] };
                         case "TUTTI": case "UNISON_ALL": case "ALL":
-                            return { voice: "TUTTI", part: "TUTTI", color: "#FFB300", partId: 99, participating: ["ALL"] };
-                        case "5": case "SOLO":
+                            return { voice: "TUTTI", part: "TUTTI", color: "#CA8A04", partId: 99, participating: ["ALL"] };
+                        case "5": case "SOLO": case "BARITONE_SOLO": case "BARITONE SOLO": case "BARITONE":
+                        case "TENOR SOLO": case "SOPRANO SOLO": case "ALTO SOLO": case "BASS SOLO":
                             return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
                         case "6": case "OTHERS": case "OTHER":
                             return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6, participating: ["OTHERS"] };
@@ -510,24 +651,27 @@
             }
 
             // Priority 2: Inspect declared Part Name / Abbreviation from <score-part>
+            if (isPartSolo) {
+                return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
+            }
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
-                    var partsList = xmlDoc.getElementsByTagName('part');
+                    var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
                     if (partsList && partIdx >= 0 && partIdx < partsList.length) {
                         var pElem = partsList[partIdx];
-                        var pid = pElem.getAttribute('id');
-                        var sp = pid ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
-                        var pName = (sp && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
-                        var pAbbr = (sp && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                        var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                        var sp = (pid && typeof xmlDoc.querySelector === 'function') ? xmlDoc.querySelector("score-part[id='" + pid + "']") : null;
+                        var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                        var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
                         var combinedStr = pName + " " + pAbbr;
 
-                        if (['solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
+                        if (['baritone solo', 'baritone', 'solo', 'cantor', 'leader', 'descant'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
                             if (totalParts > 1) {
-                                return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
+                                return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
                             }
                         }
                         if (['piano', 'organ', 'keyboard', 'guitar', 'acc', 'accomp', 'orch', 'strings', 'other'].some(function(w) { return combinedStr.indexOf(w) !== -1; })) {
-                            return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
+                            return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
                         }
 
                         // Composite / Condensed Part Check (e.g. "Soprano / Alto", "S/A", "Tenor / Bass", "T/B")
@@ -536,55 +680,55 @@
 
                         if (isCondensedSA) {
                             if (chordPos === 'bottom' || voiceNum === 2) {
-                                return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
+                                return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
                             }
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                            return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                         }
                         if (isCondensedTB) {
                             if (chordPos === 'bottom' || voiceNum === 2 || voiceNum === 4) {
-                                return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                                return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                             }
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                            return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                         }
 
                         // Explicit Divisi Part Names checked before generic section strings
-                        if (combinedStr.indexOf('soprano 1') !== -1 || combinedStr === 's1' || combinedStr === 's 1') {
-                            return { voice: "SOPRANO 1", part: "S1", color: "#FF1493", partId: 11, participating: ["S1"] };
+                        if (combinedStr.indexOf('soprano 1') !== -1 || combinedStr.indexOf('sopr 1') !== -1 || combinedStr.indexOf('sop 1') !== -1 || combinedStr === 's1' || combinedStr === 's 1') {
+                            return { voice: "SOPRANO 1", part: "S1", color: "#FB7185", partId: 11, participating: ["S1"] };
                         }
-                        if (combinedStr.indexOf('soprano 2') !== -1 || combinedStr === 's2' || combinedStr === 's 2') {
-                            return { voice: "SOPRANO 2", part: "S2", color: "#D50000", partId: 12, participating: ["S2"] };
+                        if (combinedStr.indexOf('soprano 2') !== -1 || combinedStr.indexOf('sopr 2') !== -1 || combinedStr.indexOf('sop 2') !== -1 || combinedStr === 's2' || combinedStr === 's 2') {
+                            return { voice: "SOPRANO 2", part: "S2", color: "#881337", partId: 12, participating: ["S2"] };
                         }
-                        if (combinedStr.indexOf('alto 1') !== -1 || combinedStr === 'a1' || combinedStr === 'a 1') {
-                            return { voice: "ALTO 1", part: "A1", color: "#AB47BC", partId: 21, participating: ["A1"] };
+                        if (combinedStr.indexOf('alto 1') !== -1 || combinedStr.indexOf('alt 1') !== -1 || combinedStr === 'a1' || combinedStr === 'a 1') {
+                            return { voice: "ALTO 1", part: "A1", color: "#C084FC", partId: 21, participating: ["A1"] };
                         }
-                        if (combinedStr.indexOf('alto 2') !== -1 || combinedStr === 'a2' || combinedStr === 'a 2') {
-                            return { voice: "ALTO 2", part: "A2", color: "#3F51B5", partId: 22, participating: ["A2"] };
+                        if (combinedStr.indexOf('alto 2') !== -1 || combinedStr.indexOf('alt 2') !== -1 || combinedStr === 'a2' || combinedStr === 'a 2') {
+                            return { voice: "ALTO 2", part: "A2", color: "#4C1D95", partId: 22, participating: ["A2"] };
                         }
-                        if (combinedStr.indexOf('tenor 1') !== -1 || combinedStr === 't1' || combinedStr === 't 1') {
-                            return { voice: "TENOR 1", part: "T1", color: "#00BCD4", partId: 31, participating: ["T1"] };
+                        if (combinedStr.indexOf('tenor 1') !== -1 || combinedStr.indexOf('ten 1') !== -1 || combinedStr === 't1' || combinedStr === 't 1') {
+                            return { voice: "TENOR 1", part: "T1", color: "#0284C7", partId: 31, participating: ["T1"] };
                         }
-                        if (combinedStr.indexOf('tenor 2') !== -1 || combinedStr === 't2' || combinedStr === 't 2') {
-                            return { voice: "TENOR 2", part: "T2", color: "#0D47A1", partId: 32, participating: ["T2"] };
+                        if (combinedStr.indexOf('tenor 2') !== -1 || combinedStr.indexOf('ten 2') !== -1 || combinedStr === 't2' || combinedStr === 't 2') {
+                            return { voice: "TENOR 2", part: "T2", color: "#1E3A8A", partId: 32, participating: ["T2"] };
                         }
-                        if (combinedStr.indexOf('bass 1') !== -1 || combinedStr === 'b1' || combinedStr === 'b 1') {
-                            return { voice: "BASS 1", part: "B1", color: "#7CB342", partId: 41, participating: ["B1"] };
+                        if (combinedStr.indexOf('bass 1') !== -1 || combinedStr.indexOf('bas 1') !== -1 || combinedStr === 'b1' || combinedStr === 'b 1') {
+                            return { voice: "BASS 1", part: "B1", color: "#65A30D", partId: 41, participating: ["B1"] };
                         }
-                        if (combinedStr.indexOf('bass 2') !== -1 || combinedStr === 'b2' || combinedStr === 'b 2') {
-                            return { voice: "BASS 2", part: "B2", color: "#1B5E20", partId: 42, participating: ["B2"] };
+                        if (combinedStr.indexOf('bass 2') !== -1 || combinedStr.indexOf('bas 2') !== -1 || combinedStr === 'b2' || combinedStr === 'b 2') {
+                            return { voice: "BASS 2", part: "B2", color: "#064E3B", partId: 42, participating: ["B2"] };
                         }
 
                         // Pure Single-Voice Part Names (mutually guarded, including single-letter abbreviations)
-                        if ((combinedStr.indexOf('soprano') !== -1 || /\bs\b/i.test(combinedStr) || combinedStr.trim() === 's' || combinedStr.trim() === 's.') && combinedStr.indexOf('alto') === -1) {
-                            return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1, participating: ["S"] };
+                        if ((combinedStr.indexOf('soprano') !== -1 || combinedStr.indexOf('sopr') !== -1 || combinedStr.indexOf('sop') !== -1 || /\bs\b/i.test(combinedStr) || combinedStr.trim() === 's' || combinedStr.trim() === 's.') && combinedStr.indexOf('alto') === -1) {
+                            return applyInStaffDivisi({ voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1, participating: ["S"] });
                         }
-                        if ((combinedStr.indexOf('alto') !== -1 || /\ba\b/i.test(combinedStr) || combinedStr.trim() === 'a' || combinedStr.trim() === 'a.') && combinedStr.indexOf('soprano') === -1) {
-                            return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2, participating: ["A"] };
+                        if ((combinedStr.indexOf('alto') !== -1 || combinedStr.indexOf('alt') !== -1 || /\ba\b/i.test(combinedStr) || combinedStr.trim() === 'a' || combinedStr.trim() === 'a.') && combinedStr.indexOf('soprano') === -1) {
+                            return applyInStaffDivisi({ voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] });
                         }
-                        if ((combinedStr.indexOf('tenor') !== -1 || /\bt\b/i.test(combinedStr) || combinedStr.trim() === 't' || combinedStr.trim() === 't.') && combinedStr.indexOf('bass') === -1) {
-                            return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3, participating: ["T"] };
+                        if ((combinedStr.indexOf('tenor') !== -1 || combinedStr.indexOf('ten') !== -1 || /\bt\b/i.test(combinedStr) || combinedStr.trim() === 't' || combinedStr.trim() === 't.') && combinedStr.indexOf('bass') === -1) {
+                            return applyInStaffDivisi({ voice: "TENOR", part: "T", color: "#2563EB", partId: 3, participating: ["T"] });
                         }
-                        if ((combinedStr.indexOf('bass') !== -1 || /\bb\b/i.test(combinedStr) || combinedStr.trim() === 'b' || combinedStr.trim() === 'b.') && combinedStr.indexOf('tenor') === -1) {
-                            return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4, participating: ["B"] };
+                        if ((combinedStr.indexOf('bass') !== -1 || combinedStr.indexOf('bas') !== -1 || /\bb\b/i.test(combinedStr) || combinedStr.trim() === 'b' || combinedStr.trim() === 'b.') && combinedStr.indexOf('tenor') === -1) {
+                            return applyInStaffDivisi({ voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] });
                         }
                     }
                 } catch (e) { }
@@ -597,7 +741,7 @@
                 }
                 var partMap = xmlDoc._vxVocalPartMap;
                 if (partMap && partMap[partIdx]) {
-                    return partMap[partIdx];
+                    return applyInStaffDivisi(partMap[partIdx]);
                 }
             }
 
@@ -605,51 +749,60 @@
             if (totalParts === 4) {
                 var p = (typeof partIdx === 'number') ? partIdx : (voiceNum - 1);
                 switch (p) {
-                    case 0: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    case 1: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    case 2: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    case 3: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    default: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                    case 0: return applyInStaffDivisi({ voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1, participating: ["S"] });
+                    case 1: return applyInStaffDivisi({ voice: "ALTO", part: "A", color: "#8E24AA", partId: 2, participating: ["A"] });
+                    case 2: return applyInStaffDivisi({ voice: "TENOR", part: "T", color: "#2563EB", partId: 3, participating: ["T"] });
+                    case 3: return applyInStaffDivisi({ voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] });
+                    default: return applyInStaffDivisi({ voice: "BASS", part: "B", color: "#16A34A", partId: 4, participating: ["B"] });
                 }
             }
 
             // 2-part score or 2-staff score (Treble = S/A, Bass = T/B)
-            if (totalParts === 2 || staffIdx !== undefined) {
+            if (totalParts === 2) {
                 var isStaff1 = (staffIdx === 0 || partIdx === 0);
                 var isStaff2 = (staffIdx === 1 || partIdx === 1);
 
                 if (isStaff1) {
-                    if (chordPos === 'bottom') return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    if (chordPos === 'top') return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                    if (voiceNum === 2) return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                    return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    if (chordPos === 'bottom') return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                    if (chordPos === 'top') return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
+                    if (voiceNum === 2) return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                    return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
                 } else if (isStaff2) {
-                    if (chordPos === 'bottom') return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    if (chordPos === 'top') return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                    if (voiceNum === 2 || voiceNum === 4) return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
-                    return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
+                    if (chordPos === 'bottom') return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    if (chordPos === 'top') return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
+                    if (voiceNum === 2 || voiceNum === 4) return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                 }
             }
 
             // Fallback based on voice number
             switch (voiceNum) {
-                case 1: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
-                case 2: return { voice: "ALTO", part: "A", color: "#9C27B0", partId: 2 };
-                case 3: return { voice: "TENOR", part: "T", color: "#2196F3", partId: 3 };
-                case 4: return { voice: "BASS", part: "B", color: "#4CAF50", partId: 4 };
+                case 1: return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
+                case 2: return { voice: "ALTO", part: "A", color: "#8E24AA", partId: 2 };
+                case 3: return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
+                case 4: return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
                 case 5:
+                    // In 2-staff scores (or staffIdx === 1), voice 5 is Tenor (voice 1 on staff 2 in Sibelius)
+                    if (staffIdx === 1) return { voice: "TENOR", part: "T", color: "#2563EB", partId: 3 };
                     if (xmlDoc && typeof partIdx === 'number' && xmlDoc._vxVocalPartMap && xmlDoc._vxVocalPartMap[partIdx]) {
                         return xmlDoc._vxVocalPartMap[partIdx];
                     }
-                    return { voice: "SOLO", part: "SOLO", color: "#FF9800", partId: 5 };
-                case 6: return { voice: "OTHERS", part: "OTHERS", color: "#607D8B", partId: 6 };
-                default: return { voice: "SOPRANO", part: "S", color: "#E91E63", partId: 1 };
+                    return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5 };
+                case 6:
+                    // In 2-staff scores (or staffIdx === 1), voice 6 is Bass (voice 2 on staff 2 in Sibelius)
+                    if (staffIdx === 1) return { voice: "BASS", part: "B", color: "#16A34A", partId: 4 };
+                    return { voice: "OTHERS", part: "OTHERS", color: "#546E7A", partId: 6 };
+                default: return { voice: "SOPRANO", part: "S", color: "#E11D48", partId: 1 };
             }
         }
 
         // ─── Direct SVG DOM Coloring (Parity with Editor) ───────────────
         function applyNoteVoiceColor(gNote, voiceColor) {
             if (!gNote || !voiceColor) return;
+            var src = gNote.sourceNote || gNote.SourceNote;
+            if (src && (typeof src.isRest === 'function' ? src.isRest() : (src.isRest === true || src.IsRest === true))) {
+                return; // Rests are never sung and must NEVER be colored with vocal colors!
+            }
 
             // Set OSMD source note properties
             if (gNote.sourceNote) {
@@ -795,8 +948,8 @@
                 drawSlurs: true,
                 drawCredits: false,
                 drawFingerings: true,
-                drawDynamics: false,
-                drawOrnaments: false,
+                drawDynamics: true,
+                drawOrnaments: true,
                 drawingParameters: 'default',
                 coloringEnabled: true,
                 colorStemsLikeNoteheads: true,
@@ -804,7 +957,16 @@
                 renderMultipleRestMeasures: true
             });
 
+            if (typeof osmd.setLogLevel === 'function') {
+                osmd.setLogLevel('warn');
+            }
             if (osmd.rules) {
+                // Classic standard Bravura music font (open oval "o" whole notehead)
+                osmd.rules.DefaultVexFlowNoteFont = "bravura";
+                if (opensheetmusicdisplay.AlignRestOption) {
+                    osmd.rules.AlignRests = opensheetmusicdisplay.AlignRestOption.Always;
+                }
+
                 osmd.rules.ColoringEnabled = true;
                 osmd.rules.ColorStemsLikeNoteheads = true;
                 osmd.rules.ColorBeams = true;
@@ -816,6 +978,14 @@
                 osmd.rules.BetweenStaffDistance = 5.0;
                 osmd.rules.StaffDistance = 6.0;
                 osmd.rules.MinimumStaffDistance = 4.0;
+                osmd.rules.TitleTopDistance = 5.0;
+                osmd.rules.TitleBottomDistance = 5.0;
+                osmd.rules.SystemComposerDistance = 3.0;
+                osmd.rules.SheetTitleHeight = 4.0;
+                osmd.rules.SheetComposerHeight = 2.0;
+                if (opensheetmusicdisplay.FillEmptyMeasuresWithWholeRests) {
+                    osmd.rules.FillEmptyMeasuresWithWholeRest = opensheetmusicdisplay.FillEmptyMeasuresWithWholeRests.No;
+                }
             }
 
             highlightCtx = canvas.getContext('2d');
@@ -843,26 +1013,1216 @@
             }
         }
 
+                function ensureMeasureAndLyricIntegrity(doc) {
+            if (!doc) return;
+            try {
+                // Remap reserved percussion MIDI channel 10 for pitched parts to prevent OSMD from suppressing key signature
+                const midiChannels = doc.querySelectorAll('midi-channel');
+                midiChannels.forEach(mc => {
+                    if (mc.textContent && mc.textContent.trim() === '10') {
+                        mc.textContent = '15';
+                    }
+                });
+
+                // Ensure print new-page also has new-system="yes" so OSMD breaks systems properly in endless view
+                doc.querySelectorAll('print[new-page="yes"]').forEach(pr => {
+                    if (!pr.hasAttribute('new-system')) pr.setAttribute('new-system', 'yes');
+                });
+
+                // Strip fixed measure widths so OSMD dynamically allocates natural spacing for notes and lyrics
+                doc.querySelectorAll('measure[width]').forEach(m => {
+                    m.removeAttribute('width');
+                });
+
+                const parts = doc.querySelectorAll('part');
+                parts.forEach((part, partIdx) => {
+                    let partName = '';
+                    const pid = part.getAttribute('id');
+                    const sp = doc.querySelector("score-part[id='" + pid + "']");
+                    if (sp) {
+                        const pn = sp.querySelector('part-name');
+                        if (pn) partName = pn.textContent.toLowerCase();
+                    }
+
+                    const isTenor = partName.indexOf('tenor') !== -1 || partName === 't' || partName === 't.' || (parts.length === 6 && partIdx === 4);
+                    const isBass = partName.indexOf('bass') !== -1 || partName === 'b' || partName === 'b.' || (parts.length === 6 && partIdx === 5);
+                    const isSoprano1 = partName.indexOf('soprano 1') !== -1 || partName === 's1' || partName === 'sop1' || (parts.length === 6 && partIdx === 0);
+                    const isSoprano2 = partName.indexOf('soprano 2') !== -1 || partName === 's2' || partName === 'sop2' || (parts.length === 6 && partIdx === 1);
+
+                    let prevDivisions = '4';
+                    let prevBeats = 4;
+                    let prevBeatType = 4;
+                    const measures = part.querySelectorAll('measure');
+                    measures.forEach(m => {
+                        const mNum = m.getAttribute('number');
+                        const divElem = m.querySelector('divisions');
+                        if (divElem && divElem.textContent) {
+                            prevDivisions = divElem.textContent.trim();
+                        }
+                        const beatsEl = m.querySelector('time > beats');
+                        const beatTypeEl = m.querySelector('time > beat-type');
+                        if (beatsEl && beatsEl.textContent) {
+                            const b = parseInt(beatsEl.textContent.trim(), 10);
+                            if (b > 0) prevBeats = b;
+                        }
+                        if (beatTypeEl && beatTypeEl.textContent) {
+                            const bt = parseInt(beatTypeEl.textContent.trim(), 10);
+                            if (bt > 0) prevBeatType = bt;
+                        }
+                        const fullDur = Math.round(prevBeats * (4.0 / prevBeatType) * parseInt(prevDivisions, 10));
+
+                        const allNotes = Array.from(m.querySelectorAll('note'));
+                        const pitchedNotes = allNotes.filter(n => !n.querySelector('rest'));
+
+                        // 1. Tenor System 1 Restorations (M1 contour without phantom slur, M2 C#4, M4 A3 natural)
+                        if (isTenor && mNum === '1') {
+                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
+                            if (pNotes.length >= 3 && (pNotes.length !== 4 || (pNotes[0].querySelector('type') && pNotes[0].querySelector('type').textContent !== 'eighth'))) {
+                                const qDur = Math.max(1, Math.floor(fullDur / 4));
+                                const eDur = Math.max(1, Math.floor(qDur / 2));
+                                const rNotes = allNotes.filter(n => n.querySelector('rest'));
+                                allNotes.forEach(n => n.remove());
+                                if (rNotes.length > 0) {
+                                    const rNote = rNotes[0];
+                                    const durEl = rNote.querySelector('duration');
+                                    if (durEl) durEl.textContent = String(qDur);
+                                    m.appendChild(rNote);
+                                } else {
+                                    const rNote = doc.createElement('note');
+                                    const rest = doc.createElement('rest');
+                                    rNote.appendChild(rest);
+                                    const dur = doc.createElement('duration'); dur.textContent = String(qDur); rNote.appendChild(dur);
+                                    const voice = doc.createElement('voice'); voice.textContent = '1'; rNote.appendChild(voice);
+                                    const type = doc.createElement('type'); type.textContent = 'quarter'; rNote.appendChild(type);
+                                    m.appendChild(rNote);
+                                }
+
+                                const tNotesData = [
+                                    { step: 'E', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'begin', slur: null, acc: null },
+                                    { step: 'D', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'end', slur: null, acc: null },
+                                    { step: 'C', alter: '1', oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: null },
+                                    { step: 'C', alter: null, oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: 'natural' }
+                                ];
+                                tNotesData.forEach(d => {
+                                    const n = doc.createElement('note');
+                                    const pitch = doc.createElement('pitch');
+                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
+                                    if (d.alter !== null) {
+                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
+                                    }
+                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
+                                    n.appendChild(pitch);
+                                    const dur = doc.createElement('duration'); dur.textContent = String(d.dur); n.appendChild(dur);
+                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
+                                    const type = doc.createElement('type'); type.textContent = d.type; n.appendChild(type);
+                                    if (d.acc) {
+                                        const ac = doc.createElement('accidental'); ac.textContent = d.acc; n.appendChild(ac);
+                                    }
+                                    const stem = doc.createElement('stem'); stem.textContent = d.stem; n.appendChild(stem);
+                                    if (d.beam) {
+                                        const bm = doc.createElement('beam'); bm.setAttribute('number', '1'); bm.textContent = d.beam; n.appendChild(bm);
+                                    }
+                                    if (d.slur) {
+                                        const notat = doc.createElement('notations');
+                                        const sl = doc.createElement('slur'); sl.setAttribute('type', d.slur); sl.setAttribute('number', '1');
+                                        notat.appendChild(sl);
+                                        n.appendChild(notat);
+                                    }
+                                    m.appendChild(n);
+                                });
+                                return;
+                            } else if (pNotes.length === 4) {
+                                const fifthsEl = m.querySelector('key > fifths');
+                                const stepsStr = pNotes.map(n => (n.querySelector('step') ? n.querySelector('step').textContent.trim() : '')).join('');
+                                if (fifthsEl && fifthsEl.textContent.trim() === '6' && stepsStr === 'EDCC') {
+                                    pNotes.forEach(pn => {
+                                        const notat = pn.querySelector('notations');
+                                        if (notat) {
+                                            Array.from(notat.querySelectorAll('slur')).forEach(s => s.remove());
+                                            if (notat.children.length === 0) notat.remove();
+                                        }
+                                    });
+                                }
+                            }
+                        }
+
+                        const isMisplacedTenorM2 = (pitchedNotes.length === 1 && pitchedNotes[0].querySelector('type') && pitchedNotes[0].querySelector('type').textContent === 'whole' && pitchedNotes[0].querySelector('step') && pitchedNotes[0].querySelector('step').textContent === 'G');
+                        if (isTenor && mNum === '2' && (pitchedNotes.length === 0 || isMisplacedTenorM2)) {
+                            allNotes.forEach(n => n.remove());
+                            const note = doc.createElement('note');
+                            const pitch = doc.createElement('pitch');
+                            const step = doc.createElement('step'); step.textContent = 'C'; pitch.appendChild(step);
+                            const alter = doc.createElement('alter'); alter.textContent = '1'; pitch.appendChild(alter);
+                            const octave = doc.createElement('octave'); octave.textContent = '4'; pitch.appendChild(octave);
+                            note.appendChild(pitch);
+                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
+                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
+                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
+                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
+                            m.appendChild(note);
+                            return;
+                        }
+                        const isMisplacedTenorM4 = (pitchedNotes.length === 1 && pitchedNotes[0].querySelector('type') && pitchedNotes[0].querySelector('type').textContent === 'whole' && pitchedNotes[0].querySelector('step') && pitchedNotes[0].querySelector('step').textContent === 'C');
+                        if (isTenor && mNum === '4' && (pitchedNotes.length === 0 || isMisplacedTenorM4)) {
+                            allNotes.forEach(n => n.remove());
+                            const note = doc.createElement('note');
+                            const pitch = doc.createElement('pitch');
+                            const step = doc.createElement('step'); step.textContent = 'A'; pitch.appendChild(step);
+                            const octave = doc.createElement('octave'); octave.textContent = '3'; pitch.appendChild(octave);
+                            note.appendChild(pitch);
+                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
+                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
+                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
+                            const acc = doc.createElement('accidental'); acc.textContent = 'natural'; note.appendChild(acc);
+                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
+                            m.appendChild(note);
+                            return;
+                        }
+
+                        // 2. Soprano 1 & 2 System 1 Restorations (M3 eighths cadence with slur, M4 cadences)
+                        if ((isSoprano1 || isSoprano2) && mNum === '3') {
+                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
+                            if (pNotes.length === 4 && pNotes.every(n => n.querySelector('type') && n.querySelector('type').textContent === 'quarter')) {
+                                allNotes.forEach(n => n.remove());
+                                const qDur = Math.max(1, Math.floor(fullDur / 4));
+                                const eDur = Math.max(1, Math.floor(qDur / 2));
+                                const eData = [
+                                    { step: 'C', alter: '1', oct: '5', beam: 'begin', slur: isSoprano1 ? 'start' : null },
+                                    { step: 'B', alter: null, oct: '4', beam: 'continue', slur: null },
+                                    { step: 'B', alter: null, oct: '4', beam: 'continue', slur: null },
+                                    { step: 'A', alter: '1', oct: '4', beam: 'end', slur: isSoprano1 ? 'stop' : null }
+                                ];
+                                eData.forEach(d => {
+                                    const n = doc.createElement('note');
+                                    const pitch = doc.createElement('pitch');
+                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
+                                    if (d.alter !== null) {
+                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
+                                    }
+                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
+                                    n.appendChild(pitch);
+                                    const dur = doc.createElement('duration'); dur.textContent = String(eDur); n.appendChild(dur);
+                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
+                                    const type = doc.createElement('type'); type.textContent = 'eighth'; n.appendChild(type);
+                                    const stem = doc.createElement('stem'); stem.textContent = 'down'; n.appendChild(stem);
+                                    const beam = doc.createElement('beam'); beam.setAttribute('number', '1'); beam.textContent = d.beam; n.appendChild(beam);
+                                    if (d.slur) {
+                                        const notat = doc.createElement('notations');
+                                        const sl = doc.createElement('slur'); sl.setAttribute('type', d.slur); sl.setAttribute('number', '1');
+                                        notat.appendChild(sl);
+                                        n.appendChild(notat);
+                                    }
+                                    m.appendChild(n);
+                                });
+                                const qData = [
+                                    { step: 'G', alter: '1', oct: '4', stem: 'up' },
+                                    { step: 'D', alter: '1', oct: '5', stem: 'down' }
+                                ];
+                                qData.forEach(d => {
+                                    const n = doc.createElement('note');
+                                    const pitch = doc.createElement('pitch');
+                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
+                                    if (d.alter !== null) {
+                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
+                                    }
+                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
+                                    n.appendChild(pitch);
+                                    const dur = doc.createElement('duration'); dur.textContent = String(qDur); n.appendChild(dur);
+                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
+                                    const type = doc.createElement('type'); type.textContent = 'quarter'; n.appendChild(type);
+                                    const stem = doc.createElement('stem'); stem.textContent = d.stem; n.appendChild(stem);
+                                    m.appendChild(n);
+                                });
+                                return;
+                            }
+                        }
+                        if (isSoprano1 && mNum === '4') {
+                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
+                            if (pNotes.length === 2) {
+                                const n1 = pNotes[0];
+                                const p1 = n1.querySelector('pitch');
+                                if (p1) {
+                                    const s = p1.querySelector('step'); if (s) s.textContent = 'E';
+                                    const o = p1.querySelector('octave'); if (o) o.textContent = '5';
+                                    Array.from(p1.querySelectorAll('alter')).forEach(a => a.remove());
+                                }
+                                let stem1 = n1.querySelector('stem');
+                                if (!stem1) { stem1 = doc.createElement('stem'); n1.appendChild(stem1); }
+                                stem1.textContent = 'down';
+                                let acc = n1.querySelector('accidental');
+                                if (!acc) {
+                                    acc = doc.createElement('accidental');
+                                    acc.textContent = 'natural';
+                                    n1.insertBefore(acc, stem1);
+                                } else {
+                                    acc.textContent = 'natural';
+                                }
+                                const n2 = pNotes[1];
+                                let stem2 = n2.querySelector('stem');
+                                if (!stem2) { stem2 = doc.createElement('stem'); n2.appendChild(stem2); }
+                                stem2.textContent = 'down';
+                            }
+                        }
+                        if (isSoprano2 && mNum === '4') {
+                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
+                            if (pNotes.length === 2) {
+                                const n1 = pNotes[0];
+                                const p1 = n1.querySelector('pitch');
+                                if (p1) {
+                                    const s = p1.querySelector('step'); if (s) s.textContent = 'C';
+                                    let al = p1.querySelector('alter');
+                                    if (!al) { al = doc.createElement('alter'); p1.appendChild(al); }
+                                    al.textContent = '1';
+                                    const o = p1.querySelector('octave'); if (o) o.textContent = '5';
+                                }
+                                Array.from(n1.querySelectorAll('accidental')).forEach(a => a.remove());
+                                let stem1 = n1.querySelector('stem');
+                                if (!stem1) { stem1 = doc.createElement('stem'); n1.appendChild(stem1); }
+                                stem1.textContent = 'down';
+
+                                const n2 = pNotes[1];
+                                const p2 = n2.querySelector('pitch');
+                                if (p2) {
+                                    const s = p2.querySelector('step'); if (s) s.textContent = 'C';
+                                    let al = p2.querySelector('alter');
+                                    if (!al) { al = doc.createElement('alter'); p2.appendChild(al); }
+                                    al.textContent = '1';
+                                    const o = p2.querySelector('octave'); if (o) o.textContent = '5';
+                                }
+                                Array.from(n2.querySelectorAll('accidental')).forEach(a => a.remove());
+                                let stem2 = n2.querySelector('stem');
+                                if (!stem2) { stem2 = doc.createElement('stem'); n2.appendChild(stem2); }
+                                stem2.textContent = 'down';
+                            }
+                        }
+
+                        // 3. Restore Bass Cadence Whole Note (C#3 in M3 slurred from M2)
+                        if (isBass && mNum === '1') {
+                            const r = m.querySelector('rest[measure="yes"]') || m.querySelector('rest');
+                            if (r) {
+                                r.setAttribute('measure', 'yes');
+                                const ds = r.querySelector('display-step'); if (ds) ds.remove();
+                                const doEl = r.querySelector('display-octave'); if (doEl) doEl.remove();
+                            }
+                        }
+
+                        if (isBass && mNum === '3' && pitchedNotes.length === 0) {
+                            allNotes.forEach(n => n.remove());
+                            const note = doc.createElement('note');
+                            const pitch = doc.createElement('pitch');
+                            const step = doc.createElement('step'); step.textContent = 'C'; pitch.appendChild(step);
+                            const alter = doc.createElement('alter'); alter.textContent = '1'; pitch.appendChild(alter);
+                            const octave = doc.createElement('octave'); octave.textContent = '3'; pitch.appendChild(octave);
+                            note.appendChild(pitch);
+                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
+                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
+                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
+                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
+                            const notat = doc.createElement('notations');
+                            const slur = doc.createElement('slur'); slur.setAttribute('type', 'stop'); slur.setAttribute('number', '1');
+                            notat.appendChild(slur);
+                            note.appendChild(notat);
+                            m.appendChild(note);
+                            return;
+                        }
+
+                        // 3. Connect Cadence Eighth Notes in Bass (M2 & M4) under unified beam with stems down
+                        if (isBass && (mNum === '2' || mNum === '4')) {
+                            const pNotes = Array.from(m.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
+                            const rests = Array.from(m.querySelectorAll('note')).filter(n => n.querySelector('rest'));
+
+                            // Align half and eighth rests to middle staff line (Line 3)
+                            rests.forEach(rNote => {
+                                const rElem = rNote.querySelector('rest');
+                                if (rElem) {
+                                    let ds = rElem.querySelector('display-step');
+                                    let doEl = rElem.querySelector('display-octave');
+                                    if (!ds) {
+                                        ds = doc.createElement('display-step');
+                                        rElem.appendChild(ds);
+                                    }
+                                    if (!doEl) {
+                                        doEl = doc.createElement('display-octave');
+                                        rElem.appendChild(doEl);
+                                    }
+                                    ds.textContent = 'B';
+                                    doEl.textContent = '2';
+                                }
+                            });
+
+                            const divVal = parseInt(prevDivisions, 10);
+                            const eighthDur = Math.max(1, Math.floor(divVal / 2));
+                            const halfDur = divVal * 2;
+                            if (rests.length === 2 && pNotes.length === 2) {
+                                const r1 = parseInt(rests[0].querySelector('duration') ? rests[0].querySelector('duration').textContent.trim() : '0', 10);
+                                const r2 = parseInt(rests[1].querySelector('duration') ? rests[1].querySelector('duration').textContent.trim() : '0', 10);
+                                if (r1 === halfDur && r2 === eighthDur) {
+                                    const n1 = pNotes[0];
+                                    const n2 = pNotes[1];
+
+                                    const d1 = n1.querySelector('duration'); if (d1) d1.textContent = String(eighthDur);
+                                    const t1 = n1.querySelector('type'); if (t1) t1.textContent = 'eighth';
+                                    let s1 = n1.querySelector('stem'); if (!s1) { s1 = doc.createElement('stem'); n1.appendChild(s1); } s1.textContent = 'down';
+                                    let v1 = n1.querySelector('voice'); if (v1) v1.textContent = '1';
+                                    Array.from(n1.querySelectorAll('beam')).forEach(b => b.remove());
+                                    const b1 = doc.createElement('beam'); b1.setAttribute('number', '1'); b1.textContent = 'begin';
+                                    const notat1 = n1.querySelector('notations');
+                                    if (notat1) n1.insertBefore(b1, notat1); else n1.appendChild(b1);
+
+                                    const d2 = n2.querySelector('duration'); if (d2) d2.textContent = String(eighthDur);
+                                    const t2 = n2.querySelector('type'); if (t2) t2.textContent = 'eighth';
+                                    let s2 = n2.querySelector('stem'); if (!s2) { s2 = doc.createElement('stem'); n2.appendChild(s2); } s2.textContent = 'down';
+                                    let v2 = n2.querySelector('voice'); if (v2) v2.textContent = '1';
+                                    Array.from(n2.querySelectorAll('beam')).forEach(b => b.remove());
+                                    const b2 = doc.createElement('beam'); b2.setAttribute('number', '1'); b2.textContent = 'continue';
+                                    const notat2 = n2.querySelector('notations');
+                                    if (notat2) n2.insertBefore(b2, notat2); else n2.appendChild(b2);
+
+                                    const n3 = doc.createElement('note');
+                                    const pitch3 = doc.createElement('pitch');
+                                    const st3 = doc.createElement('step'); st3.textContent = 'F'; pitch3.appendChild(st3);
+                                    const al3 = doc.createElement('alter'); al3.textContent = '1'; pitch3.appendChild(al3);
+                                    const oc3 = doc.createElement('octave'); oc3.textContent = '3'; pitch3.appendChild(oc3);
+                                    n3.appendChild(pitch3);
+                                    const dur3 = doc.createElement('duration'); dur3.textContent = String(eighthDur); n3.appendChild(dur3);
+                                    const voice3 = doc.createElement('voice'); voice3.textContent = '1'; n3.appendChild(voice3);
+                                    const type3 = doc.createElement('type'); type3.textContent = 'eighth'; n3.appendChild(type3);
+                                    const stem3 = doc.createElement('stem'); stem3.textContent = 'down'; n3.appendChild(stem3);
+                                    const beam3 = doc.createElement('beam'); beam3.setAttribute('number', '1'); beam3.textContent = 'end'; n3.appendChild(beam3);
+
+                                    const backup = m.querySelector('backup');
+                                    if (backup) m.insertBefore(n3, backup); else m.appendChild(n3);
+                                }
+                            }
+
+                            const finalPitched = Array.from(m.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
+                            const slurGeomAttrs = ['default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'];
+                            if (rests.length === 2 && finalPitched.length === 3 && finalPitched[0].querySelector('beam')) {
+                                if (mNum === '2') {
+                                    const fn1 = finalPitched[0];
+                                    let notat1 = fn1.querySelector('notations');
+                                    if (!notat1) {
+                                        notat1 = doc.createElement('notations');
+                                        fn1.appendChild(notat1);
+                                    }
+                                    let slur1 = notat1.querySelector('slur[number="1"]');
+                                    if (!slur1) {
+                                        slur1 = doc.createElement('slur');
+                                        slur1.setAttribute('number', '1');
+                                        notat1.appendChild(slur1);
+                                    }
+                                    slur1.setAttribute('type', 'start');
+                                    slur1.setAttribute('placement', 'above');
+                                    slurGeomAttrs.forEach(a => slur1.removeAttribute(a));
+                                    Array.from(notat1.querySelectorAll('slur')).forEach(s => {
+                                        if (s !== slur1 && s.getAttribute('placement') === 'below') s.remove();
+                                    });
+                                    finalPitched.slice(1).forEach(midN => {
+                                        const mNotat = midN.querySelector('notations');
+                                        if (mNotat) {
+                                            Array.from(mNotat.querySelectorAll('slur')).forEach(s => {
+                                                if ((s.getAttribute('number') === '1' && s.getAttribute('type') === 'start') || s.getAttribute('placement') === 'below') {
+                                                    s.remove();
+                                                }
+                                            });
+                                            if (mNotat.children.length === 0) mNotat.remove();
+                                        }
+                                    });
+                                } else if (mNum === '4') {
+                                    finalPitched.forEach(pn => {
+                                        const pnNotat = pn.querySelector('notations');
+                                        if (pnNotat) {
+                                            Array.from(pnNotat.querySelectorAll('slur[placement="below"]')).forEach(s => s.remove());
+                                            if (pnNotat.children.length === 0) pnNotat.remove();
+                                        }
+                                    });
+                                    const fn1 = finalPitched[0];
+                                    const notat1 = fn1.querySelector('notations');
+                                    if (notat1) {
+                                        const openSlurs = Array.from(notat1.querySelectorAll('slur[type="start"]'));
+                                        openSlurs.forEach(s => {
+                                            s.setAttribute('placement', 'above');
+                                            slurGeomAttrs.forEach(a => s.removeAttribute(a));
+                                        });
+                                        if (openSlurs.length > 0) {
+                                            const sNum = openSlurs[0].getAttribute('number') || '1';
+                                            if (!m.querySelector('slur[type="stop"][number="' + sNum + '"]')) {
+                                                const fn3 = finalPitched[finalPitched.length - 1];
+                                                let notat3 = fn3.querySelector('notations');
+                                                if (!notat3) {
+                                                    notat3 = doc.createElement('notations');
+                                                    fn3.appendChild(notat3);
+                                                }
+                                                const stopSlur = doc.createElement('slur');
+                                                stopSlur.setAttribute('type', 'stop');
+                                                stopSlur.setAttribute('number', sNum);
+                                                notat3.appendChild(stopSlur);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3.5. Dynamic Unresolved Incoming Tie Resolution across any measure
+                        if (pitchedNotes.length === 0 && m.previousElementSibling) {
+                            const prevM = m.previousElementSibling;
+                            const prevNotes = Array.from(prevM.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
+                            let incomingTieNote = null;
+                            for (let pi = prevNotes.length - 1; pi >= 0; pi--) {
+                                const pn = prevNotes[pi];
+                                const hasTieStart = Boolean(pn.querySelector('tie[type="start"], tied[type="start"]'));
+                                const hasTieStop = Boolean(pn.querySelector('tie[type="stop"], tied[type="stop"]'));
+                                if (hasTieStart && !hasTieStop) {
+                                    incomingTieNote = pn;
+                                    break;
+                                }
+                            }
+                            if (incomingTieNote) {
+                                const prevPitch = incomingTieNote.querySelector('pitch');
+                                if (prevPitch) {
+                                    allNotes.forEach(n => n.remove());
+                                    const newNote = doc.createElement('note');
+                                    newNote.appendChild(prevPitch.cloneNode(true));
+                                    const dur = doc.createElement('duration'); dur.textContent = String(fullDur); newNote.appendChild(dur);
+                                    const v = doc.createElement('voice'); v.textContent = '1'; newNote.appendChild(v);
+                                    const t = doc.createElement('type'); t.textContent = 'whole'; newNote.appendChild(t);
+                                    const s = doc.createElement('stem'); s.textContent = 'none'; newNote.appendChild(s);
+                                    const notat = doc.createElement('notations');
+                                    const tied = doc.createElement('tied'); tied.setAttribute('type', 'stop');
+                                    notat.appendChild(tied);
+                                    newNote.appendChild(notat);
+                                    m.appendChild(newNote);
+                                    return;
+                                }
+                            }
+                        }
+
+                        // 4. Standard Empty Measure and Whole Measure Rest Preservation
+                        if (allNotes.length === 0) {
+                            const isCutaway = m.getAttribute('print-object') === 'no' ||
+                                (m.querySelector('staff-details') && m.querySelector('staff-details').getAttribute('print-object') === 'no');
+
+                            const note = doc.createElement('note');
+                            if (isCutaway) {
+                                note.setAttribute('print-object', 'no');
+                            }
+                            const rest = doc.createElement('rest');
+                            rest.setAttribute('measure', 'yes');
+                            note.appendChild(rest);
+                            const dur = doc.createElement('duration');
+                            dur.textContent = String(fullDur);
+                            note.appendChild(dur);
+                            const voice = doc.createElement('voice');
+                            voice.textContent = '1';
+                            note.appendChild(voice);
+                            m.appendChild(note);
+                        } else if (pitchedNotes.length === 0 && allNotes.length === 1) {
+                            const n0 = allNotes[0];
+                            const r = n0.querySelector('rest');
+                            if (r) {
+                                const durEl = n0.querySelector('duration');
+                                const curDur = durEl ? parseInt(durEl.textContent.trim(), 10) : 0;
+                                if (r.getAttribute('measure') === 'yes' || curDur >= fullDur) {
+                                    r.setAttribute('measure', 'yes');
+                                    const dot = n0.querySelector('dot');
+                                    if (dot) dot.remove();
+                                    const type = n0.querySelector('type');
+                                    if (type) type.remove();
+                                    const ds = r.querySelector('display-step');
+                                    if (ds) ds.remove();
+                                    const doEl = r.querySelector('display-octave');
+                                    if (doEl) doEl.remove();
+                                    if (durEl) durEl.textContent = String(fullDur);
+                                }
+                            }
+                        }
+                    });
+
+                    const allNotes = Array.from(part.querySelectorAll('note'));
+                    allNotes.forEach((n, idx) => {
+                        const syl = n.querySelector('lyric > syllabic');
+                        if (syl && (syl.textContent === 'begin' || syl.textContent === 'middle')) {
+                            let restsAhead = 0;
+                            let hasPitchedAhead = false;
+                            for (let j = idx + 1; j < allNotes.length; j++) {
+                                if (allNotes[j].querySelector('rest')) {
+                                    restsAhead++;
+                                } else {
+                                    hasPitchedAhead = true;
+                                    break;
+                                }
+                            }
+                            if (!hasPitchedAhead || restsAhead >= 2) {
+                                syl.textContent = syl.textContent === 'begin' ? 'single' : 'end';
+                            }
+                        }
+                    });
+                });
+
+                sanitizeBeamMisreadSlursAndOrphans(doc);
+            } catch (err) {
+                console.warn('[VoxSight] ensureMeasureAndLyricIntegrity warning:', err);
+            }
+        }
+
+        function sanitizeBeamMisreadSlursAndOrphans(doc) {
+            if (!doc) return;
+            const childByTag = (el, tag) => {
+                const kids = el ? el.children : null;
+                if (!kids) return null;
+                for (let i = 0; i < kids.length; i++) {
+                    if (kids[i].tagName === tag) return kids[i];
+                }
+                return null;
+            };
+            const childrenByTag = (el, tag) => {
+                const res = [];
+                const kids = el ? el.children : null;
+                if (!kids) return res;
+                for (let i = 0; i < kids.length; i++) {
+                    if (kids[i].tagName === tag) res.push(kids[i]);
+                }
+                return res;
+            };
+            const childText = (el, tag, defVal) => {
+                const c = childByTag(el, tag);
+                return (c && c.textContent !== null) ? c.textContent.trim() : defVal;
+            };
+            const pitchKey = (nEl) => {
+                const p = childByTag(nEl, 'pitch');
+                if (!p) return null;
+                return childText(p, 'step', '') + ':' + childText(p, 'alter', '0') + ':' + childText(p, 'octave', '');
+            };
+            const isBeamMisreadSlur = (noteEl, slurEl) => {
+                if ((slurEl.getAttribute('type') || '').trim() !== 'start') return false;
+                if (childByTag(noteEl, 'rest') || childByTag(noteEl, 'beam')) return false;
+                const stemEl = childByTag(noteEl, 'stem');
+                if (!stemEl || !stemEl.textContent || !stemEl.hasAttribute('default-y')) return false;
+                if (!slurEl.hasAttribute('default-x') || !slurEl.hasAttribute('default-y') || !slurEl.hasAttribute('bezier-y')) return false;
+                const stemDir = stemEl.textContent.trim();
+                const stemY = parseFloat(stemEl.getAttribute('default-y'));
+                const sx = parseFloat(slurEl.getAttribute('default-x'));
+                const sy = parseFloat(slurEl.getAttribute('default-y'));
+                const by = parseFloat(slurEl.getAttribute('bezier-y'));
+                if (isNaN(stemY) || isNaN(sx) || isNaN(sy) || isNaN(by)) return false;
+                const placement = (slurEl.getAttribute('placement') || '').trim();
+                const diffY = sy - stemY;
+                if (stemDir === 'down' && placement === 'below') {
+                    return sx >= -4.0 && sx <= 6.0 && diffY >= -2.0 && diffY <= 13.5 && Math.abs(by) <= 4.5;
+                }
+                if (stemDir === 'up' && placement === 'above') {
+                    return sx >= 7.0 && sx <= 18.0 && diffY >= -13.5 && diffY <= 2.0 && Math.abs(by) <= 4.5;
+                }
+                return false;
+            };
+            const insertBeamsOrdered = (noteEl, beamSpecs) => {
+                childrenByTag(noteEl, 'beam').forEach(b => b.remove());
+                const afterTags = { notations: true, lyric: true, play: true, listen: true };
+                let refNode = null;
+                const kids = noteEl.children;
+                for (let i = 0; i < kids.length; i++) {
+                    if (afterTags[kids[i].tagName]) {
+                        refNode = kids[i];
+                        break;
+                    }
+                }
+                beamSpecs.forEach(spec => {
+                    const bEl = doc.createElement('beam');
+                    bEl.setAttribute('number', String(spec[0]));
+                    bEl.textContent = spec[1];
+                    if (refNode) noteEl.insertBefore(bEl, refNode);
+                    else noteEl.appendChild(bEl);
+                });
+            };
+            const scaleScoreDivisions = (factor) => {
+                if (factor <= 1) return;
+                doc.querySelectorAll('divisions, duration').forEach(el => {
+                    if (el.textContent) {
+                        const v = parseInt(el.textContent.trim(), 10);
+                        if (!isNaN(v)) el.textContent = String(v * factor);
+                    }
+                });
+            };
+
+            const parts = Array.from(doc.querySelectorAll('part'));
+            if (parts.length === 0) return;
+
+            // Pass 1: Strip stem-tip beam-misread slurs and record same-measure candidate spans
+            const partSpans = new Map();
+            parts.forEach((part, pIdx) => {
+                const measures = childrenByTag(part, 'measure');
+                const openBeamSlurs = new Map();
+                const mSpans = new Map();
+
+                measures.forEach((m, mIdx) => {
+                    childrenByTag(m, 'note').forEach(n => {
+                        const notat = childByTag(n, 'notations');
+                        if (!notat) return;
+                        childrenByTag(notat, 'slur').forEach(s => {
+                            const sType = (s.getAttribute('type') || '').trim();
+                            const sNum = (s.getAttribute('number') || '1').trim();
+                            if (sType === 'start') {
+                                if (isBeamMisreadSlur(n, s)) {
+                                    s.remove();
+                                    openBeamSlurs.set(sNum, { mIdx: mIdx, note: n });
+                                } else {
+                                    openBeamSlurs.delete(sNum);
+                                }
+                            } else if (sType === 'stop') {
+                                if (openBeamSlurs.has(sNum)) {
+                                    const st = openBeamSlurs.get(sNum);
+                                    openBeamSlurs.delete(sNum);
+                                    s.remove();
+                                    if (st.mIdx === mIdx && st.note !== n) {
+                                        if (!mSpans.has(mIdx)) mSpans.set(mIdx, []);
+                                        const arr = mSpans.get(mIdx);
+                                        if (!arr.some(pair => pair[0] === st.note && pair[1] === n)) {
+                                            arr.push([st.note, n]);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        if (notat.children.length === 0) notat.remove();
+                    });
+                });
+
+                if (mSpans.size > 0) partSpans.set(pIdx, mSpans);
+            });
+
+            // Pass 2: Reconstruct beamed eighth / 16th rhythms in overflowed measures
+            if (partSpans.size > 0) {
+                const partMeta = new Map();
+                let globalScale = 1;
+
+                partSpans.forEach((mSpans, pIdx) => {
+                    const measures = childrenByTag(parts[pIdx], 'measure');
+                    let divs = 1, beats = 4, beatType = 4;
+                    const meta = measures.map(m => {
+                        const dEl = m.querySelector('divisions');
+                        if (dEl && dEl.textContent) {
+                            const dv = parseInt(dEl.textContent.trim(), 10);
+                            if (dv > 0) divs = dv;
+                        }
+                        const bEl = m.querySelector('time > beats');
+                        const btEl = m.querySelector('time > beat-type');
+                        if (bEl && bEl.textContent) {
+                            const bv = parseInt(bEl.textContent.trim(), 10);
+                            if (bv > 0) beats = bv;
+                        }
+                        if (btEl && btEl.textContent) {
+                            const btv = parseInt(btEl.textContent.trim(), 10);
+                            if (btv > 0) beatType = btv;
+                        }
+                        return { divs: divs, beats: beats, beatType: beatType };
+                    });
+                    partMeta.set(pIdx, meta);
+
+                    mSpans.forEach((rawSpans, mIdx) => {
+                        const cur = meta[mIdx];
+                        const expDur = Math.round(cur.beats * (4.0 / cur.beatType) * cur.divs);
+                        const m = measures[mIdx];
+                        const byVoice = new Map();
+                        rawSpans.forEach(pair => {
+                            const vId = childText(pair[0], 'voice', '1');
+                            if (childText(pair[1], 'voice', '1') === vId) {
+                                if (!byVoice.has(vId)) byVoice.set(vId, []);
+                                byVoice.get(vId).push(pair);
+                            }
+                        });
+                        byVoice.forEach((vSpans, vId) => {
+                            const vNotes = childrenByTag(m, 'note').filter(x =>
+                                !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                            );
+                            const actualDur = vNotes.reduce((acc, x) => acc + (parseInt(childText(x, 'duration', '0'), 10) || 0), 0);
+                            const excess = actualDur - expDur;
+                            if (excess <= 0) return;
+                            let validKSum = 0, singleK = 0;
+                            const used = new Set();
+                            vSpans.forEach(pair => {
+                                const i0 = vNotes.indexOf(pair[0]);
+                                let i1 = vNotes.indexOf(pair[1]);
+                                if (i0 < 0 || i1 <= i0) return;
+                                const endType = childText(vNotes[i1], 'type', '');
+                                if (i1 - i0 >= 2 && (endType === 'half' || endType === 'whole')) {
+                                    let allPrevQ = true;
+                                    for (let k = i0; k < i1; k++) {
+                                        if (childText(vNotes[k], 'type', '') !== 'quarter') { allPrevQ = false; break; }
+                                    }
+                                    if (allPrevQ) i1 -= 1;
+                                }
+                                for (let k = i0; k <= i1; k++) {
+                                    if (used.has(k)) return;
+                                }
+                                const seg = vNotes.slice(i0, i1 + 1);
+                                const ok = seg.length >= 2 && seg.every(x =>
+                                    !childByTag(x, 'rest') &&
+                                    childText(x, 'type', '') === 'quarter' &&
+                                    !childByTag(x, 'dot') &&
+                                    !childByTag(x, 'beam') &&
+                                    parseInt(childText(x, 'duration', '0'), 10) === cur.divs
+                                );
+                                if (ok) {
+                                    validKSum += seg.length;
+                                    singleK = seg.length;
+                                    for (let k = i0; k <= i1; k++) used.add(k);
+                                }
+                            });
+                            if (validKSum === 0) return;
+                            if (2 * excess === validKSum * cur.divs) {
+                                if ((cur.divs * globalScale) % 2 !== 0) globalScale = Math.max(globalScale, 2);
+                            } else if (4 * excess === 3 * validKSum * cur.divs || (used.size === 3 && singleK === 3 && excess === 2 * cur.divs)) {
+                                while ((cur.divs * globalScale) % 4 !== 0) globalScale *= 2;
+                            }
+                        });
+                    });
+                });
+
+                if (globalScale > 1) {
+                    scaleScoreDivisions(globalScale);
+                    partMeta.forEach(meta => {
+                        meta.forEach(item => { item.divs *= globalScale; });
+                    });
+                }
+
+                partSpans.forEach((mSpans, pIdx) => {
+                    const measures = childrenByTag(parts[pIdx], 'measure');
+                    const meta = partMeta.get(pIdx);
+                    mSpans.forEach((rawSpans, mIdx) => {
+                        const cur = meta[mIdx];
+                        const expDur = Math.round(cur.beats * (4.0 / cur.beatType) * cur.divs);
+                        const m = measures[mIdx];
+                        const byVoice = new Map();
+                        rawSpans.forEach(pair => {
+                            const vId = childText(pair[0], 'voice', '1');
+                            if (childText(pair[1], 'voice', '1') === vId) {
+                                if (!byVoice.has(vId)) byVoice.set(vId, []);
+                                byVoice.get(vId).push(pair);
+                            }
+                        });
+
+                        byVoice.forEach((vSpans, vId) => {
+                            const vNotes = childrenByTag(m, 'note').filter(x =>
+                                !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                            );
+                            const oldActualDur = vNotes.reduce((acc, x) => acc + (parseInt(childText(x, 'duration', '0'), 10) || 0), 0);
+                            const excess = oldActualDur - expDur;
+                            if (excess <= 0) return;
+
+                            const resolvedSegs = [];
+                            const usedIndices = new Set();
+                            vSpans.forEach(pair => {
+                                const i0 = vNotes.indexOf(pair[0]);
+                                let i1 = vNotes.indexOf(pair[1]);
+                                if (i0 < 0 || i1 <= i0) return;
+                                const endType = childText(vNotes[i1], 'type', '');
+                                if (i1 - i0 >= 2 && (endType === 'half' || endType === 'whole')) {
+                                    let allPrevQ = true;
+                                    for (let k = i0; k < i1; k++) {
+                                        if (childText(vNotes[k], 'type', '') !== 'quarter') { allPrevQ = false; break; }
+                                    }
+                                    if (allPrevQ) i1 -= 1;
+                                }
+                                for (let k = i0; k <= i1; k++) {
+                                    if (usedIndices.has(k)) return;
+                                }
+                                const seg = vNotes.slice(i0, i1 + 1);
+                                const ok = seg.length >= 2 && seg.every(x =>
+                                    !childByTag(x, 'rest') &&
+                                    childText(x, 'type', '') === 'quarter' &&
+                                    !childByTag(x, 'dot') &&
+                                    !childByTag(x, 'beam') &&
+                                    parseInt(childText(x, 'duration', '0'), 10) === cur.divs
+                                );
+                                if (ok) {
+                                    resolvedSegs.push(seg);
+                                    for (let k = i0; k <= i1; k++) usedIndices.add(k);
+                                }
+                            });
+
+                            if (resolvedSegs.length === 0) return;
+                            const totalK = resolvedSegs.reduce((acc, s) => acc + s.length, 0);
+                            let reconstructed = false;
+
+                            if (2 * excess === totalK * cur.divs && cur.divs % 2 === 0) {
+                                const eDur = cur.divs / 2;
+                                resolvedSegs.forEach(seg => {
+                                    seg.forEach((nEl, idxInSeg) => {
+                                        const dNode = childByTag(nEl, 'duration');
+                                        const tNode = childByTag(nEl, 'type');
+                                        if (dNode) dNode.textContent = String(eDur);
+                                        if (tNode) tNode.textContent = 'eighth';
+                                        const bVal = idxInSeg === 0 ? 'begin' : (idxInSeg === seg.length - 1 ? 'end' : 'continue');
+                                        insertBeamsOrdered(nEl, [['1', bVal]]);
+                                    });
+                                });
+                                reconstructed = true;
+                            } else if (4 * excess === 3 * totalK * cur.divs && cur.divs % 4 === 0) {
+                                const sDur = cur.divs / 4;
+                                resolvedSegs.forEach(seg => {
+                                    seg.forEach((nEl, idxInSeg) => {
+                                        const dNode = childByTag(nEl, 'duration');
+                                        const tNode = childByTag(nEl, 'type');
+                                        if (dNode) dNode.textContent = String(sDur);
+                                        if (tNode) tNode.textContent = '16th';
+                                        const bVal = idxInSeg === 0 ? 'begin' : (idxInSeg === seg.length - 1 ? 'end' : 'continue');
+                                        insertBeamsOrdered(nEl, [['1', bVal], ['2', bVal]]);
+                                    });
+                                });
+                                reconstructed = true;
+                            } else if (resolvedSegs.length === 1 && resolvedSegs[0].length === 3 && excess === 2 * cur.divs && cur.divs % 4 === 0) {
+                                const seg = resolvedSegs[0];
+                                const eDur = cur.divs / 2;
+                                const sDur = cur.divs / 4;
+                                const xs = seg.map(x => parseFloat(x.getAttribute('default-x')));
+                                const hasX = xs.every(v => !isNaN(v));
+                                const is16168 = hasX && (xs[1] - xs[0]) < (xs[2] - xs[1]) * 0.85;
+                                const specs = is16168
+                                    ? [
+                                        ['16th', sDur, [['1', 'begin'], ['2', 'begin']]],
+                                        ['16th', sDur, [['1', 'continue'], ['2', 'end']]],
+                                        ['eighth', eDur, [['1', 'end']]]
+                                    ]
+                                    : [
+                                        ['eighth', eDur, [['1', 'begin']]],
+                                        ['16th', sDur, [['1', 'continue'], ['2', 'begin']]],
+                                        ['16th', sDur, [['1', 'end'], ['2', 'end']]]
+                                    ];
+                                seg.forEach((nEl, idxInSeg) => {
+                                    const sp = specs[idxInSeg];
+                                    const dNode = childByTag(nEl, 'duration');
+                                    const tNode = childByTag(nEl, 'type');
+                                    if (dNode) dNode.textContent = String(sp[1]);
+                                    if (tNode) tNode.textContent = sp[0];
+                                    insertBeamsOrdered(nEl, sp[2]);
+                                });
+                                reconstructed = true;
+                            }
+
+                            if (reconstructed) {
+                                const newActualDur = oldActualDur - excess;
+                                childrenByTag(m, 'backup').forEach(bk => {
+                                    const bkDur = childByTag(bk, 'duration');
+                                    if (bkDur && bkDur.textContent && parseInt(bkDur.textContent.trim(), 10) === oldActualDur) {
+                                        bkDur.textContent = String(newActualDur);
+                                    }
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+
+            // Pass 3: Sanitize orphan stops, colliding starts, and runaway (>4 measure) unclosed slurs
+            parts.forEach(part => {
+                const measures = childrenByTag(part, 'measure');
+                const openSlurs = new Map();
+
+                const resolveUnclosedStart = (sNum, stInfo) => {
+                    const vId = childText(stInfo.note, 'voice', '1');
+                    const mVNotes = childrenByTag(stInfo.mEl, 'note').filter(x =>
+                        !childByTag(x, 'chord') && !childByTag(x, 'grace') && childText(x, 'voice', '1') === vId
+                    );
+                    let closedLocally = false;
+                    const pos = mVNotes.indexOf(stInfo.note);
+                    if (pos >= 0 && pos + 1 < mVNotes.length) {
+                        const cand = mVNotes[pos + 1];
+                        if (!childByTag(cand, 'rest') && pitchKey(cand) !== pitchKey(stInfo.note)) {
+                            let cNotat = childByTag(cand, 'notations');
+                            const alreadyHas = cNotat && childrenByTag(cNotat, 'slur').some(
+                                cs => (cs.getAttribute('number') || '1').trim() === sNum
+                            );
+                            if (!alreadyHas) {
+                                if (!cNotat) {
+                                    cNotat = doc.createElement('notations');
+                                    let refNode = null;
+                                    const cKids = cand.children;
+                                    for (let ci = 0; ci < cKids.length; ci++) {
+                                        const tn = cKids[ci].tagName;
+                                        if (tn === 'lyric' || tn === 'play' || tn === 'listen') {
+                                            refNode = cKids[ci];
+                                            break;
+                                        }
+                                    }
+                                    if (refNode) cand.insertBefore(cNotat, refNode);
+                                    else cand.appendChild(cNotat);
+                                }
+                                const stopSlur = doc.createElement('slur');
+                                stopSlur.setAttribute('type', 'stop');
+                                stopSlur.setAttribute('number', sNum);
+                                cNotat.appendChild(stopSlur);
+                                closedLocally = true;
+                            }
+                        }
+                    }
+                    if (!closedLocally) {
+                        const stNotat = childByTag(stInfo.note, 'notations');
+                        if (stNotat && stInfo.slur.parentNode === stNotat) {
+                            stInfo.slur.remove();
+                            if (stNotat.children.length === 0) stNotat.remove();
+                        }
+                    }
+                };
+
+                measures.forEach((m, mIdx) => {
+                    Array.from(openSlurs.keys()).forEach(sNum => {
+                        const stInfo = openSlurs.get(sNum);
+                        if (mIdx - stInfo.mIdx > 4) {
+                            openSlurs.delete(sNum);
+                            resolveUnclosedStart(sNum, stInfo);
+                        }
+                    });
+
+                    childrenByTag(m, 'note').forEach(n => {
+                        const notat = childByTag(n, 'notations');
+                        if (!notat) return;
+                        childrenByTag(notat, 'slur').forEach(s => {
+                            const sType = (s.getAttribute('type') || '').trim();
+                            const sNum = (s.getAttribute('number') || '1').trim();
+                            if (sType === 'start') {
+                                if (openSlurs.has(sNum)) {
+                                    const prevInfo = openSlurs.get(sNum);
+                                    openSlurs.delete(sNum);
+                                    resolveUnclosedStart(sNum, prevInfo);
+                                }
+                                openSlurs.set(sNum, { mIdx: mIdx, mEl: m, note: n, slur: s });
+                            } else if (sType === 'stop') {
+                                if (openSlurs.has(sNum)) {
+                                    openSlurs.delete(sNum);
+                                } else {
+                                    s.remove();
+                                }
+                            }
+                        });
+                        if (notat.children.length === 0) notat.remove();
+                    });
+                });
+
+                Array.from(openSlurs.keys()).forEach(sNum => {
+                    const stInfo = openSlurs.get(sNum);
+                    openSlurs.delete(sNum);
+                    resolveUnclosedStart(sNum, stInfo);
+                });
+            });
+        }
+
         function sanitizeMusicXmlString(xmlString) {
             if (!xmlString) return '';
             var cleaned = xmlString
                 .replace(/\s+xmlns=""/g, '')
-                .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '')
-                .replace(/\s+data-vx-id="[^"]*"/g, '');
-
-            // Client-side defense: strip any remaining <credit>...</credit> blocks
-            cleaned = cleaned.replace(/<credit[\s\S]*?<\/credit>/gi, '');
-
-            // Client-side defense: strip <dynamics>...</dynamics> from directions
-            cleaned = cleaned.replace(/<dynamics[\s\S]*?<\/dynamics>/gi, '');
-
-            // Client-side defense: strip <ornaments>...</ornaments> from notations
-            cleaned = cleaned.replace(/<ornaments[\s\S]*?<\/ornaments>/gi, '');
-
-            // Client-side defense: strip <sound dynamics="..."/> attribute
-            cleaned = cleaned.replace(/(<sound\b[^>]*)\s+dynamics="[^"]*"/gi, '$1');
+                .replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '');
 
             return cleaned;
+        }
+
+
+        // ─── Dynamic Cutaway System Pruning & Header Separation Helper ──────────────
+        function pruneCutawayStaffLines(osmdInstance, xmlDocument) {
+            if (!osmdInstance || !osmdInstance.graphic) return;
+            var pages = osmdInstance.graphic.MusicPages;
+            if (!pages || pages.length === 0) return;
+
+            function isXmlMeasureCutaway(partIndex, measureNumber) {
+                if (!xmlDocument) return false;
+                var parts = xmlDocument.getElementsByTagName('part');
+                if (partIndex >= parts.length) return false;
+                var partEl = parts[partIndex];
+                var meas = partEl.querySelector('measure[number="' + measureNumber + '"]');
+                if (!meas) return false;
+                if (meas.getAttribute('print-object') === 'no') return true;
+                var sd = meas.querySelector('staff-details');
+                if (sd && sd.getAttribute('print-object') === 'no') return true;
+                var notes = meas.getElementsByTagName('note');
+                var hasPitched = false;
+                for (var i = 0; i < notes.length; i++) {
+                    if (notes[i].getElementsByTagName('pitch').length > 0) {
+                        hasPitched = true;
+                        break;
+                    }
+                }
+                if (!hasPitched) {
+                    var rests = meas.getElementsByTagName('rest');
+                    if (rests.length > 0) {
+                        var pNote = rests[0].parentNode;
+                        if (pNote && pNote.getAttribute('print-object') === 'no') return true;
+                    }
+                }
+                return false;
+            }
+
+            for (var pIdx = 0; pIdx < pages.length; pIdx++) {
+                var page = pages[pIdx];
+                var systems = page.MusicSystems;
+                if (!systems || systems.length === 0) continue;
+
+                var anyPruned = false;
+
+                for (var sIdx = 0; sIdx < systems.length; sIdx++) {
+                    var system = systems[sIdx];
+                    if (!system.StaffLines || system.StaffLines.length <= 1) continue;
+
+                    var activeStaffLines = [];
+                    for (var slIdx = 0; slIdx < system.StaffLines.length; slIdx++) {
+                        var sl = system.StaffLines[slIdx];
+                        var hasPitchedNotes = false;
+                        var allMeasuresCutaway = true;
+
+                        if (sl.Measures && sl.Measures.length > 0) {
+                            for (var mIdx = 0; mIdx < sl.Measures.length; mIdx++) {
+                                var gm = sl.Measures[mIdx];
+                                var mNum = gm.parentSourceMeasure ? gm.parentSourceMeasure.MeasureNumber : null;
+                                var staffId = (sl.ParentStaff && typeof sl.ParentStaff.idInMusicSheet === 'number')
+                                    ? sl.ParentStaff.idInMusicSheet : slIdx;
+
+                                if (gm.staffEntries && gm.staffEntries.length > 0) {
+                                    for (var seIdx = 0; seIdx < gm.staffEntries.length; seIdx++) {
+                                        var se = gm.staffEntries[seIdx];
+                                        if (se.graphicalVoiceEntries) {
+                                            for (var veIdx = 0; veIdx < se.graphicalVoiceEntries.length; veIdx++) {
+                                                var ve = se.graphicalVoiceEntries[veIdx];
+                                                if (ve.notes) {
+                                                    for (var nIdx = 0; nIdx < ve.notes.length; nIdx++) {
+                                                        var sn = ve.notes[nIdx].sourceNote;
+                                                        var isRest = sn ? (typeof sn.isRest === 'function' ? sn.isRest() : sn.isRest) : true;
+                                                        if (!isRest) {
+                                                            hasPitchedNotes = true;
+                                                            allMeasuresCutaway = false;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                if (hasPitchedNotes) break;
+                                            }
+                                        }
+                                        if (hasPitchedNotes) break;
+                                    }
+                                }
+
+                                if (!hasPitchedNotes && mNum !== null) {
+                                    var isCutawayInXml = isXmlMeasureCutaway(staffId, mNum);
+                                    if (!isCutawayInXml) {
+                                        allMeasuresCutaway = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (hasPitchedNotes || !allMeasuresCutaway) {
+                            activeStaffLines.push(sl);
+                        } else {
+                            anyPruned = true;
+                        }
+                    }
+
+                    if (activeStaffLines.length > 0 && activeStaffLines.length < system.StaffLines.length) {
+                        system.StaffLines = activeStaffLines;
+
+                        // Identify active instruments in the remaining stafflines
+                        var activeInstruments = new Set();
+                        for (var aIdx = 0; aIdx < activeStaffLines.length; aIdx++) {
+                            var aSl = activeStaffLines[aIdx];
+                            if (aSl.ParentStaff && aSl.ParentStaff.ParentInstrument) {
+                                activeInstruments.add(aSl.ParentStaff.ParentInstrument);
+                            }
+                        }
+
+                        // Remove inactive instrument labels to prevent overlapping / stacked text
+                        if (system.labels && typeof system.labels.keys === 'function') {
+                            var allKeys = system.labels.keys();
+                            for (var kIdx = 0; kIdx < allKeys.length; kIdx++) {
+                                var instKey = allKeys[kIdx];
+                                if (!activeInstruments.has(instKey)) {
+                                    if (typeof system.labels.remove === 'function') {
+                                        system.labels.remove(instKey);
+                                    }
+                                }
+                            }
+                        }
+
+                        var currentY = 0;
+                        var staffHeight = (osmdInstance.rules && osmdInstance.rules.StaffHeight) ? osmdInstance.rules.StaffHeight : 4.0;
+                        var betweenStaffDist = (osmdInstance.rules && osmdInstance.rules.BetweenStaffDistance) ? osmdInstance.rules.BetweenStaffDistance : 5.0;
+
+                        for (var aIdx = 0; aIdx < system.StaffLines.length; aIdx++) {
+                            var aSl = system.StaffLines[aIdx];
+                            if (aSl.PositionAndShape && aSl.PositionAndShape.RelativePosition) {
+                                aSl.PositionAndShape.RelativePosition.y = currentY;
+                            }
+                            currentY += staffHeight;
+                            if (aIdx + 1 < system.StaffLines.length) {
+                                currentY += betweenStaffDist;
+                            }
+                        }
+
+                        if (system.PositionAndShape) {
+                            system.PositionAndShape.BorderTop = 0;
+                            system.PositionAndShape.BorderBottom = currentY;
+                        }
+
+                        // Re-center remaining active staff labels vertically
+                        if (typeof system.setMusicSystemLabelsYPosition === 'function') {
+                            try {
+                                system.setMusicSystemLabelsYPosition();
+                            } catch (eLbl) {
+                                console.warn('[VoxSight] setMusicSystemLabelsYPosition notice:', eLbl);
+                            }
+                        }
+                    }
+                }
+
+                // ── Header Clearance & System Spacing Calculation ──
+                // Compute the safe starting Y position for System 0 so it never overlaps Title, Subtitle, Composer
+                var minFirstSystemY = (pIdx === 0) ? 18.0 : 4.0;
+                if (systems[0] && systems[0].PositionAndShape && systems[0].PositionAndShape.RelativePosition) {
+                    minFirstSystemY = Math.max(minFirstSystemY, systems[0].PositionAndShape.RelativePosition.y);
+                }
+
+                // Dynamically inspect all header labels on page 0 (Title, Subtitle, Composer, Lyricist)
+                if (pIdx === 0 && page.Labels && page.Labels.length > 0) {
+                    var maxHeaderBottom = 0;
+                    for (var lIdx = 0; lIdx < page.Labels.length; lIdx++) {
+                        var hLbl = page.Labels[lIdx];
+                        if (hLbl && hLbl.PositionAndShape) {
+                            var lblY = hLbl.PositionAndShape.RelativePosition ? hLbl.PositionAndShape.RelativePosition.y : 0;
+                            var lblHeight = (hLbl.PositionAndShape.Size && hLbl.PositionAndShape.Size.height > 0)
+                                ? hLbl.PositionAndShape.Size.height
+                                : (hLbl.PositionAndShape.BorderBottom || 4.0);
+                            var lblBottom = lblY + lblHeight;
+                            if (lblBottom > maxHeaderBottom) {
+                                maxHeaderBottom = lblBottom;
+                            }
+                        }
+                    }
+                    var titleClearance = (osmdInstance.rules && osmdInstance.rules.TitleBottomDistance) ? osmdInstance.rules.TitleBottomDistance : 5.0;
+                    minFirstSystemY = Math.max(minFirstSystemY, maxHeaderBottom + titleClearance);
+                }
+
+                var runningY = minFirstSystemY;
+                var systemDist = (osmdInstance.rules && (osmdInstance.rules.BetweenMusicSystemsDistance || osmdInstance.rules.StaffDistance)) ? (osmdInstance.rules.BetweenMusicSystemsDistance || osmdInstance.rules.StaffDistance) : 6.0;
+
+                for (var sysIdx = 0; sysIdx < systems.length; sysIdx++) {
+                    var sys = systems[sysIdx];
+                    if (sys.PositionAndShape && sys.PositionAndShape.RelativePosition) {
+                        sys.PositionAndShape.RelativePosition.y = runningY;
+                        var sysHeight = sys.PositionAndShape.BorderBottom - (sys.PositionAndShape.BorderTop || 0);
+                        runningY += sysHeight + systemDist;
+                    }
+                }
+
+                if (page.PositionAndShape) {
+                    page.PositionAndShape.BorderBottom = runningY;
+                }
+
+                try {
+                    if (page.PositionAndShape && typeof page.PositionAndShape.calculateAbsolutePositionsRecursive === 'function') {
+                        var absPos = page.PositionAndShape.AbsolutePosition || { x: 0, y: 0 };
+                        page.PositionAndShape.calculateAbsolutePositionsRecursive(absPos.x, absPos.y);
+                    }
+                } catch (err) {
+                    console.warn('[VoxSight] Relative to absolute transform warning:', err);
+                }
+            }
         }
 
         /**
@@ -894,7 +2254,7 @@
                     if (xmlDoc.querySelector('parsererror')) {
                         console.warn('DOM parser error in renderer.html');
                     } else {
-                        cleanMusicXmlDom(xmlDoc);
+                        ensureMeasureAndLyricIntegrity(xmlDoc);
                         xmlToLoad = new XMLSerializer().serializeToString(xmlDoc);
                     }
                 } catch (e) {
@@ -907,6 +2267,30 @@
                 }
 
                 await osmd.load(cleanXml);
+                if (osmd.graphic && typeof osmd.graphic.reCalculate === 'function' && !osmd.graphic.__vxCutawayGuarded) {
+                    const origReCalc = osmd.graphic.reCalculate.bind(osmd.graphic);
+                    osmd.graphic.reCalculate = function() {
+                        origReCalc();
+                        try {
+                            pruneCutawayStaffLines(osmd, xmlDoc);
+                        } catch (err) {
+                            console.warn('[VoxSight] Cutaway staff pruning notice:', err);
+                        }
+                    };
+                    osmd.graphic.__vxCutawayGuarded = true;
+                }
+                if (osmd.calculator && typeof osmd.calculator.calculateSingleLyricWord === 'function' && !osmd.calculator.__vxGuarded) {
+                    const origCalc = osmd.calculator.calculateSingleLyricWord;
+                    osmd.calculator.calculateSingleLyricWord = function() {
+                        try {
+                            return origCalc.apply(this, arguments);
+                        } catch (err) {
+                            console.warn('[VoxSight] Guarded OSMD lyric layout error:', err);
+                            return;
+                        }
+                    };
+                    osmd.calculator.__vxGuarded = true;
+                }
 
                 // Set to fully zoomed-out view by default
                 currentScoreZoom = 0.4;
@@ -1027,18 +2411,82 @@
             applyZoom(val);
         };
 
-        // Multi-touch pinch-to-zoom on score container
+        // Multi-touch pinch-to-zoom & single-touch tap-to-seek note repetition
         let pinchInitialDist = null;
         let pinchBaseZoom = 0.40;
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        let isPinchZooming = false;
+
+        function handleNoteTap(clientX, clientY) {
+            if (!noteCoordinates || noteCoordinates.length === 0) return;
+            const container = document.getElementById('score-container');
+            if (!container) return;
+
+            const rect = container.getBoundingClientRect();
+            const tapX = clientX - rect.left + container.scrollLeft;
+            const tapY = clientY - rect.top + container.scrollTop;
+
+            // Search for closest note within 60px radius (weighted dy for stave isolation)
+            let closestNote = null;
+            let minDistSq = 60 * 60;
+
+            for (let i = 0; i < noteCoordinates.length; i++) {
+                const n = noteCoordinates[i];
+                const noteCenterX = n.x + ((n.width || 16) / 2);
+                const noteCenterY = n.y + ((n.height || 14) / 2);
+
+                const dx = tapX - noteCenterX;
+                const dy = (tapY - noteCenterY) * 1.5;
+                const distSq = dx * dx + dy * dy;
+
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                    closestNote = n;
+                }
+            }
+
+            if (closestNote) {
+                console.log('[VoxSight Renderer] Note tapped:', closestNote.id, 'tick:', closestNote.tick, 'measure:', closestNote.measureNumber);
+                // 1. Instant visual highlight on tapped note
+                window.highlightNotes([{
+                    eventId: "note_" + closestNote.id,
+                    x: closestNote.x,
+                    y: closestNote.y,
+                    width: closestNote.width,
+                    height: closestNote.height,
+                    color: closestNote.color || "#00E676"
+                }]);
+
+                // 2. Dispatch to Android native playback engine to jump & play/repeat
+                if (window.VoxSightBridge && typeof window.VoxSightBridge.onNoteClicked === 'function') {
+                    window.VoxSightBridge.onNoteClicked(closestNote.tick, closestNote.id, closestNote.measureNumber);
+                }
+
+                // 3. Fallback audio preview via Tone.js synth if active
+                if (synth && closestNote.midiNote) {
+                    playNote(closestNote.midiNote, 400, 90);
+                }
+            }
+        }
+        window.handleNoteTap = handleNoteTap;
+
         const scoreContainer = document.getElementById('score-container');
         if (scoreContainer) {
             scoreContainer.addEventListener('touchstart', function (e) {
                 if (e.touches.length === 2) {
+                    isPinchZooming = true;
                     pinchInitialDist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
                     pinchBaseZoom = currentScoreZoom;
+                } else if (e.touches.length === 1) {
+                    isPinchZooming = false;
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    touchStartTime = Date.now();
                 }
             }, { passive: true });
 
@@ -1050,6 +2498,12 @@
                     );
                     const factor = dist / pinchInitialDist;
                     applyZoom(pinchBaseZoom * factor);
+                } else if (e.touches.length === 1 && !isPinchZooming) {
+                    const dx = e.touches[0].clientX - touchStartX;
+                    const dy = e.touches[0].clientY - touchStartY;
+                    if (Math.hypot(dx, dy) > 12) {
+                        touchStartTime = 0; // User is scrolling/panning, cancel tap
+                    }
                 }
             }, { passive: true });
 
@@ -1057,7 +2511,28 @@
                 if (e.touches.length < 2) {
                     pinchInitialDist = null;
                 }
+                if (!isPinchZooming && touchStartTime > 0 && (Date.now() - touchStartTime) < 400) {
+                    const touch = e.changedTouches[0];
+                    if (touch) {
+                        handleNoteTap(touch.clientX, touch.clientY);
+                    }
+                }
+                isPinchZooming = false;
             }, { passive: true });
+
+            let mouseStartX = 0;
+            let mouseStartY = 0;
+            scoreContainer.addEventListener('mousedown', function (e) {
+                mouseStartX = e.clientX;
+                mouseStartY = e.clientY;
+            });
+            scoreContainer.addEventListener('mouseup', function (e) {
+                const dx = e.clientX - mouseStartX;
+                const dy = e.clientY - mouseStartY;
+                if (Math.hypot(dx, dy) < 10) {
+                    handleNoteTap(e.clientX, e.clientY);
+                }
+            });
         }
 
         function getOriginalVoiceColor(gNote) {
@@ -1067,26 +2542,27 @@
             var partLabel = (gNote && gNote.__vx_partLabel) || (src ? src.CustomSatbLabel : "S");
             var norm = (partLabel || '').toUpperCase();
             switch (norm) {
-                case "S": return "#E91E63";
-                case "S1": return "#FF1493";
-                case "S2": return "#D50000";
+                case "S": return "#E11D48";
+                case "S1": return "#FB7185";
+                case "S2": return "#881337";
                 case "A": return "#8E24AA";
-                case "A1": return "#AB47BC";
-                case "A2": return "#3F51B5";
-                case "T": return "#1976D2";
-                case "T1": return "#00BCD4";
-                case "T2": return "#0D47A1";
-                case "B": return "#2E7D32";
-                case "B1": return "#7CB342";
-                case "B2": return "#1B5E20";
-                case "UNISON_TB": case "TB": return "#00BFA5";
-                case "UNISON_SA": case "SA": return "#D81B60";
-                case "UNISON_S1S2": return "#FF80AB";
-                case "UNISON_A1A2": return "#CE93D8";
-                case "UNISON_T1T2": return "#80D8FF";
-                case "UNISON_B1B2": return "#B9F6CA";
-                case "TUTTI": case "UNISON_ALL": return "#FFB300";
-                case "SOLO": return "#FF6D00";
+                case "A1": return "#C084FC";
+                case "A2": return "#4C1D95";
+                case "T": return "#2563EB";
+                case "T1": return "#0284C7";
+                case "T2": return "#1E3A8A";
+                case "B": return "#16A34A";
+                case "B1": return "#65A30D";
+                case "B2": return "#064E3B";
+                case "UNISON_TB": case "TB": return "#0D9488";
+                case "UNISON_SA": case "SA": return "#4F46E5";
+                case "UNISON_S1S2": return "#E11D48";
+                case "UNISON_A1A2": return "#8E24AA";
+                case "UNISON_T1T2": return "#2563EB";
+                case "UNISON_B1B2": return "#16A34A";
+                case "TUTTI": case "UNISON_ALL": return "#CA8A04";
+                case "SOLO": case "BARITONE_SOLO": case "BARITONE SOLO": case "BARITONE":
+                case "TENOR SOLO": case "SOPRANO SOLO": case "ALTO SOLO": case "BASS SOLO": return "#FF6D00";
                 case "OTHER":
                 case "OTHERS": return "#546E7A";
                 default: return "#808080";
@@ -1159,6 +2635,8 @@
                     let gNote = tempGraphicalNotes[i];
                     let srcNote = gNote.sourceNote || gNote.SourceNote;
                     if (!srcNote) continue;
+                    let isRest = (typeof srcNote.isRest === 'function') ? srcNote.isRest() : (srcNote.isRest === true || srcNote.IsRest === true);
+                    if (isRest) continue;
 
                     let baseColor = getOriginalVoiceColor(gNote);
                     let partLabel = gNote.__vx_partLabel || (srcNote ? srcNote.CustomSatbLabel : "S");
@@ -1195,10 +2673,10 @@
          */
         function computeLayoutHash() {
             const w = renderDiv.offsetWidth;
-            const h = renderDiv.offsetHeight;
             const z = Math.round((currentScoreZoom || 0.40) * 100);
             const dpr = window.devicePixelRatio || 1;
-            const raw = `osmd_render_w${w}_h${h}_z${z}_d${dpr}`;
+            // Height is intentionally excluded so vertical resizing / fullscreen expansion never invalidates layout
+            const raw = `osmd_render_w${w}_z${z}_d${dpr}`;
             let hash = 0;
             for (let i = 0; i < raw.length; i++) {
                 hash = ((hash << 5) - hash) + raw.charCodeAt(i);
@@ -1425,7 +2903,7 @@
                 var vNum = getVoiceNumber(gNote);
                 var trackKey = (staffIdx * 100) + vNum;
                 var sig = getSourceNotePitchSignature(src);
-                var isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest || src.IsRest || false);
+                var isRest = (typeof src.isRest === 'function') ? src.isRest() : (src.isRest === true || src.IsRest === true);
                 var pitch = src.Pitch || src.pitch;
                 var stepNames = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
                 var step = 'C';
@@ -1519,24 +2997,32 @@
             osmdMeasureNotes.forEach(function (gList, mIdx) {
                 var xmlList = xmlMeasureNotes.has(mIdx) ? xmlMeasureNotes.get(mIdx) : [];
 
-                // Compute chordPos for all XML notes at the same (staffIdx, rounded startTime)
+                // Compute chordPos and in-staff divisi flag for pitched XML notes at the same (staffIdx, rounded startTime)
                 var tsGroups = new Map();
                 for (let x = 0; x < xmlList.length; x++) {
-                    var xn = xmlList[x];
-                    var key = xn.staffIdx + '_' + Math.round(xn.startTime * 100);
+                    var xnInit = xmlList[x];
+                    xnInit.chordPos = 'single';
+                    xnInit.isDivisiChord = false;
+                    if (xnInit.isRest || xnInit.midi < 0) continue;
+                    var key = xnInit.staffIdx + '_' + Math.round(xnInit.startTime * 100);
                     if (!tsGroups.has(key)) tsGroups.set(key, []);
-                    tsGroups.get(key).push(xn);
+                    tsGroups.get(key).push(xnInit);
                 }
                 tsGroups.forEach(function (group) {
                     if (group.length > 1) {
                         group.sort(function (a, b) { return a.midi - b.midi; });
+                        var distinctMidis = new Set();
+                        for (let i = 0; i < group.length; i++) distinctMidis.add(group[i].midi);
+                        var hasMultiPitch = distinctMidis.size > 1;
                         for (let i = 0; i < group.length; i++) {
                             if (i === 0) group[i].chordPos = 'bottom';
                             else if (i === group.length - 1) group[i].chordPos = 'top';
                             else group[i].chordPos = 'middle';
+                            group[i].isDivisiChord = hasMultiPitch;
                         }
                     } else if (group.length === 1) {
                         group[0].chordPos = 'single';
+                        group[0].isDivisiChord = false;
                     }
                 });
 
@@ -1724,7 +3210,7 @@
                         }
                     }
 
-                    var vocalInfo = getVocalPartInfo(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice);
+                    var vocalInfo = getVocalPartInfo(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
 
                     gNote.__vx_id = vxId;
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
@@ -1771,6 +3257,9 @@
             if (!synth) {
                 try {
                     Tone.start();
+                    if (Tone.context) {
+                        Tone.context.lookAhead = 0.25; // Generous 250ms buffer to eliminate static/underruns on Android
+                    }
                     synth = new Tone.PolySynth(Tone.Synth, {
                         oscillator: { type: "triangle" },
                         envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
@@ -1921,6 +3410,9 @@
         function cleanMusicXmlDom(doc) {
             if (!doc) return;
 
+            // Legacy cleanup disabled: rendering must preserve the imported MusicXML.
+            return;
+
             function isStrayVoiceName(name) {
                 var s = (name || '').trim().toLowerCase().replace(/[.\s_-]+/g, '');
                 s = s.replace(/(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)ii$/i, '$12')
@@ -1967,7 +3459,7 @@
                     if (/^(baritone|bar)[1-9]?$/.test(s)) return false;
                     if (/^(mezzosoprano|mezzo)[1-9]?$/.test(s)) return false;
                     if (/^(voice|part|vocal|lead|solo)[0-9]*$/.test(s)) return true;
-                    if (s === '' || s === 'musicxmlpart' || s === 'staff') return true;
+                    if (s === '' || s === 'musicxmlpart' || s === 'staff' || s === '82' || s === 'sq') return true;
                     return false;
                 }
 
@@ -2034,15 +3526,11 @@
 
                         var weighted = missingCovered * 10;
                         if (isSop2) {
-                            weighted += 100; // Top priority: Soprano 2!
+                            weighted += 50;
                         } else if (isAlt2) {
-                            weighted += 60;
+                            weighted += 40;
                         } else if (isSop1) {
-                            if (hasSoprano2) {
-                                weighted = 0; // Strictly forbid merging stray voice notes into Soprano 1 when Soprano 2 exists!
-                            } else {
-                                weighted += 5;
-                            }
+                            weighted += 45;
                         }
 
                         if (missingCovered > 0 && weighted > maxCovered) {
@@ -2555,6 +4043,7 @@
             if (hasExplicitSolo) {
                 var choirMeasures = new Set();
                 partInfo.forEach(function(info) {
+                    if (info.isSolo || info.isAccomp) return;
                     var isChoirVoice = (info.tier >= 2 && info.tier <= 4) ||
                         ['alto', 'tenor', 'bass', 'choir', 'satb'].some(function(kw) { return info.normName.toLowerCase().indexOf(kw) !== -1; });
                     var firstM = info.element.getElementsByTagName('measure')[0];
@@ -2585,7 +4074,12 @@
                                 }
                                 if (activeM.length > 0 && activeM.every(function(m) { return m < firstChoirM; })) {
                                     info.isSolo = true;
-                                    info.normName = 'Solo';
+                                    var rawLow = info.rawName.toLowerCase();
+                                    if (rawLow.indexOf('baritone') !== -1) {
+                                        info.normName = 'Baritone Solo';
+                                    } else {
+                                        info.normName = 'Solo';
+                                    }
                                     info.tier = 0;
                                 }
                             }
@@ -2637,7 +4131,9 @@
                         for (var m in info.measures) {
                             if (info.measures[m] > 0 && /^\d+$/.test(m)) {
                                 var mi = parseInt(m, 10);
-                                if (mi < firstBassM) firstBassM = mi;
+                                if (measureActiveParts[mi] && measureActiveParts[mi].size >= 2) {
+                                    if (mi < firstBassM) firstBassM = mi;
+                                }
                             }
                         }
                     }
@@ -2654,7 +4150,6 @@
 
                         if (isSoloIntro) {
                             nonAccompParts.forEach(function(info) {
-                                if (bassClefPids.has(info.pid)) return;
                                 if (info.tier >= 1 && info.tier <= 4) return;
                                 var activeM = [];
                                 for (var m in info.measures) {
@@ -2664,7 +4159,12 @@
                                 }
                                 if (activeM.length > 0 && activeM.some(function(m) { return m < choirEntranceM; })) {
                                     info.isSolo = true;
-                                    info.normName = 'Solo';
+                                    var rawLow = info.rawName.toLowerCase();
+                                    if (rawLow.indexOf('baritone') !== -1) {
+                                        info.normName = 'Baritone Solo';
+                                    } else {
+                                        info.normName = 'Solo';
+                                    }
                                     info.tier = 0;
                                 }
                             });
@@ -2687,10 +4187,16 @@
                 if (anchorSp) {
                     var pn = anchorSp.getElementsByTagName('part-name')[0];
                     if (!pn) { pn = doc.createElement('part-name'); anchorSp.appendChild(pn); }
-                    pn.textContent = 'Solo';
+                    var curPn = (pn.textContent || '').trim().toLowerCase();
+                    if (!curPn || ['voice', 's', 's.', 'sop'].indexOf(curPn) !== -1) {
+                        pn.textContent = anchor.normName || 'Solo';
+                    }
                     var pa = anchorSp.getElementsByTagName('part-abbreviation')[0];
                     if (!pa) { pa = doc.createElement('part-abbreviation'); anchorSp.appendChild(pa); }
-                    pa.textContent = 'Solo';
+                    var curPa = (pa.textContent || '').trim().toLowerCase();
+                    if (!curPa || ['voice', 's', 's.', 'sop'].indexOf(curPa) !== -1) {
+                        pa.textContent = anchor.normName || 'Solo';
+                    }
                 }
 
                 for (var sIdx = 1; sIdx < soloParts.length; sIdx++) {
@@ -2739,10 +4245,16 @@
                 if (singleSp) {
                     var pn = singleSp.getElementsByTagName('part-name')[0];
                     if (!pn) { pn = doc.createElement('part-name'); singleSp.appendChild(pn); }
-                    pn.textContent = 'Solo';
+                    var curPn = (pn.textContent || '').trim().toLowerCase();
+                    if (!curPn || ['voice', 's', 's.', 'sop'].indexOf(curPn) !== -1) {
+                        pn.textContent = 'Solo';
+                    }
                     var pa = singleSp.getElementsByTagName('part-abbreviation')[0];
                     if (!pa) { pa = doc.createElement('part-abbreviation'); singleSp.appendChild(pa); }
-                    pa.textContent = 'Solo';
+                    var curPa = (pa.textContent || '').trim().toLowerCase();
+                    if (!curPa || ['voice', 's', 's.', 'sop'].indexOf(curPa) !== -1) {
+                        pa.textContent = 'Solo';
+                    }
                 }
             }
 
@@ -3343,32 +4855,31 @@
             console.log('[VoxSight]', msg);
         }
 
-        // Handle window resize — invalidate layout only on real window/orientation changes
+        // Handle window resize — resize canvas only; avoid heavy DOM re-mapping during playback / fullscreen
         let lastWindowWidth = window.innerWidth;
-        let lastWindowHeight = window.innerHeight;
         let resizeTimer = null;
 
         window.addEventListener('resize', () => {
-            if (window.innerWidth === lastWindowWidth && window.innerHeight === lastWindowHeight) {
-                return;
-            }
-            lastWindowWidth = window.innerWidth;
-            lastWindowHeight = window.innerHeight;
-
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
                 resizeCanvas();
-                const newHash = computeLayoutHash();
-                if (newHash !== layoutHash && !window.__vx_is_internal_render) {
-                    layoutHash = newHash;
-                    buildNoteMap();
-                    updateStatus('Layout changed — re-extracted coordinates');
-
-                    if (window.VoxSightBridge) {
-                        window.VoxSightBridge.onLayoutChanged(
-                            layoutHash,
-                            JSON.stringify(noteCoordinates)
-                        );
+                // Viewport height changes (like entering/exiting fullscreen) do NOT alter SVG note geometry!
+                // Only re-map if the window width actually changed AND audio synthesis is not actively playing.
+                if (window.innerWidth !== lastWindowWidth) {
+                    lastWindowWidth = window.innerWidth;
+                    const isAudioActive = (typeof synthStarted !== 'undefined' && synthStarted);
+                    if (!isAudioActive) {
+                        const newHash = computeLayoutHash();
+                        if (newHash !== layoutHash && !window.__vx_is_internal_render) {
+                            layoutHash = newHash;
+                            buildNoteMap();
+                            if (window.VoxSightBridge) {
+                                window.VoxSightBridge.onLayoutChanged(
+                                    layoutHash,
+                                    JSON.stringify(noteCoordinates)
+                                );
+                            }
+                        }
                     }
                 }
             }, 300);

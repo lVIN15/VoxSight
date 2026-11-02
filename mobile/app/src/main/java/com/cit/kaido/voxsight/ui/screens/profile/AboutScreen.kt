@@ -98,7 +98,7 @@ fun AboutScreen(
             
             // Version Number
             Text(
-                text = "Version 1.2.0",
+                text = "Version 1.3.0",
                 fontSize = 14.sp,
                 color = Color.Gray
             )

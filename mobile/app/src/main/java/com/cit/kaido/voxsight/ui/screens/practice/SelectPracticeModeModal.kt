@@ -218,6 +218,7 @@ fun SelectPracticeModeModal(
                                                 VoicePart.Bass1 -> "First Bass (higher subdivision)"
                                                 VoicePart.Bass2 -> "Second Bass (lower subdivision)"
                                                 VoicePart.Solo -> "Soloist / Lead vocal melody"
+                                                VoicePart.BaritoneSolo -> "Baritone Soloist / Lead vocal melody"
                                                 else -> "Vocal part"
                                             },
                                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -646,7 +647,7 @@ fun SelectPracticeModeModal(
                             com.cit.kaido.voxsight.model.SATBVoice.ALTO -> VoicePart.Alto
                             com.cit.kaido.voxsight.model.SATBVoice.TENOR -> VoicePart.Tenor
                             com.cit.kaido.voxsight.model.SATBVoice.BASS -> VoicePart.Bass
-                            com.cit.kaido.voxsight.model.SATBVoice.SOLO -> VoicePart.Solo
+                            com.cit.kaido.voxsight.model.SATBVoice.SOLO -> vocalParts.find { it.isSoloPart } ?: VoicePart.Solo
                             else -> VoicePart.Others
                         }
                         onModeSelected(true, vp)

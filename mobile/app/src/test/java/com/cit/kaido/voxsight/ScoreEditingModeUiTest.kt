@@ -31,10 +31,10 @@ class ScoreEditingModeUiTest {
 
         assertEquals(listOf("S", "A", "T", "B"), codes)
         assertEquals(listOf("Soprano", "Alto", "Tenor", "Bass"), names)
-        assertEquals(Color(0xFFE91E63), items[0].color)
+        assertEquals(Color(0xFFE11D48), items[0].color)
         assertEquals(Color(0xFF8E24AA), items[1].color)
-        assertEquals(Color(0xFF1976D2), items[2].color)
-        assertEquals(Color(0xFF2E7D32), items[3].color)
+        assertEquals(Color(0xFF2563EB), items[2].color)
+        assertEquals(Color(0xFF16A34A), items[3].color)
     }
 
     @Test
@@ -66,8 +66,8 @@ class ScoreEditingModeUiTest {
 
         val b1Item = items.first { it.code == "B1" }
         val b2Item = items.first { it.code == "B2" }
-        assertEquals(Color(0xFF7CB342), b1Item.color)
-        assertEquals(Color(0xFF1B5E20), b2Item.color)
+        assertEquals(Color(0xFF65A30D), b1Item.color)
+        assertEquals(Color(0xFF064E3B), b2Item.color)
     }
 
     @Test
@@ -103,9 +103,9 @@ class ScoreEditingModeUiTest {
         val tbItem = items.first { it.code == "UNISON_TB" }
         val tuttiItem = items.first { it.code == "TUTTI" }
         assertEquals("Tenor / Bass", tbItem.name)
-        assertEquals(Color(0xFF00BFA5), tbItem.color)
+        assertEquals(Color(0xFF0D9488), tbItem.color)
         assertEquals("Tutti (All)", tuttiItem.name)
-        assertEquals(Color(0xFFFFB300), tuttiItem.color)
+        assertEquals(Color(0xFFCA8A04), tuttiItem.color)
     }
 
     @Test
@@ -134,7 +134,7 @@ class ScoreEditingModeUiTest {
         val saItem = items.first { it.code == "UNISON_SA" }
         val soloItem = items.first { it.code == "SOLO" }
         assertEquals("Soprano / Alto", saItem.name)
-        assertEquals(Color(0xFFD81B60), saItem.color)
+        assertEquals(Color(0xFF4F46E5), saItem.color)
         assertEquals("Solo", soloItem.name)
         assertEquals(Color(0xFFFF6D00), soloItem.color)
     }

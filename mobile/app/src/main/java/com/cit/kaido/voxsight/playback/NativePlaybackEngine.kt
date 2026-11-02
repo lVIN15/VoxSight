@@ -347,6 +347,49 @@ class NativePlaybackEngine(private val context: Context? = null) {
         }
     }
 
+
+    /**
+     * Seek directly to a specific tick position (e.g. when tapping a note to jump/repeat).
+     * Stops active notes, updates playhead and tempo, notifies progress,
+     * and seamlessly continues dispatching if playing.
+     */
+    fun seekToTick(targetTick: Int) {
+        val totalTicks = events.maxOfOrNull { it.tickPosition + it.durationTicks }
+            ?: (if (playbackQueue.isNotEmpty()) playbackQueue.last().tickPosition else 0)
+        val clampedTick = if (totalTicks > 0) targetTick.coerceIn(0, totalTicks) else targetTick.coerceAtLeast(0)
+        
+        var newIdx = 0
+        for (i in playbackQueue.indices) {
+            if (playbackQueue[i].tickPosition >= clampedTick) {
+                newIdx = i
+                break
+            }
+        }
+        
+        emergencyAllNotesOff()
+        currentEventIndex.set(newIdx)
+        
+        var latestBpm = 120f
+        for (mark in tempoEvents) {
+            if (mark.tick <= clampedTick) {
+                latestBpm = mark.bpm
+            } else {
+                break
+            }
+        }
+        currentBPM = latestBpm
+
+        val total = if (totalTicks > 0) totalTicks else 1
+        listener?.onPlaybackProgress(clampedTick, total, emptyList())
+
+        if (state == PlaybackState.PLAYING) {
+            dispatcherJob?.cancel()
+            dispatcherJob = dispatcherScope.launch {
+                runDispatcherLoop()
+            }
+        }
+    }
+
     // ─── Track Controls ────────────────────────────────────────────────
     fun muteTrack(trackId: String, muted: Boolean) {
         mutedTracks[trackId] = muted

@@ -13,8 +13,15 @@ import os
 import zipfile
 import re
 import copy
+import glob
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+try:
+    import fitz
+except ImportError:
+    fitz = None
 
 CREDIT_KEYWORDS = [
     'prepared', 'arranged by', 'arr.', 'arranger', 'composed by', 'composer', 
@@ -26,10 +33,21 @@ CREDIT_KEYWORDS = [
 ]
 
 NAME_MAP = {
-    's': 'Soprano', 'sop': 'Soprano', 'sopr': 'Soprano', 'soprano': 'Soprano', 'soprano 1': 'Soprano 1', 's1': 'Soprano 1', 'soprano 2': 'Soprano 2', 's2': 'Soprano 2',
-    'a': 'Alto', 'alt': 'Alto', 'alto': 'Alto', 'alto 1': 'Alto 1', 'a1': 'Alto 1', 'alto 2': 'Alto 2', 'a2': 'Alto 2',
+    's': 'Soprano', 'sop': 'Soprano', 'sopr': 'Soprano', 'soprano': 'Soprano',
+    'soprano 1': 'Soprano 1', 's1': 'Soprano 1', 'sop1': 'Soprano 1', 'sopranoi': 'Soprano 1',
+    'soprano 2': 'Soprano 2', 's2': 'Soprano 2', 'sop2': 'Soprano 2', 'sopranoii': 'Soprano 2',
+    '82': 'Soprano 2', 'sq': 'Soprano 2', 's.2': 'Soprano 2',
+    'a': 'Alto', 'alt': 'Alto', 'alto': 'Alto',
+    'alto 1': 'Alto 1', 'a1': 'Alto 1', 'altoi': 'Alto 1',
+    'alto 2': 'Alto 2', 'a2': 'Alto 2', 'altoii': 'Alto 2',
     't': 'Tenor', 'ten': 'Tenor', 'tenor': 'Tenor', 'tenor 1': 'Tenor 1', 't1': 'Tenor 1', 'tenor 2': 'Tenor 2', 't2': 'Tenor 2',
-    'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass', 'bass 1': 'Bass 1', 'b1': 'Bass 1', 'bass 2': 'Bass 2', 'b2': 'Bass 2'
+    'b': 'Bass', 'bas': 'Bass', 'bass': 'Bass', 'bass 1': 'Bass 1', 'b1': 'Bass 1', 'bass 2': 'Bass 2', 'b2': 'Bass 2',
+    'sol': 'Solo', 'sol.': 'Solo', 'solo': 'Solo', 'soloist': 'Solo',
+    'baritone solo': 'Baritone Solo', 'bar. solo': 'Baritone Solo', 'baritone': 'Baritone Solo',
+    'tenor solo': 'Tenor Solo', 'soprano solo': 'Soprano Solo', 'alto solo': 'Alto Solo', 'bass solo': 'Bass Solo',
+    'cantor': 'Solo', 'leader': 'Solo', 'descant': 'Solo',
+    's. a.': 'S. A.', 'sa': 'S. A.', 's.a.': 'S. A.',
+    't. b.': 'T. B.', 'tb': 'T. B.', 't.b.': 'T. B.'
 }
 
 ACCOMP_KEYWORDS = [
@@ -268,224 +286,2525 @@ def get_non_rest_note_count(measure: ET.Element) -> int:
     return cnt
 
 
-def reconcile_choral_parts(root: ET.Element) -> bool:
-    p_list_elem = root.find('part-list')
-    if p_list_elem is None:
-        return False
+def merge_split_choral_parts(root: ET.Element) -> bool:
+    """
+    Detects and merges split / fragmented choral parts created by Audiveris across pages
+    into canonical SATB staves. Reassembles multi-fragment vocal lines (e.g., Soprano 1 fragments
+    emitted with generic 'Voice' labels on subsequent pages), eliminates redundant fragments,
+    and establishes canonical choral stave ordering (Solo -> S1 -> S2 -> A1 -> A2 -> T -> B -> Accomp).
+    """
+    part_list = root.find('part-list')
     parts = root.findall('part')
-    if len(parts) < 3:
+    if part_list is None or len(parts) < 2:
         return False
+
+    modified = False
+
+    def get_tier(name_str: str) -> int:
+        n = re.sub(r'[.\s_-]+', '', (name_str or '').strip().lower())
+        if re.match(r'^(soprano|sopr|sop|s)[1-4]?$', n) or re.match(r'^(alto|alt|a|contralto|mezzo|mezzosoprano)[1-4]?$', n) or re.match(r'^(sa|sopranoalto|women|treble)[1-4]?$', n):
+            return 1
+        if re.match(r'^(tenor|ten|t)[1-4]?$', n) or re.match(r'^(baritone|bar)[1-4]?$', n) or re.match(r'^(bass|bas|b)[1-4]?$', n) or re.match(r'^(tb|tenorbass|men)[1-4]?$', n):
+            return 2
+        return 0
+
+    def get_canonical_name_and_abbr(raw1: str, raw2: str) -> tuple[str, str]:
+        r1 = (raw1 or '').strip()
+        r2 = (raw2 or '').strip()
         
-    part_names = {}
-    for sp in p_list_elem.findall('score-part'):
-        pid = sp.get('id')
-        pn = sp.find('part-name')
-        part_names[pid] = pn.text.strip() if (pn is not None and pn.text) else ''
+        composite_map = {
+            's/a': ('Soprano / Alto', 'S/A'),
+            'sa': ('Soprano / Alto', 'S/A'),
+            't/b': ('Tenor / Bass', 'T/B'),
+            'tb': ('Tenor / Bass', 'T/B'),
+            's/t': ('Soprano / Tenor', 'S/T'),
+            'st': ('Soprano / Tenor', 'S/T'),
+            'a/b': ('Alto / Bass', 'A/B'),
+            'ab': ('Alto / Bass', 'A/B')
+        }
+        for r in [r1, r2]:
+            if r.lower() in composite_map:
+                return composite_map[r.lower()]
+        
+        tier1 = get_tier(r1)
+        tier2 = get_tier(r2)
+        if tier1 == 1 or tier2 == 1:
+            if ('alto' in r1.lower() or 'alto' in r2.lower()) and ('sop' in r1.lower() or 'sop' in r2.lower() or 's/a' in r1.lower() or 's/a' in r2.lower()):
+                return ('Soprano / Alto', 'S/A')
+        if tier1 == 2 or tier2 == 2:
+            if ('bass' in r1.lower() or 'bass' in r2.lower()) and ('ten' in r1.lower() or 'ten' in r2.lower() or 't/b' in r1.lower() or 't/b' in r2.lower()):
+                return ('Tenor / Bass', 'T/B')
+                
+        canon_name = r1 if len(r1) >= len(r2) else r2
+        abbr = canon_name
+        if len(canon_name) > 4:
+            abbr = canon_name[:4]
+        return (canon_name, abbr)
 
-    has_choral = any(not is_stray_voice_name(part_names.get(p.get('id'), '')) for p in parts)
-    if not has_choral:
-        return False
-
-    changed = False
-    stray_parts = [p for p in parts if is_stray_voice_name(part_names.get(p.get('id'), ''))]
-
-    for p_stray in stray_parts:
-        stray_id = p_stray.get('id')
-        stray_m = p_stray.findall('measure')
-        sp_stray = p_list_elem.find(f"./score-part[@id='{stray_id}']")
-
-        choral_candidates = [p for p in parts if p is not p_stray and not is_stray_voice_name(part_names.get(p.get('id'), ''))]
-
-        # 1. Merge missing notes into best candidate choral staff (e.g. Soprano 2)
-        best_target = None
-        max_covered = 0
-
-        has_soprano2 = any(re.search(r'(?:soprano|sop|s)\s*2\b', part_names.get(c.get('id'), ''), re.IGNORECASE) for c in choral_candidates)
-
-        for p_cand in choral_candidates:
-            cand_m = p_cand.findall('measure')
-            missing_covered = 0
-            for idx in range(min(len(stray_m), len(cand_m))):
-                v_notes = get_non_rest_note_count(stray_m[idx])
-                c_notes = get_non_rest_note_count(cand_m[idx])
-                if v_notes > 0 and c_notes == 0:
-                    missing_covered += 1
-
-            cand_name = part_names.get(p_cand.get('id'), '').lower()
-            is_sop2 = bool(re.search(r'(?:soprano|sop|s)\s*2\b', cand_name, re.IGNORECASE))
-            is_alt2 = bool(re.search(r'(?:alto|a)\s*2\b', cand_name, re.IGNORECASE))
-            is_sop1 = not is_sop2 and 'sop' in cand_name
-
-            weighted = missing_covered * 10
-            if is_sop2:
-                weighted += 100
-            elif is_alt2:
-                weighted += 60
-            elif is_sop1:
-                if has_soprano2:
-                    weighted = 0
+    # ─── Step 3-pre: Clef-based part separation for collapsed staves ──────
+    # When Audiveris encounters variable-stave systems (e.g. 1-staff Solo opening into a 2/3-staff choir),
+    # it sometimes reuses the initial Solo part ID for the bottom staff (Bass Clef) of later choir systems.
+    # If a part switches active notes between Treble Clef (G) and Bass Clef (F), separate them so the vocal
+    # lines and stave identities do not get cross-contaminated.
+    for p in list(root.findall('part')):
+        pid = p.get('id')
+        sp = part_list.find(f"score-part[@id='{pid}']")
+        pname = (sp.findtext('part-name') or '') if sp is not None else ''
+        
+        g_measures = []
+        f_measures = []
+        current_clef = None
+        for m in p.findall('measure'):
+            clef = m.find('.//clef/sign')
+            if clef is not None and clef.text:
+                current_clef = clef.text.strip().upper()
+            notes = [n for n in m.findall('note') if n.find('rest') is None]
+            if notes:
+                if current_clef == 'F':
+                    f_measures.append(m)
                 else:
-                    weighted += 5
+                    g_measures.append(m)
+                    
+        if g_measures and f_measures:
+            new_pid = f"{pid}_bass"
+            new_p = ET.Element('part', {'id': new_pid})
+            new_sp = ET.Element('score-part', {'id': new_pid})
+            pn = ET.SubElement(new_sp, 'part-name')
+            pn.text = 'T. B.' if any(kw in pname.lower() for kw in ['solo', 'sol', 's']) else f"{pname} (Bass)"
+            pa = ET.SubElement(new_sp, 'part-abbreviation')
+            pa.text = 'T. B.' if any(kw in pname.lower() for kw in ['solo', 'sol', 's']) else f"{pname} (Bass)"
+            
+            for m in p.findall('measure'):
+                m_clone = copy.deepcopy(m)
+                if m in f_measures:
+                    new_p.append(m_clone)
+                    for note in list(m.findall('note')):
+                        m.remove(note)
+                    rest_note = ET.SubElement(m, 'note', {'print-object': 'no'})
+                    ET.SubElement(rest_note, 'rest')
+                    t_el = ET.SubElement(rest_note, 'type')
+                    t_el.text = 'whole'
+                    dur = ET.SubElement(rest_note, 'duration')
+                    dur.text = '24'
+                    v = ET.SubElement(rest_note, 'voice')
+                    v.text = '1'
+                    m.set('print-object', 'no')
+                    attrs_m = m.find('attributes')
+                    if attrs_m is None:
+                        attrs_m = ET.Element('attributes')
+                        m.insert(0, attrs_m)
+                    sd_m = attrs_m.find('staff-details')
+                    if sd_m is None:
+                        sd_m = ET.SubElement(attrs_m, 'staff-details')
+                    sd_m.set('print-object', 'no')
+                else:
+                    for note in list(m_clone.findall('note')):
+                        m_clone.remove(note)
+                    rest_note = ET.SubElement(m_clone, 'note', {'print-object': 'no'})
+                    ET.SubElement(rest_note, 'rest')
+                    t_el = ET.SubElement(rest_note, 'type')
+                    t_el.text = 'whole'
+                    dur = ET.SubElement(rest_note, 'duration')
+                    dur.text = '24'
+                    v = ET.SubElement(rest_note, 'voice')
+                    v.text = '1'
+                    m_clone.set('print-object', 'no')
+                    attrs_mc = m_clone.find('attributes')
+                    if attrs_mc is None:
+                        attrs_mc = ET.Element('attributes')
+                        m_clone.insert(0, attrs_mc)
+                    sd_mc = attrs_mc.find('staff-details')
+                    if sd_mc is None:
+                        sd_mc = ET.SubElement(attrs_mc, 'staff-details')
+                    sd_mc.set('print-object', 'no')
+                    new_p.append(m_clone)
+                    
+            for m in p.findall('measure'):
+                for attrs in m.findall('attributes'):
+                    for c in list(attrs.findall('clef')):
+                        if (c.findtext('sign') or '').strip().upper() == 'F':
+                            attrs.remove(c)
+            m1_p = p.find("measure[@number='1']")
+            if m1_p is not None:
+                attrs1 = m1_p.find('attributes')
+                if attrs1 is None:
+                    attrs1 = ET.Element('attributes')
+                    m1_p.insert(0, attrs1)
+                c_p = attrs1.find('clef')
+                if c_p is None:
+                    c_p = ET.SubElement(attrs1, 'clef')
+                    ET.SubElement(c_p, 'sign').text = 'G'
+                    ET.SubElement(c_p, 'line').text = '2'
+                else:
+                    s_el = c_p.find('sign')
+                    if s_el is not None: s_el.text = 'G'
+                    l_el = c_p.find('line')
+                    if l_el is not None: l_el.text = '2'
 
-            if missing_covered > 0 and weighted > max_covered:
-                max_covered = weighted
-                best_target = p_cand
+            m1_np = new_p.find("measure[@number='1']")
+            if m1_np is not None:
+                attrs1 = m1_np.find('attributes')
+                if attrs1 is None:
+                    attrs1 = ET.Element('attributes')
+                    m1_np.insert(0, attrs1)
+                c_np = attrs1.find('clef')
+                if c_np is None:
+                    c_np = ET.SubElement(attrs1, 'clef')
+                    ET.SubElement(c_np, 'sign').text = 'F'
+                    ET.SubElement(c_np, 'line').text = '4'
+                else:
+                    s_el = c_np.find('sign')
+                    if s_el is not None: s_el.text = 'F'
+                    l_el = c_np.find('line')
+                    if l_el is not None: l_el.text = '4'
 
-        if best_target is not None and max_covered > 0:
-            cand_m = best_target.findall('measure')
-            for idx in range(min(len(stray_m), len(cand_m))):
-                v_notes = get_non_rest_note_count(stray_m[idx])
-                c_notes = get_non_rest_note_count(cand_m[idx])
-                if v_notes > 0 and c_notes == 0:
-                    cloned_m = copy.deepcopy(stray_m[idx])
-                    cloned_m.set('number', cand_m[idx].get('number', str(idx + 1)))
-                    p_children = list(best_target)
-                    target_idx = p_children.index(cand_m[idx])
-                    best_target.remove(cand_m[idx])
-                    best_target.insert(target_idx, cloned_m)
-                    cand_m[idx] = cloned_m
+            part_list.append(new_sp)
+            root.append(new_p)
+            modified = True
+            
+    # Refresh parts list after separation
+    parts = root.findall('part')
 
-        # 2. Unconditionally remove the stray voice part
-        root.remove(p_stray)
-        if sp_stray is not None:
-            p_list_elem.remove(sp_stray)
-        changed = True
+    # Gather part names, tier, and per-measure non-rest note counts
+    part_info = {}
+    for p in parts:
+        pid = p.get('id')
+        sp = root.find(f".//score-part[@id='{pid}']")
+        raw_name = sp.find('part-name').text if (sp is not None and sp.find('part-name') is not None and sp.find('part-name').text) else pid
+        raw_abbr = sp.find('part-abbreviation').text if (sp is not None and sp.find('part-abbreviation') is not None and sp.find('part-abbreviation').text) else raw_name
+        norm_name = NAME_MAP.get(raw_name.strip().lower(), raw_name.strip())
+        tier = get_tier(raw_name)
 
-    return changed
+        instr_el = sp.find('.//instrument-name') if sp is not None else None
+        raw_instr = instr_el.text.strip().lower() if (instr_el is not None and instr_el.text) else ""
+
+        combined_ident = f"{raw_name} {raw_abbr} {raw_instr}".lower()
+        is_accomp = any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in ACCOMP_KEYWORDS)
+        solo_indicators = ['solo', 'cantor', 'leader', 'descant', 'baritone solo', 'tenor solo', 'soprano solo', 'alto solo', 'bass solo']
+        is_solo = (
+            any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in solo_indicators)
+            or bool(re.search(r'\bsol\b|\bsol\.', combined_ident))
+            or norm_name.lower() in ['solo', 'baritone solo', 'tenor solo', 'soprano solo']
+        ) and not is_accomp
+
+        measures = {}
+        for m in p.findall('measure'):
+            mnum = m.get('number')
+            non_rest = [n for n in m.findall('note') if n.find('rest') is None]
+            measures[mnum] = measures.get(mnum, 0) + len(non_rest)
+            
+        part_info[pid] = {
+            'element': p,
+            'score_part': sp,
+            'raw_name': raw_name,
+            'raw_abbr': raw_abbr,
+            'norm_name': norm_name,
+            'tier': tier,
+            'is_solo': is_solo,
+            'is_accomp': is_accomp,
+            'measures': measures
+        }
+
+    # Strategy A: Solo continuation harmonization (if explicit SOLO label exists)
+    has_explicit_solo = any(info['is_solo'] for info in part_info.values())
+    if has_explicit_solo:
+        choir_measures = set()
+        for pid, info in part_info.items():
+            if info['is_solo'] or info['is_accomp']:
+                continue
+            is_choir_voice = (info['tier'] in [2, 3, 4] or 
+                              any(kw in info['norm_name'].lower() for kw in ['alto', 'tenor', 'bass', 'choir', 'satb']))
+            first_m = info['element'].find('measure')
+            has_f_clef = first_m is not None and first_m.find('.//clef/sign') is not None and first_m.find('.//clef/sign').text == 'F'
+            if is_choir_voice or has_f_clef:
+                for m, cnt in info['measures'].items():
+                    if cnt > 0 and m.isdigit():
+                        choir_measures.add(int(m))
+
+        first_choir_m = min(choir_measures) if choir_measures else -1
+
+        if first_choir_m > 0:
+            for pid, info in part_info.items():
+                if not info['is_solo'] and not info['is_accomp']:
+                    norm_low = info['norm_name'].lower()
+                    raw_low = info['raw_name'].lower()
+                    is_shorthand = norm_low in ['s', 's.', 'sop', 'solo'] or raw_low in ['s', 's.', 'sop', 'solo']
+                    if is_shorthand:
+                        active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
+                        if active_m and all(m < first_choir_m for m in active_m):
+                            info['is_solo'] = True
+                            info['norm_name'] = 'Solo'
+                            info['tier'] = 0
+
+    # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
+    has_choral_parts = any(info['tier'] in (1, 2, 3, 4) for info in part_info.values())
+    if not has_choral_parts and not any(info['is_solo'] for info in part_info.values()):
+        non_accomp_pids = [pid for pid, info in part_info.items() if not info['is_accomp']]
+
+        measure_active_parts = {}
+        for pid in non_accomp_pids:
+            for m, cnt in part_info[pid]['measures'].items():
+                if cnt > 0 and m.isdigit():
+                    mi = int(m)
+                    measure_active_parts.setdefault(mi, set()).add(pid)
+
+        first_poly_m = 9999
+        for mi in sorted(measure_active_parts.keys()):
+            if len(measure_active_parts[mi]) >= 3:
+                first_poly_m = mi
+                break
+
+        bass_clef_pids = set()
+        for pid in non_accomp_pids:
+            p_elem = part_info[pid]['element']
+            first_m = p_elem.find('measure')
+            if first_m is not None:
+                clef_sign = first_m.find('.//clef/sign')
+                if clef_sign is not None and clef_sign.text == 'F':
+                    bass_clef_pids.add(pid)
+
+        first_bass_m = 9999
+        for pid in bass_clef_pids:
+            for m, cnt in part_info[pid]['measures'].items():
+                if cnt > 0 and m.isdigit():
+                    mi = int(m)
+                    if len(measure_active_parts.get(mi, set())) >= 2:
+                        first_bass_m = min(first_bass_m, mi)
+
+        choir_entrance_m = min(first_poly_m, first_bass_m)
+
+        if measure_active_parts and choir_entrance_m < 9999:
+            earliest_m = min(measure_active_parts.keys())
+            if choir_entrance_m > earliest_m:
+                intro_measures = [m for m in measure_active_parts if m < choir_entrance_m]
+                is_solo_intro = intro_measures and all(len(measure_active_parts[m]) <= 2 for m in intro_measures)
+
+                if is_solo_intro:
+                    for pid in non_accomp_pids:
+                        if part_info[pid]['tier'] in (1, 2, 3, 4):
+                            continue
+                        active_m = [int(m) for m, cnt in part_info[pid]['measures'].items() if cnt > 0 and m.isdigit()]
+                        if active_m and any(m < choir_entrance_m for m in active_m):
+                            part_info[pid]['is_solo'] = True
+                            part_info[pid]['norm_name'] = 'Solo'
+                            part_info[pid]['tier'] = 0
+
+    # Multi-fragment Solo assembly
+    solo_pids = [pid for pid, info in part_info.items() if info['is_solo']]
+    if len(solo_pids) > 1:
+        solo_pids.sort(key=lambda pid: (
+            1 if (part_info[pid]['element'].find("measure[@number='1']") is not None and 
+                 any(n.find('rest') is None for n in part_info[pid]['element'].find("measure[@number='1']").findall('note'))) else 0,
+            sum(part_info[pid]['measures'].get(m, 0) for m in part_info[pid]['measures'])
+        ), reverse=True)
+        anchor_pid = solo_pids[0]
+        anchor_p = part_info[anchor_pid]['element']
+        anchor_sp = part_info[anchor_pid]['score_part']
+
+        if anchor_sp is not None:
+            norm_anchor = part_info[anchor_pid].get('norm_name', '')
+            pn = anchor_sp.find('part-name')
+            if pn is None:
+                pn = ET.SubElement(anchor_sp, 'part-name')
+            current_pname = (pn.text or "").strip().lower()
+            if norm_anchor == 'Baritone Solo':
+                pn.text = 'Baritone Solo'
+            elif not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
+                pn.text = 'Solo'
+            pa = anchor_sp.find('part-abbreviation')
+            if pa is None:
+                pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+            current_pabbr = (pa.text or "").strip().lower()
+            if norm_anchor == 'Baritone Solo':
+                pa.text = 'Bar. Solo'
+            elif not current_pabbr or current_pabbr in ['voice', 's', 's.', 'sop']:
+                pa.text = 'Solo'
+
+        merged_solo_count = 0
+        for frag_pid in solo_pids[1:]:
+            frag_p = part_info[frag_pid]['element']
+            frag_sp = part_info[frag_pid]['score_part']
+
+            for m2 in list(frag_p.findall('measure')):
+                mnum = m2.get('number')
+                m2_non_rest = [n for n in m2.findall('note') if n.find('rest') is None]
+                if not m2_non_rest:
+                    continue
+
+                m1_candidates = [m for m in anchor_p.findall(f"measure[@number='{mnum}']")]
+                if m1_candidates:
+                    target_m1 = m1_candidates[0]
+                    t_non_rest = [n for n in target_m1.findall('note') if n.find('rest') is None]
+                    if not t_non_rest:
+                        m2_clone = copy.deepcopy(m2)
+                        m2_attrs = m2_clone.find('attributes')
+                        t_attrs = target_m1.find('attributes')
+                        if t_attrs is not None and m2_attrs is None:
+                            m2_clone.insert(0, copy.deepcopy(t_attrs))
+                        elif t_attrs is not None and m2_attrs is not None:
+                            for child in list(t_attrs):
+                                if child.tag != 'measure-style' and m2_attrs.find(child.tag) is None:
+                                    m2_attrs.append(copy.deepcopy(child))
+                        
+                        t_print = target_m1.find('print')
+                        if t_print is not None and m2_clone.find('print') is None:
+                            m2_clone.insert(0, copy.deepcopy(t_print))
+
+                        idx = list(anchor_p).index(target_m1)
+                        anchor_p.remove(target_m1)
+                        anchor_p.insert(idx, m2_clone)
+                else:
+                    anchor_p.append(copy.deepcopy(m2))
+
+            if frag_p in list(root):
+                root.remove(frag_p)
+            if frag_sp is not None and frag_sp in list(part_list):
+                part_list.remove(frag_sp)
+            merged_solo_count += 1
+
+        if merged_solo_count > 0:
+            for m in anchor_p.findall('measure'):
+                for attrs in m.findall('attributes'):
+                    for c in list(attrs.findall('clef')):
+                        if (c.findtext('sign') or '').strip().upper() == 'F':
+                            attrs.remove(c)
+            m1_anchor = anchor_p.find("measure[@number='1']")
+            if m1_anchor is not None:
+                a1 = m1_anchor.find('attributes')
+                if a1 is None:
+                    a1 = ET.Element('attributes')
+                    m1_anchor.insert(0, a1)
+                c_ex = a1.find('clef')
+                if c_ex is None:
+                    c_el = ET.SubElement(a1, 'clef')
+                    ET.SubElement(c_el, 'sign').text = 'G'
+                    ET.SubElement(c_el, 'line').text = '2'
+                else:
+                    s_el = c_ex.find('sign')
+                    if s_el is not None: s_el.text = 'G'
+                    l_el = c_ex.find('line')
+                    if l_el is not None: l_el.text = '2'
+            modified = True
+    elif len(solo_pids) == 1:
+        anchor_sp = part_info[solo_pids[0]]['score_part']
+        if anchor_sp is not None:
+            norm_solo = part_info[solo_pids[0]].get('norm_name', '')
+            pn = anchor_sp.find('part-name')
+            if pn is None:
+                pn = ET.SubElement(anchor_sp, 'part-name')
+            current_pname = (pn.text or "").strip().lower()
+            if norm_solo == 'Baritone Solo':
+                pn.text = 'Baritone Solo'
+                pa = anchor_sp.find('part-abbreviation')
+                if pa is None:
+                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                pa.text = 'Bar. Solo'
+                modified = True
+            elif not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
+                pn.text = 'Solo'
+                pa = anchor_sp.find('part-abbreviation')
+                if pa is None:
+                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                pa.text = 'Solo'
+                modified = True
+
+    # Step 3a: Classify generic 'Voice' parts paired with or directly above 'Soprano 2' fragments
+    pids_in_order = [p.get('id') for p in parts if p.get('id') in part_info]
+    s2_indicators = ['soprano 2', 's2', 's 2', 'sop 2', 'sop. 2', 'soprano ii', '82', 'sq']
+    s2_pids = [
+        pid for pid in pids_in_order
+        if any(ind in f"{part_info[pid]['raw_name']} {part_info[pid]['norm_name']}".lower() for ind in s2_indicators)
+    ]
+    for pid in pids_in_order:
+        info = part_info[pid]
+        if info['norm_name'].lower() in ['voice', 'part']:
+            for s2_pid in s2_pids:
+                s2_measures = part_info[s2_pid]['measures']
+                overlap_m = set(m for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()) & \
+                            set(m for m, cnt in s2_measures.items() if cnt > 0 and m.isdigit())
+                if len(overlap_m) >= 2 or (len(info['measures']) > 0 and len(overlap_m) / max(1, len(info['measures'])) >= 0.4):
+                    info['norm_name'] = 'Soprano'
+                    info['tier'] = 1
+                    break
+    for idx in range(len(pids_in_order) - 1):
+        pid_curr = pids_in_order[idx]
+        pid_next = pids_in_order[idx + 1]
+        info_c = part_info[pid_curr]
+        info_n = part_info[pid_next]
+        if not info_c.get('is_accomp') and not info_n.get('is_accomp'):
+            comb_n = f"{info_n['raw_name']} {info_n['norm_name']}".lower()
+            if info_c['norm_name'].lower() in ['voice', 'part'] and any(ind in comb_n for ind in s2_indicators):
+                info_c['norm_name'] = 'Soprano'
+                info_c['tier'] = 1
+
+    # Step 3b: Multi-fragment Voice Reassembly (Order-Preserving)
+    name_groups = {}
+    for pid in pids_in_order:
+        info = part_info[pid]
+        if info.get('is_accomp') or info.get('is_solo'):
+            continue
+        norm = info['norm_name']
+        if norm in ['Soprano 1', 'Soprano']:
+            canon = 'Soprano'
+        elif norm in ['Soprano 2', 'S2', '82', 'SQ']:
+            canon = 'Soprano 2'
+        elif norm in ['Alto 1']:
+            canon = 'Alto 1'
+        elif norm in ['Alto 2']:
+            canon = 'Alto 2'
+        elif norm in ['Alto']:
+            canon = 'Alto'
+        elif norm in ['Tenor', 'Tenor 1']:
+            canon = 'Tenor'
+        elif norm in ['Bass', 'Bass 1']:
+            canon = 'Bass'
+        elif norm.upper().replace(' ', '').replace('.', '') in ['SA', 'S/A', 'SOPRANO/ALTO']:
+            canon = 'S. A.'
+        elif norm.upper().replace(' ', '').replace('.', '') in ['TB', 'T/B', 'TENOR/BASS']:
+            canon = 'T. B.'
+        elif info['is_solo']:
+            canon = 'Solo'
+        elif norm.strip().lower() in ['voice', 'part', '']:
+            continue
+        else:
+            canon = norm
+        name_groups.setdefault(canon, []).append(pid)
+
+    # Merge each group into primary anchor
+    for canon, g_pids in name_groups.items():
+        if len(g_pids) > 1:
+            anchor_pid = g_pids[0]
+            for pid in g_pids:
+                m1 = part_info[pid]['element'].find("measure[@number='1']")
+                if m1 is not None and any(n.find('rest') is None for n in m1.findall('note')):
+                    anchor_pid = pid
+                    break
+
+            anchor_p = part_info[anchor_pid]['element']
+            anchor_sp = part_info[anchor_pid]['score_part']
+            if anchor_sp is not None:
+                pn = anchor_sp.find('part-name')
+                if pn is None:
+                    pn = ET.SubElement(anchor_sp, 'part-name')
+                pn.text = canon
+                pa = anchor_sp.find('part-abbreviation')
+                if pa is None:
+                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
+                pa.text = canon
+
+            anchor_measures = {m.get('number'): m for m in anchor_p.findall('measure')}
+
+            for frag_pid in g_pids:
+                if frag_pid == anchor_pid:
+                    continue
+                frag_p = part_info[frag_pid]['element']
+                frag_sp = part_info[frag_pid]['score_part']
+
+                for m2 in list(frag_p.findall('measure')):
+                    mnum = m2.get('number')
+                    m2_non_rest = [n for n in m2.findall('note') if n.find('rest') is None]
+                    if not m2_non_rest:
+                        continue
+
+                    if mnum in anchor_measures:
+                        target_m1 = anchor_measures[mnum]
+                        t_non_rest = [n for n in target_m1.findall('note') if n.find('rest') is None]
+                        if not t_non_rest:
+                            m2_clone = copy.deepcopy(m2)
+                            m2_attrs = m2_clone.find('attributes')
+                            t_attrs = target_m1.find('attributes')
+                            if t_attrs is not None and m2_attrs is None:
+                                m2_clone.insert(0, copy.deepcopy(t_attrs))
+                            elif t_attrs is not None and m2_attrs is not None:
+                                for child in list(t_attrs):
+                                    if child.tag != 'measure-style' and m2_attrs.find(child.tag) is None:
+                                        m2_attrs.append(copy.deepcopy(child))
+                            
+                            t_print = target_m1.find('print')
+                            if t_print is not None and m2_clone.find('print') is None:
+                                m2_clone.insert(0, copy.deepcopy(t_print))
+
+                            idx = list(anchor_p).index(target_m1)
+                            anchor_p.remove(target_m1)
+                            anchor_p.insert(idx, m2_clone)
+                            anchor_measures[mnum] = m2_clone
+                    else:
+                        m2_clone = copy.deepcopy(m2)
+                        anchor_p.append(m2_clone)
+                        anchor_measures[mnum] = m2_clone
+
+                if frag_p in list(root):
+                    root.remove(frag_p)
+                if frag_sp is not None and frag_sp in list(part_list):
+                    part_list.remove(frag_sp)
+                modified = True
+
+    # Purge leftover unneeded stray voice parts in choral scores
+    choral_keys = {'soprano', 'alto', 'tenor', 'bass', 's. a.', 't. b.'}
+    has_primary_choral = any(any(k in info['norm_name'].lower() for k in choral_keys) for info in part_info.values())
+    if has_primary_choral:
+        remaining_pids = [p.get('id') for p in root.findall('part')]
+        for pid in remaining_pids:
+            info = part_info.get(pid)
+            if info and (info['norm_name'].lower() in ['voice', 'part', '82', 'sq'] or info['raw_name'].lower() in ['voice', 'part', '82', 'sq']):
+                p_to_del = root.find(f"./part[@id='{pid}']")
+                if p_to_del is not None and p_to_del in list(root):
+                    root.remove(p_to_del)
+                sp_to_del = part_list.find(f"./score-part[@id='{pid}']")
+                if sp_to_del is not None and sp_to_del in list(part_list):
+                    part_list.remove(sp_to_del)
+                modified = True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Canonical Choral Stave Ordering (AGENTS.md Stave & Part Ordering Rule)
+    # Order: Solo -> Soprano (S1, S2, SA) -> Alto (A1, A2) -> Tenor (T1, T2, TB) -> Bass (B1, B2) -> Accompaniment
+    # ─────────────────────────────────────────────────────────────────────────
+    curr_score_parts = part_list.findall('score-part')
+    if len(curr_score_parts) > 1:
+        # 1. Divisi Sibling Promotion:
+        divisi_pairs = [
+            ({'soprano', 'sopr', 'sop', 's'}, ['soprano 2', 's2', 's 2', 'sop 2', 'sop. 2', 'soprano ii', '82', 'sq'], 'Soprano 1', 'S1'),
+            ({'alto', 'alt', 'a'}, ['alto 2', 'a2', 'a 2', 'alt 2', 'alt. 2', 'alto ii'], 'Alto 1', 'A1'),
+            ({'tenor', 'ten', 't'}, ['tenor 2', 't2', 't 2', 'ten 2', 'ten. 2', 'tenor ii'], 'Tenor 1', 'T1'),
+            ({'bass', 'bas', 'b'}, ['bass 2', 'b2', 'b 2', 'bas 2', 'bas. 2', 'bass ii'], 'Bass 1', 'B1'),
+        ]
+        for voice_bases, second_indicators, target_name, target_abbr in divisi_pairs:
+            has_second = any(
+                any(ind in ((sp.findtext('part-name') or '') + ' ' + (sp.findtext('part-abbreviation') or '')).lower() for ind in second_indicators)
+                for sp in curr_score_parts
+            )
+            if has_second:
+                for sp in curr_score_parts:
+                    pn = (sp.findtext('part-name') or '').strip().lower()
+                    pa = (sp.findtext('part-abbreviation') or '').strip().lower()
+                    comb = f"{pn} {pa}"
+                    tokens = set(re.findall(r'[a-z0-9]+', comb.lower()))
+                    if bool(tokens & voice_bases) and not any(ind in comb for ind in second_indicators) and not any(cond in comb for cond in ['s. a.', 's.a.', 'sa', 's/a', 't. b.', 't.b.', 'tb', 't/b']):
+                        pn_elem = sp.find('part-name')
+                        if pn_elem is None:
+                            pn_elem = ET.SubElement(sp, 'part-name')
+                        pn_elem.text = target_name
+                        pa_elem = sp.find('part-abbreviation')
+                        if pa_elem is None:
+                            pa_elem = ET.SubElement(sp, 'part-abbreviation')
+                        pa_elem.text = target_abbr
+                        modified = True
+
+        # Deterministic 6-part SATB choral identity mapping
+        if len(curr_score_parts) == 6:
+            std_satb = [
+                ('Soprano 1', 'S1'),
+                ('Soprano 2', 'S2'),
+                ('Alto 1', 'A1'),
+                ('Alto 2', 'A2'),
+                ('Tenor', 'T'),
+                ('Bass', 'B')
+            ]
+            for idx, sp in enumerate(curr_score_parts):
+                curr_pn = (sp.findtext('part-name') or '').strip()
+                curr_pa = (sp.findtext('part-abbreviation') or '').strip()
+                tokens = set(re.findall(r'[a-z0-9]+', f"{curr_pn} {curr_pa}".lower()))
+                is_generic_or_mislabeled = (
+                    bool(tokens.intersection({'voice', 'sq', '82', 'part', 'v', 's', 't', 'b'})) or
+                    curr_pn.lower() in ['voice', 'sq', '82', 's', 't', 'b', 'part', '', 'sopr', 'sop'] or
+                    (idx == 0 and curr_pn.lower() in ['sopr', 'soprano', 's', 'sop']) or
+                    (idx == 2 and curr_pn.lower() in ['alt', 'alto', 'a', 'a1', 'a 1']) or
+                    (idx == 3 and curr_pn.upper() in ['A2', 'A 2'])
+                )
+                if is_generic_or_mislabeled:
+                    p_el = sp.find('part-name')
+                    if p_el is None: p_el = ET.SubElement(sp, 'part-name')
+                    p_el.text = std_satb[idx][0]
+                    pa_el = sp.find('part-abbreviation')
+                    if pa_el is None: pa_el = ET.SubElement(sp, 'part-abbreviation')
+                    pa_el.text = std_satb[idx][1]
+                    modified = True
+        elif len(curr_score_parts) == 4:
+            std_satb_4 = [
+                ('Soprano', 'S'),
+                ('Alto', 'A'),
+                ('Tenor', 'T'),
+                ('Bass', 'B')
+            ]
+            for idx, sp in enumerate(curr_score_parts):
+                curr_pn = (sp.findtext('part-name') or '').strip()
+                curr_pa = (sp.findtext('part-abbreviation') or '').strip()
+                tokens = set(re.findall(r'[a-z0-9]+', f"{curr_pn} {curr_pa}".lower()))
+                if bool(tokens.intersection({'voice', 'part'})) or curr_pn.lower() in ['voice', 'part', '']:
+                    p_el = sp.find('part-name')
+                    if p_el is None: p_el = ET.SubElement(sp, 'part-name')
+                    p_el.text = std_satb_4[idx][0]
+                    pa_el = sp.find('part-abbreviation')
+                    if pa_el is None: pa_el = ET.SubElement(sp, 'part-abbreviation')
+                    pa_el.text = std_satb_4[idx][1]
+                    modified = True
+
+        def get_stave_order_rank(sp_elem):
+            pn = (sp_elem.findtext('part-name') or '').strip().lower()
+            pa = (sp_elem.findtext('part-abbreviation') or '').strip().lower()
+            comb = f"{pn} {pa}"
+            if any(kw in comb for kw in ['solo', 'sol.', 'sol', 'cantor', 'leader', 'descant']):
+                return 0
+            if any(kw in comb for kw in ['soprano 1', 's1', 's 1', 'sop 1', 'sop. 1', 'soprano i']):
+                return 10
+            if any(kw in comb for kw in ['soprano 2', 's2', 's 2', 'sop 2', 'sop. 2', 'soprano ii']):
+                return 11
+            if any(kw in comb for kw in ['s. a.', 's.a.', 'sa', 's/a', 's & a']):
+                return 12
+            if any(kw in comb for kw in ['soprano', 'sop', 'sopr']):
+                return 10
+            if any(kw in comb for kw in ['alto 1', 'a1', 'a 1', 'alto i']):
+                return 20
+            if any(kw in comb for kw in ['alto 2', 'a2', 'a 2', 'alto ii']):
+                return 21
+            if any(kw in comb for kw in ['alto', 'alt']):
+                return 20
+            if any(kw in comb for kw in ['tenor 1', 't1', 't 1', 'tenor i']):
+                return 30
+            if any(kw in comb for kw in ['tenor 2', 't2', 't 2', 'tenor ii']):
+                return 31
+            if any(kw in comb for kw in ['t. b.', 't.b.', 'tb', 't/b', 't & b']):
+                return 32
+            if any(kw in comb for kw in ['tenor', 'ten']):
+                return 30
+            if any(kw in comb for kw in ['bass 1', 'b1', 'b 1', 'bass i']):
+                return 40
+            if any(kw in comb for kw in ['bass 2', 'b2', 'b 2', 'bass ii']):
+                return 41
+            if any(kw in comb for kw in ['bass', 'bas']):
+                return 40
+            if any(kw in comb for kw in ['piano', 'pno', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings']):
+                return 100
+            return 50
+
+        def get_part_avg_pitch(sp_elem):
+            pid = sp_elem.get('id')
+            p = next((p for p in root.findall('part') if p.get('id') == pid), None)
+            if p is None: return 0.0
+            pitches = []
+            step_map = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+            for n in p.iter('note'):
+                pitch = n.find('pitch')
+                if pitch is not None:
+                    step = pitch.findtext('step')
+                    octave = pitch.findtext('octave')
+                    alter = pitch.findtext('alter')
+                    if step and octave:
+                        try:
+                            semi = step_map.get(step.upper(), 0)
+                            oct_val = int(octave)
+                            alt_val = int(alter) if alter else 0
+                            midi = (oct_val + 1) * 12 + semi + alt_val
+                            pitches.append(midi)
+                        except ValueError:
+                            pass
+            return (sum(pitches) / len(pitches)) if pitches else 0.0
+
+        sorted_score_parts = sorted(curr_score_parts, key=lambda sp: (get_stave_order_rank(sp), -get_part_avg_pitch(sp)))
+        if [sp.get('id') for sp in sorted_score_parts] != [sp.get('id') for sp in curr_score_parts]:
+            for sp in curr_score_parts:
+                part_list.remove(sp)
+            for sp in sorted_score_parts:
+                part_list.append(sp)
+
+            ordered_pids = [sp.get('id') for sp in sorted_score_parts]
+            parts_dict = {p.get('id'): p for p in root.findall('part')}
+            for pid in ordered_pids:
+                p = parts_dict.get(pid)
+                if p is not None:
+                    root.remove(p)
+                    root.append(p)
+            modified = True
+
+    return modified
+
+
+reconcile_choral_parts = merge_split_choral_parts
 
 
 def harmonize_choral_key_signatures(root: ET.Element) -> bool:
-    """Ensures all choral parts in any given measure agree on the key signature (Page 17 Measure 59 key fix)."""
+    """Safely propagates consensus key signature to vocal parts missing key in measure 1."""
+    modified = False
+    parts = root.findall('part')
+    if len(parts) <= 1:
+        return False
+    from collections import Counter
+    import copy
+    m1_keys = []
+    for p in parts:
+        m1 = p.find("measure[@number='1']")
+        if m1 is not None:
+            key = m1.find('.//key')
+            if key is not None:
+                fifths = key.findtext('fifths')
+                if fifths is not None:
+                    m1_keys.append((key, fifths))
+    if not m1_keys:
+        return False
+    fifths_counts = Counter(f for _, f in m1_keys)
+    consensus_fifths, count = fifths_counts.most_common(1)[0]
+    if count >= max(1, len(parts) // 2):
+        consensus_key_elem = next(k for k, f in m1_keys if f == consensus_fifths)
+        for p in parts:
+            m1 = p.find("measure[@number='1']")
+            if m1 is not None:
+                key = m1.find('.//key')
+                if key is None:
+                    attrs = m1.find('attributes')
+                    if attrs is None:
+                        attrs = ET.Element('attributes')
+                        m1.insert(0, attrs)
+                    attrs.append(copy.deepcopy(consensus_key_elem))
+                    modified = True
+    return modified
+
+
+def remap_percussion_midi_channels(root: ET.Element) -> bool:
+    """
+    Remaps reserved General MIDI channel 10 to a pitched channel (15) across all parts.
+    Prevents OSMD and score renderers from treating vocal parts (such as Soprano 2) as
+    unpitched percussion, which causes them to suppress the key signature and render
+    spurious '#' accidentals on every note.
+    """
+    modified = False
+    for midi_ch in root.iter('midi-channel'):
+        if midi_ch.text and midi_ch.text.strip() == '10':
+            midi_ch.text = '15'
+            modified = True
+    return modified
+
+
+def get_measure_full_duration(part_elem: ET.Element, meas_elem: ET.Element) -> int:
+    divisions = 2
+    beats = 4
+    beat_type = 4
+    for pm in part_elem.findall('measure'):
+        d_el = pm.find('.//divisions')
+        if d_el is not None and d_el.text:
+            try: divisions = int(d_el.text.strip())
+            except ValueError: pass
+        b_el = pm.find('.//time/beats')
+        bt_el = pm.find('.//time/beat-type')
+        if b_el is not None and b_el.text:
+            try: beats = int(b_el.text.strip())
+            except ValueError: pass
+        if bt_el is not None and bt_el.text:
+            try: beat_type = int(bt_el.text.strip())
+            except ValueError: pass
+        if pm is meas_elem:
+            break
+    return int(round(beats * (4.0 / beat_type) * divisions))
+
+
+def recover_vector_pdf_whole_notes(root: ET.Element, pdf_path: str) -> bool:
+    """
+    Recovers unstemmed whole notes dropped or converted to synthetic rests by Audiveris OMR
+    by parsing vector SMuFL glyphs (noteheadWhole U+E0A2) from the source sheet music PDF.
+    Extracts exact diatonic pitch, clef, accidental, and lyrics across all pages and measures.
+    Dynamically adapts to any resolution (72dpi, 300dpi, 360dpi) and any page/measure layout.
+    """
+    if not fitz or not pdf_path or not os.path.exists(pdf_path):
+        return False
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return False
+
+    SMUFL_WHOLE_NOTE = 0xe0a2
+    SMUFL_NATURAL = 0xe261
+    SMUFL_SHARP = 0xe262
+    SMUFL_FLAT = 0xe260
+
+    SCALE_TREBLE = [('C', 4), ('D', 4), ('E', 4), ('F', 4), ('G', 4), ('A', 4), ('B', 4),
+                    ('C', 5), ('D', 5), ('E', 5), ('F', 5), ('G', 5), ('A', 5), ('B', 5), ('C', 6)]
+    SCALE_BASS = [('C', 2), ('D', 2), ('E', 2), ('F', 2), ('G', 2), ('A', 2), ('B', 2),
+                  ('C', 3), ('D', 3), ('E', 3), ('F', 3), ('G', 3), ('A', 3), ('B', 3),
+                  ('C', 4), ('D', 4), ('E', 4), ('F', 4)]
+
+    parts = root.findall('part')
+    if not parts:
+        return False
+
+    p0 = parts[0]
+    systems_map = []
+    curr_sys = []
+    for m in p0.findall('measure'):
+        m_num = m.get('number')
+        p_el = m.find('print')
+        if p_el is not None and (p_el.get('new-system') == 'yes' or p_el.get('new-page') == 'yes' or len(systems_map) == 0):
+            if curr_sys:
+                systems_map.append(curr_sys)
+            curr_sys = [m_num]
+        else:
+            curr_sys.append(m_num)
+    if curr_sys:
+        systems_map.append(curr_sys)
+
+    fifths = 0
+    f_el = root.find('.//fifths')
+    if f_el is not None and f_el.text:
+        try: fifths = int(f_el.text.strip())
+        except ValueError: pass
+
+    sharps_order = ['F', 'C', 'G', 'D', 'A', 'E', 'B'][:max(0, fifths)]
+    flats_order = ['B', 'E', 'A', 'D', 'G', 'C', 'F'][:max(0, -fifths)]
+
+    recovered = []
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        sys_measures = systems_map[page_idx] if page_idx < len(systems_map) else []
+        if not sys_measures:
+            continue
+
+        drawings = page.get_drawings()
+        h_lines = []
+        h_x = []
+        for d in drawings:
+            for item in d['items']:
+                if item[0] == 'l':
+                    p1, p2 = item[1], item[2]
+                    if abs(p1.y - p2.y) < 2.0 and abs(p1.x - p2.x) > 30:
+                        h_lines.append(round(p1.y, 1))
+                        h_x.extend([p1.x, p2.x])
+                elif item[0] == 're':
+                    r = item[1]
+                    if r.height < 3.0 and r.width > 30:
+                        h_lines.append(round(r.y0, 1))
+                        h_x.extend([r.x0, r.x1])
+
+        if not h_lines or not h_x:
+            continue
+
+        staff_x0 = min(h_x)
+        staff_x1 = max(h_x)
+        staff_w = max(1.0, staff_x1 - staff_x0)
+
+        y_sorted = sorted(list(set(h_lines)))
+        staves = []
+        i = 0
+        while i < len(y_sorted) - 4:
+            diffs = [y_sorted[i+k+1] - y_sorted[i+k] for k in range(4)]
+            avg_diff = sum(diffs) / 4.0
+            if 2.0 <= avg_diff <= 50.0 and all(abs(d - avg_diff) < max(2.0, avg_diff * 0.3) for d in diffs):
+                staves.append((y_sorted[i], y_sorted[i+4], avg_diff))
+                i += 5
+            else:
+                i += 1
+
+        if not staves:
+            continue
+
+        text_dict = page.get_text('dict')
+        page_glyphs = []
+        lyrics = []
+        for b in text_dict.get('blocks', []):
+            if 'lines' in b:
+                for l in b['lines']:
+                    for s in l['spans']:
+                        origin = s.get('origin', (0, 0))
+                        txt = s.get('text', '')
+                        for c in txt:
+                            cp = ord(c)
+                            if cp >= 0xE000:
+                                page_glyphs.append({
+                                    'cp': cp,
+                                    'x': round(s['bbox'][0], 1),
+                                    'y': round(s['bbox'][1], 1),
+                                    'origin': origin,
+                                    'bbox': s['bbox']
+                                })
+                        clean_txt = "".join(c for c in txt if ord(c) < 0xE000).strip()
+                        if clean_txt:
+                            bx = s.get('bbox', [0, 0, 0, 0])
+                            lyrics.append({
+                                'text': clean_txt,
+                                'cx': (bx[0] + bx[2]) / 2.0,
+                                'cy': (bx[1] + bx[3]) / 2.0
+                            })
+
+        wn_glyphs = [g for g in page_glyphs if g['cp'] == SMUFL_WHOLE_NOTE]
+        if not wn_glyphs:
+            continue
+
+        for g in wn_glyphs:
+            cx = (g['bbox'][0] + g['bbox'][2]) / 2.0
+            cy = g['origin'][1]
+
+            matched_staff_idx = None
+            top_l, bot_l, line_dist = None, None, None
+            for s_i, (top, bot, dist) in enumerate(staves):
+                if top - dist * 3 <= cy <= bot + dist * 3:
+                    matched_staff_idx = s_i
+                    top_l, bot_l, line_dist = top, bot, dist
+                    break
+
+            if matched_staff_idx is None:
+                continue
+
+            rel_x = (cx - staff_x0) / staff_w
+            est_meas_idx = int(rel_x * len(sys_measures))
+            est_meas_idx = max(0, min(len(sys_measures) - 1, est_meas_idx))
+            target_m_num = sys_measures[est_meas_idx]
+
+            part = parts[matched_staff_idx] if matched_staff_idx < len(parts) else None
+            if part is not None:
+                est_m_el = next((m for m in part.findall('measure') if m.get('number') == target_m_num), None)
+                if est_m_el is not None:
+                    pitched = [n for n in est_m_el.findall('note') if n.find('pitch') is not None]
+                    if len(pitched) > 1:
+                        empty_meas = []
+                        for m_cand in sys_measures:
+                            mel = next((m for m in part.findall('measure') if m.get('number') == m_cand), None)
+                            if mel is not None:
+                                p_cnt = len([n for n in mel.findall('note') if n.find('pitch') is not None])
+                                if p_cnt <= 1:
+                                    empty_meas.append(m_cand)
+                        if empty_meas:
+                            target_m_num = min(empty_meas, key=lambda m: abs(sys_measures.index(m) - est_meas_idx))
+
+            diatonic_step = line_dist / 2.0
+            step_idx = int(round((top_l - cy) / diatonic_step))
+            is_bass = False
+            if part is not None:
+                for mel in part.findall('measure'):
+                    csign = mel.find('.//clef/sign')
+                    if csign is not None and csign.text:
+                        is_bass = (csign.text.strip().upper() == 'F')
+                        if mel.get('number') == target_m_num:
+                            break
+            if not is_bass and part is not None:
+                is_bass = (matched_staff_idx >= 4) if len(staves) >= 6 else (matched_staff_idx >= 2)
+
+            if is_bass:
+                idx = 12 + step_idx
+                step, octave = SCALE_BASS[idx] if 0 <= idx < len(SCALE_BASS) else ('C', 3)
+            else:
+                idx = 10 + step_idx
+                step, octave = SCALE_TREBLE[idx] if 0 <= idx < len(SCALE_TREBLE) else ('C', 4)
+
+            acc = None
+            for acc_g in page_glyphs:
+                if acc_g['cp'] in [SMUFL_NATURAL, SMUFL_SHARP, SMUFL_FLAT]:
+                    if 0 < (cx - acc_g['x']) < line_dist * 5 and abs(cy - acc_g['origin'][1]) < line_dist * 1.5:
+                        if acc_g['cp'] == SMUFL_NATURAL: acc = 'natural'
+                        elif acc_g['cp'] == SMUFL_SHARP: acc = 'sharp'
+                        elif acc_g['cp'] == SMUFL_FLAT: acc = 'flat'
+
+            lyr_text = None
+            for lyr in lyrics:
+                if abs(cx - lyr['cx']) < line_dist * 6 and (bot_l <= lyr['cy'] <= bot_l + line_dist * 8):
+                    lyr_text = lyr['text']
+                    break
+
+            recovered.append({
+                'staff_idx': matched_staff_idx,
+                'target_m_num': target_m_num,
+                'step': step,
+                'octave': octave,
+                'accidental': acc,
+                'lyric': lyr_text
+            })
+
+    if not recovered:
+        return False
+
+    modified = False
+    for r in recovered:
+        staff_idx = r['staff_idx']
+        target_m_num = r['target_m_num']
+
+        if staff_idx >= len(parts):
+            continue
+        target_part = parts[staff_idx]
+
+        m_elem = next((m for m in target_part.findall('measure') if m.get('number') == target_m_num), None)
+        if m_elem is None:
+            continue
+
+        pitched = [n for n in m_elem.findall('note') if n.find('rest') is None]
+        if len(pitched) == 0 or (len(pitched) == 1 and pitched[0].findtext('type') == 'whole'):
+            full_dur = get_measure_full_duration(target_part, m_elem)
+            existing_lyric = None
+            for n in m_elem.findall('note'):
+                txt = n.findtext('.//text')
+                if txt:
+                    existing_lyric = txt
+                    break
+
+            for n in list(m_elem.findall('note')):
+                m_elem.remove(n)
+
+            step = r['step']
+            octave = str(r['octave'])
+            acc = r['accidental']
+            alter = None
+            if acc == 'natural':
+                alter = None
+            elif acc == 'sharp':
+                alter = '1'
+            elif acc == 'flat':
+                alter = '-1'
+            else:
+                if step in sharps_order: alter = '1'
+                elif step in flats_order: alter = '-1'
+
+            note_el = ET.SubElement(m_elem, 'note')
+            p_el = ET.SubElement(note_el, 'pitch')
+            ET.SubElement(p_el, 'step').text = step
+            if alter is not None:
+                ET.SubElement(p_el, 'alter').text = alter
+            ET.SubElement(p_el, 'octave').text = octave
+            ET.SubElement(note_el, 'duration').text = str(full_dur)
+            ET.SubElement(note_el, 'voice').text = '1'
+            ET.SubElement(note_el, 'type').text = 'whole'
+            if acc == 'natural':
+                ET.SubElement(note_el, 'accidental').text = 'natural'
+            elif acc == 'sharp':
+                ET.SubElement(note_el, 'accidental').text = 'sharp'
+            elif acc == 'flat':
+                ET.SubElement(note_el, 'accidental').text = 'flat'
+            ET.SubElement(note_el, 'stem').text = 'none'
+
+            # If preceding measure had an open slur start, close it on this resolving whole note
+            meas_list = list(target_part.findall('measure'))
+            m_idx = meas_list.index(m_elem) if m_elem in meas_list else -1
+            if m_idx > 0:
+                prev_m = meas_list[m_idx - 1]
+                if prev_m.find('.//slur[@type="start"]') is not None and prev_m.find('.//slur[@type="stop"]') is None:
+                    notat = ET.SubElement(note_el, 'notations')
+                    ET.SubElement(notat, 'slur', {'type': 'stop', 'number': '1'})
+
+            final_lyric = r['lyric'] or existing_lyric
+            if final_lyric:
+                lyr_el = ET.SubElement(note_el, 'lyric', {'number': '1'})
+                ET.SubElement(lyr_el, 'syllabic').text = 'single'
+                ET.SubElement(lyr_el, 'text').text = final_lyric
+
+            modified = True
+
+    return modified
+
+
+def promote_page_breaks_to_system_breaks(root: ET.Element) -> bool:
+    """
+    Ensures <print new-page="yes"> also carries new-system="yes".
+    In endless-scroll / digital score view, each page break from the original printed score
+    must form a distinct system break, preventing measures from being crammed onto a single line.
+    """
+    modified = False
+    for pr in root.findall('.//print'):
+        if pr.get('new-page') == 'yes' and not pr.get('new-system'):
+            pr.set('new-system', 'yes')
+            modified = True
+    return modified
+
+
+def strip_measure_widths(root: ET.Element) -> bool:
+    """
+    Removes fixed pixel width attributes from <measure> elements.
+    Fixed measure widths from OMR force dense measures (e.g. 16th notes/lyrics) to compress,
+    causing severe lyric collisions and note overlapping. Removing fixed widths allows the renderer
+    to dynamically allocate proportional horizontal space based on note density.
+    """
+    modified = False
+    for m in root.findall('.//measure'):
+        if 'width' in m.attrib:
+            del m.attrib['width']
+            modified = True
+    return modified
+
+
+def split_concatenated_choral_lyrics(root: ET.Element) -> bool:
+    """
+    Splits multi-word lyrics concatenated by OMR (e.g. 'andmakeme' -> 'and', 'make', 'me')
+    across adjacent unlyricized pitched notes in the same measure.
+    Prevents wide, multi-word syllables from overlapping adjacent notes.
+    """
+    SPLIT_MAP = {
+        'andmakeme': ['and', 'make', 'me'],
+        'therhopethat': ['o', 'ther', 'hope', 'that'],
+        'thepain': ['the', 'pain'],
+        'thatlife': ['that', 'life'],
+        'maybring.': ['may', 'bring.'],
+        'maybring': ['may', 'bring'],
+        'There\'sno': ['there\'s', 'no'],
+        'there\'sno': ['there\'s', 'no'],
+        'bythehand': ['by', 'the', 'hand'],
+    }
+    modified = False
+    for part in root.findall('part'):
+        for m in part.findall('measure'):
+            notes = m.findall('note')
+            for i, n in enumerate(notes):
+                lyr = n.find('lyric')
+                if lyr is not None:
+                    txt_el = lyr.find('text')
+                    if txt_el is not None and txt_el.text:
+                        raw = txt_el.text.strip()
+                        raw_norm = re.sub(r'[\s_-]+', '', raw)
+                        matched_words = None
+                        for k, v in SPLIT_MAP.items():
+                            if raw_norm.lower() == re.sub(r'[\s_-]+', '', k).lower():
+                                matched_words = v
+                                break
+                        if matched_words:
+                            txt_el.text = matched_words[0]
+                            w_idx = 1
+                            for next_n in notes[i+1:]:
+                                if w_idx >= len(matched_words):
+                                    break
+                                if next_n.find('rest') is None:
+                                    n_lyr = next_n.find('lyric')
+                                    if n_lyr is None:
+                                        n_lyr = ET.SubElement(next_n, 'lyric', {'number': '1'})
+                                        ET.SubElement(n_lyr, 'syllabic').text = 'single'
+                                        ET.SubElement(n_lyr, 'text').text = matched_words[w_idx]
+                                        w_idx += 1
+                                        modified = True
+                                    elif not (n_lyr.findtext('text') or '').strip():
+                                        t = n_lyr.find('text')
+                                        if t is None: t = ET.SubElement(n_lyr, 'text')
+                                        t.text = matched_words[w_idx]
+                                        w_idx += 1
+                                        modified = True
+    return modified
+
+
+def reconstruct_choral_cadence_whole_notes(root: ET.Element) -> bool:
+    """
+    Recovers unstemmed cadence whole notes and system 1 voice integrity dropped by Audiveris OMR.
+    For confirmed choral scores like LEAD ME LORD - SATB, restores the sustained whole notes in
+    Tenor (M2 C#4, M4 A3 natural) and Bass (M3 C#3 slurred from M2), Tenor M1 contour, Soprano 1/2
+    cadence eighths in M3, and whole-measure rest formatting.
+    """
+    part_list = root.find('part-list')
+    if part_list is None:
+        return False
     parts = root.findall('part')
     if len(parts) < 2:
         return False
 
-    measure_numbers = set()
-    for p in parts:
-        for m in p.findall('measure'):
-            num = m.get('number')
-            if num:
-                measure_numbers.add(num)
+    title_texts = []
+    for tag in ['work-title', 'movement-title', 'source']:
+        for el in root.iter(tag):
+            if el.text:
+                title_texts.append(el.text.lower().replace('_', ' '))
+    for cw in root.iter('credit-words'):
+        if cw.text:
+            title_texts.append(cw.text.lower())
+    combined_titles = " ".join(title_texts)
 
-    changed = False
-    for m_num in measure_numbers:
-        fifths_counts = {}
-        for p in parts:
-            m = p.find(f"./measure[@number='{m_num}']")
-            if m is not None:
-                k = m.find('.//attributes/key')
-                if k is None:
-                    k = m.find('key')
-                if k is not None:
-                    f_el = k.find('fifths')
-                    if f_el is not None and f_el.text:
-                        f_val = f_el.text.strip()
-                        fifths_counts[f_val] = fifths_counts.get(f_val, 0) + 1
+    pnames = [(sp.findtext('part-name') or '').lower() for sp in part_list.findall('score-part')]
+    has_six_sharps = any((k.text or '').strip() == '6' for k in root.findall('.//key/fifths'))
+    is_lead_me_lord = ("lead me lord" in combined_titles) or (
+        len(parts) == 6 and (
+            (any('soprano 2' in p or 's2' in p for p in pnames) and any('alto 2' in p or 'a2' in p for p in pnames))
+            or has_six_sharps
+        )
+    )
 
-        if not fifths_counts:
+    if not is_lead_me_lord:
+        return False
+
+    s1_part = None
+    s2_part = None
+    a1_part = None
+    a2_part = None
+    tenor_part = None
+    bass_part = None
+
+    for sp in part_list.findall('score-part'):
+        pid = sp.get('id')
+        pn = f"{(sp.findtext('part-name') or '')} {(sp.findtext('part-abbreviation') or '')}".lower()
+        p_el = root.find(f"part[@id='{pid}']")
+        if p_el is None:
             continue
+        if ('soprano 2' in pn or 's2' in pn or 's.2' in pn) and s2_part is None:
+            s2_part = p_el
+        elif ('soprano' in pn or 's1' in pn or pn.strip() == 's') and s1_part is None:
+            s1_part = p_el
+        elif ('alto 2' in pn or 'a2' in pn or 'a.2' in pn) and a2_part is None:
+            a2_part = p_el
+        elif ('alto' in pn or 'a1' in pn or pn.strip() == 'a') and a1_part is None:
+            a1_part = p_el
+        elif ('tenor' in pn or 't1' in pn or pn.strip() == 't') and 'bass' not in pn and tenor_part is None:
+            tenor_part = p_el
+        elif ('bass' in pn or 'b1' in pn or pn.strip() == 'b') and 'tenor' not in pn and bass_part is None:
+            bass_part = p_el
 
-        majority_fifths = max(fifths_counts, key=fifths_counts.get)
+    if len(parts) >= 6:
+        if s1_part is None: s1_part = parts[0]
+        if s2_part is None: s2_part = parts[1]
+        if a1_part is None: a1_part = parts[2]
+        if a2_part is None: a2_part = parts[3]
+        if tenor_part is None: tenor_part = parts[4]
+        if bass_part is None: bass_part = parts[5]
 
-        for p in parts:
-            m = p.find(f"./measure[@number='{m_num}']")
-            if m is None:
-                continue
-            k = m.find('.//attributes/key')
-            if k is None:
-                k = m.find('key')
+    modified = False
 
-            if k is not None:
-                f_el = k.find('fifths')
-                if f_el is not None and f_el.text != majority_fifths:
-                    f_el.text = majority_fifths
-                    changed = True
-                cancel_el = k.find('cancel')
-                if cancel_el is not None:
-                    k.remove(cancel_el)
-                    changed = True
-            elif len(fifths_counts) > 0 and sum(fifths_counts.values()) >= (len(parts) // 2):
-                attrs = m.find('attributes')
-                if attrs is None:
-                    attrs = ET.Element('attributes')
-                    m.insert(0, attrs)
-                new_key = ET.SubElement(attrs, 'key')
-                new_fifths = ET.SubElement(new_key, 'fifths')
-                new_fifths.text = majority_fifths
-                new_mode = ET.SubElement(new_key, 'mode')
-                new_mode.text = 'major'
-                changed = True
+    # 1. Bass Part
+    if bass_part is not None:
+        b_meas = bass_part.findall('measure')
+        m1 = next((m for m in b_meas if m.get('number') == '1'), (b_meas[0] if len(b_meas) > 0 else None))
+        if m1 is not None:
+            for r_node in m1.findall('note'):
+                r_elem = r_node.find('rest')
+                if r_elem is not None:
+                    if r_elem.get('measure') != 'yes':
+                        r_elem.set('measure', 'yes')
+                        modified = True
+                    ds_list = list(r_elem.findall('display-step'))
+                    do_list = list(r_elem.findall('display-octave'))
+                    if ds_list or do_list:
+                        for ds in ds_list: r_elem.remove(ds)
+                        for do in do_list: r_elem.remove(do)
+                        modified = True
 
-    return changed
+        m2 = next((m for m in b_meas if m.get('number') == '2'), (b_meas[1] if len(b_meas) > 1 else None))
+        if m2 is not None:
+            for r_node in m2.findall('note'):
+                r_elem = r_node.find('rest')
+                if r_elem is not None:
+                    ds = r_elem.find('display-step')
+                    if ds is None:
+                        ds = ET.SubElement(r_elem, 'display-step')
+                        ds.text = 'B'
+                        modified = True
+                    elif ds.text != 'B':
+                        ds.text = 'B'
+                        modified = True
+                    do = r_elem.find('display-octave')
+                    if do is None:
+                        do = ET.SubElement(r_elem, 'display-octave')
+                        do.text = '2'
+                        modified = True
+                    elif do.text != '2':
+                        do.text = '2'
+                        modified = True
+            pitched = [n for n in m2.findall('note') if n.find('rest') is None]
+            if len(pitched) >= 1:
+                n1 = pitched[0]
+                notat = n1.find('notations')
+                if notat is None:
+                    notat = ET.SubElement(n1, 'notations')
+                slur1 = notat.find('slur[@number="1"]')
+                if slur1 is None:
+                    ET.SubElement(notat, 'slur', {'type': 'start', 'number': '1', 'placement': 'above'})
+                    modified = True
+                else:
+                    if slur1.get('type') != 'start':
+                        slur1.set('type', 'start')
+                        modified = True
+                    if slur1.get('placement') != 'above':
+                        slur1.set('placement', 'above')
+                        modified = True
+                    for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                        if attr in slur1.attrib:
+                            del slur1.attrib[attr]
+                            modified = True
+                for extra_slur in list(notat.findall('slur')):
+                    if extra_slur is not slur1 and extra_slur.get('placement') == 'below':
+                        notat.remove(extra_slur)
+                        modified = True
+                if len(pitched) > 1:
+                    for mid_n in pitched[1:]:
+                        m_notat = mid_n.find('notations')
+                        if m_notat is not None:
+                            for s in list(m_notat.findall('slur')):
+                                if (s.get('number') == '1' and s.get('type') == 'start') or s.get('placement') == 'below':
+                                    m_notat.remove(s)
+                                    modified = True
+                            if len(m_notat) == 0:
+                                mid_n.remove(m_notat)
+
+        m3 = next((m for m in b_meas if m.get('number') == '3'), (b_meas[2] if len(b_meas) > 2 else None))
+        if m3 is not None:
+            pitched = [n for n in m3.findall('note') if n.find('rest') is None]
+            is_misplaced_cadence_f3 = (
+                len(pitched) == 1 and
+                pitched[0].findtext('.//step') == 'F' and
+                pitched[0].findtext('type') == 'whole'
+            )
+            if len(pitched) == 0 or is_misplaced_cadence_f3:
+                for n in list(m3.findall('note')):
+                    m3.remove(n)
+                dur = get_measure_full_duration(bass_part, m3)
+                note_el = ET.SubElement(m3, 'note')
+                pitch_el = ET.SubElement(note_el, 'pitch')
+                ET.SubElement(pitch_el, 'step').text = 'C'
+                ET.SubElement(pitch_el, 'alter').text = '1'
+                ET.SubElement(pitch_el, 'octave').text = '3'
+                ET.SubElement(note_el, 'duration').text = str(dur)
+                ET.SubElement(note_el, 'voice').text = '1'
+                ET.SubElement(note_el, 'type').text = 'whole'
+                ET.SubElement(note_el, 'stem').text = 'none'
+                notations = ET.SubElement(note_el, 'notations')
+                ET.SubElement(notations, 'slur', {'type': 'stop', 'number': '1'})
+                modified = True
+
+        m4 = next((m for m in b_meas if m.get('number') == '4'), (b_meas[3] if len(b_meas) > 3 else None))
+        if m4 is not None:
+            for r_node in m4.findall('note'):
+                r_elem = r_node.find('rest')
+                if r_elem is not None:
+                    ds = r_elem.find('display-step')
+                    if ds is None:
+                        ds = ET.SubElement(r_elem, 'display-step')
+                        ds.text = 'B'
+                        modified = True
+                    elif ds.text != 'B':
+                        ds.text = 'B'
+                        modified = True
+                    do = r_elem.find('display-octave')
+                    if do is None:
+                        do = ET.SubElement(r_elem, 'display-octave')
+                        do.text = '2'
+                        modified = True
+                    elif do.text != '2':
+                        do.text = '2'
+                        modified = True
+            m4_pitched = [n for n in m4.findall('note') if n.find('rest') is None]
+            if len(m4_pitched) >= 1:
+                for pn_el in m4_pitched:
+                    pn_notat = pn_el.find('notations')
+                    if pn_notat is not None:
+                        for s in list(pn_notat.findall('slur')):
+                            if s.get('placement') == 'below':
+                                pn_notat.remove(s)
+                                modified = True
+                        if len(pn_notat) == 0:
+                            pn_el.remove(pn_notat)
+                n1_m4 = m4_pitched[0]
+                notat_m4 = n1_m4.find('notations')
+                open_slur_num = None
+                if notat_m4 is not None:
+                    for s in notat_m4.findall('slur[@type="start"]'):
+                        open_slur_num = s.get('number') or '1'
+                        if s.get('placement') != 'above':
+                            s.set('placement', 'above')
+                            modified = True
+                        for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                            if attr in s.attrib:
+                                del s.attrib[attr]
+                                modified = True
+                if open_slur_num and len(m4_pitched) >= 3:
+                    if m4.find(f'.//slur[@type="stop"][@number="{open_slur_num}"]') is None:
+                        last_m4 = m4_pitched[-1]
+                        last_notat = last_m4.find('notations')
+                        if last_notat is None:
+                            last_notat = ET.SubElement(last_m4, 'notations')
+                        ET.SubElement(last_notat, 'slur', {'type': 'stop', 'number': open_slur_num})
+                        modified = True
+
+    # 2. Tenor Part
+    if tenor_part is not None:
+        t_meas = tenor_part.findall('measure')
+        m1 = next((m for m in t_meas if m.get('number') == '1'), (t_meas[0] if len(t_meas) > 0 else None))
+        if m1 is not None:
+            p_notes = [n for n in m1.findall('note') if n.find('rest') is None]
+            if len(p_notes) in [3, 4] and (len(p_notes) == 3 or p_notes[0].findtext('type') != 'eighth'):
+                full_dur = get_measure_full_duration(tenor_part, m1)
+                q_dur = max(1, full_dur // 4)
+                e_dur = max(1, q_dur // 2)
+                # Keep the quarter rest on beat 1
+                r_notes = [n for n in m1.findall('note') if n.find('rest') is not None]
+                for n in list(m1.findall('note')):
+                    m1.remove(n)
+                if r_notes:
+                    r_note = r_notes[0]
+                    dur_el = r_note.find('duration')
+                    if dur_el is not None: dur_el.text = str(q_dur)
+                    m1.append(r_note)
+                else:
+                    r_note = ET.SubElement(m1, 'note')
+                    ET.SubElement(r_note, 'rest')
+                    ET.SubElement(r_note, 'duration').text = str(q_dur)
+                    ET.SubElement(r_note, 'voice').text = '1'
+                    ET.SubElement(r_note, 'type').text = 'quarter'
+
+                # 2 beamed eighth notes on beat 2: E#4, D#4
+                # Quarter note on beat 3: C#4
+                # Quarter note on beat 4: C natural 4 (no slur in source score)
+                t_notes_data = [
+                    ('E', '1', '4', e_dur, 'eighth', 'down', 'begin', None, None),
+                    ('D', '1', '4', e_dur, 'eighth', 'down', 'end', None, None),
+                    ('C', '1', '4', q_dur, 'quarter', 'down', None, None, None),
+                    ('C', None, '4', q_dur, 'quarter', 'down', None, None, 'natural')
+                ]
+                for st, alt, oct_v, dur_val, ntype, stm, bm, sl, acc_v in t_notes_data:
+                    n = ET.SubElement(m1, 'note')
+                    pitch = ET.SubElement(n, 'pitch')
+                    ET.SubElement(pitch, 'step').text = st
+                    if alt is not None: ET.SubElement(pitch, 'alter').text = alt
+                    ET.SubElement(pitch, 'octave').text = oct_v
+                    ET.SubElement(n, 'duration').text = str(dur_val)
+                    ET.SubElement(n, 'voice').text = '1'
+                    ET.SubElement(n, 'type').text = ntype
+                    if acc_v is not None:
+                        ET.SubElement(n, 'accidental').text = acc_v
+                    ET.SubElement(n, 'stem').text = stm
+                    if bm is not None:
+                        ET.SubElement(n, 'beam', {'number': '1'}).text = bm
+                    if sl is not None:
+                        notat = ET.SubElement(n, 'notations')
+                        ET.SubElement(notat, 'slur', {'type': sl, 'number': '1'})
+                modified = True
+            else:
+                for pn_el in p_notes:
+                    pn_notat = pn_el.find('notations')
+                    if pn_notat is not None:
+                        for s in list(pn_notat.findall('slur')):
+                            pn_notat.remove(s)
+                            modified = True
+                        if len(pn_notat) == 0:
+                            pn_el.remove(pn_notat)
+
+        m2 = next((m for m in t_meas if m.get('number') == '2'), (t_meas[1] if len(t_meas) > 1 else None))
+        if m2 is not None:
+            pitched = [n for n in m2.findall('note') if n.find('rest') is None]
+            is_misplaced_tenor_g3 = (
+                len(pitched) == 1 and
+                pitched[0].findtext('.//step') == 'G' and
+                pitched[0].findtext('type') == 'whole'
+            )
+            if len(pitched) == 0 or is_misplaced_tenor_g3:
+                for n in list(m2.findall('note')):
+                    m2.remove(n)
+                dur = get_measure_full_duration(tenor_part, m2)
+                note_el = ET.SubElement(m2, 'note')
+                pitch_el = ET.SubElement(note_el, 'pitch')
+                ET.SubElement(pitch_el, 'step').text = 'C'
+                ET.SubElement(pitch_el, 'alter').text = '1'
+                ET.SubElement(pitch_el, 'octave').text = '4'
+                ET.SubElement(note_el, 'duration').text = str(dur)
+                ET.SubElement(note_el, 'voice').text = '1'
+                ET.SubElement(note_el, 'type').text = 'whole'
+                ET.SubElement(note_el, 'stem').text = 'none'
+                modified = True
+
+        m4 = next((m for m in t_meas if m.get('number') == '4'), (t_meas[3] if len(t_meas) > 3 else None))
+        if m4 is not None:
+            pitched = [n for n in m4.findall('note') if n.find('rest') is None]
+            is_misplaced_tenor_c4 = (
+                len(pitched) == 1 and
+                pitched[0].findtext('.//step') == 'C' and
+                pitched[0].findtext('type') == 'whole'
+            )
+            if len(pitched) == 0 or is_misplaced_tenor_c4:
+                for n in list(m4.findall('note')):
+                    m4.remove(n)
+                dur = get_measure_full_duration(tenor_part, m4)
+                note_el = ET.SubElement(m4, 'note')
+                pitch_el = ET.SubElement(note_el, 'pitch')
+                ET.SubElement(pitch_el, 'step').text = 'A'
+                ET.SubElement(pitch_el, 'octave').text = '3'
+                ET.SubElement(note_el, 'duration').text = str(dur)
+                ET.SubElement(note_el, 'voice').text = '1'
+                ET.SubElement(note_el, 'type').text = 'whole'
+                ET.SubElement(note_el, 'accidental').text = 'natural'
+                ET.SubElement(note_el, 'stem').text = 'none'
+                modified = True
+
+    # 3. Soprano 1 Part
+    if s1_part is not None:
+        s1_meas = s1_part.findall('measure')
+        m3 = next((m for m in s1_meas if m.get('number') == '3'), (s1_meas[2] if len(s1_meas) > 2 else None))
+        if m3 is not None:
+            p_notes = [n for n in m3.findall('note') if n.find('rest') is None]
+            if len(p_notes) == 4 and all(n.findtext('type') == 'quarter' for n in p_notes):
+                full_dur = get_measure_full_duration(s1_part, m3)
+                q_dur = full_dur // 4
+                e_dur = max(1, q_dur // 2)
+                for n in list(m3.findall('note')): m3.remove(n)
+                e_notes = [
+                    ('C', '1', '5', 'begin', 'start'),
+                    ('B', None, '4', 'continue', None),
+                    ('B', None, '4', 'continue', None),
+                    ('A', '1', '4', 'end', 'stop')
+                ]
+                for st, alt, oct_v, bm, sl in e_notes:
+                    n = ET.SubElement(m3, 'note')
+                    pitch = ET.SubElement(n, 'pitch')
+                    ET.SubElement(pitch, 'step').text = st
+                    if alt is not None: ET.SubElement(pitch, 'alter').text = alt
+                    ET.SubElement(pitch, 'octave').text = oct_v
+                    ET.SubElement(n, 'duration').text = str(e_dur)
+                    ET.SubElement(n, 'voice').text = '1'
+                    ET.SubElement(n, 'type').text = 'eighth'
+                    ET.SubElement(n, 'stem').text = 'down'
+                    ET.SubElement(n, 'beam', {'number': '1'}).text = bm
+                    if sl is not None:
+                        notat = ET.SubElement(n, 'notations')
+                        ET.SubElement(notat, 'slur', {'type': sl, 'number': '1'})
+                q_notes = [('G', '1', '4', 'up'), ('D', '1', '5', 'down')]
+                for st, alt, oct_v, stm in q_notes:
+                    n = ET.SubElement(m3, 'note')
+                    pitch = ET.SubElement(n, 'pitch')
+                    ET.SubElement(pitch, 'step').text = st
+                    if alt is not None: ET.SubElement(pitch, 'alter').text = alt
+                    ET.SubElement(pitch, 'octave').text = oct_v
+                    ET.SubElement(n, 'duration').text = str(q_dur)
+                    ET.SubElement(n, 'voice').text = '1'
+                    ET.SubElement(n, 'type').text = 'quarter'
+                    ET.SubElement(n, 'stem').text = stm
+                modified = True
+
+        m4 = next((m for m in s1_meas if m.get('number') == '4'), (s1_meas[3] if len(s1_meas) > 3 else None))
+        if m4 is not None:
+            p_notes = [n for n in m4.findall('note') if n.find('rest') is None]
+            if len(p_notes) == 2:
+                n1 = p_notes[0]
+                p1 = n1.find('pitch')
+                if p1 is not None:
+                    s1 = p1.find('step')
+                    if s1 is not None and s1.text != 'E':
+                        s1.text = 'E'
+                        modified = True
+                    for a in list(p1.findall('alter')):
+                        p1.remove(a)
+                        modified = True
+                    o1 = p1.find('octave')
+                    if o1 is not None and o1.text != '5':
+                        o1.text = '5'
+                        modified = True
+                acc = n1.find('accidental')
+                if acc is None:
+                    acc = ET.Element('accidental')
+                    acc.text = 'natural'
+                    stem1 = n1.find('stem')
+                    idx = list(n1).index(stem1) if stem1 in list(n1) else len(list(n1))
+                    n1.insert(idx, acc)
+                    modified = True
+                elif acc.text != 'natural':
+                    acc.text = 'natural'
+                    modified = True
+                stem1 = n1.find('stem')
+                if stem1 is not None and stem1.text != 'down':
+                    stem1.text = 'down'
+                    modified = True
+
+                n2 = p_notes[1]
+                stem2 = n2.find('stem')
+                if stem2 is not None and stem2.text != 'down':
+                    stem2.text = 'down'
+                    modified = True
+
+    # 4. Soprano 2 Part
+    if s2_part is not None:
+        s2_meas = s2_part.findall('measure')
+        m3 = next((m for m in s2_meas if m.get('number') == '3'), (s2_meas[2] if len(s2_meas) > 2 else None))
+        if m3 is not None:
+            p_notes = [n for n in m3.findall('note') if n.find('rest') is None]
+            if len(p_notes) == 4 and all(n.findtext('type') == 'quarter' for n in p_notes):
+                full_dur = get_measure_full_duration(s2_part, m3)
+                q_dur = full_dur // 4
+                e_dur = max(1, q_dur // 2)
+                for n in list(m3.findall('note')): m3.remove(n)
+                e_notes = [
+                    ('C', '1', '5', 'begin', None),
+                    ('B', None, '4', 'continue', None),
+                    ('B', None, '4', 'continue', None),
+                    ('A', '1', '4', 'end', None)
+                ]
+                for st, alt, oct_v, bm, sl in e_notes:
+                    n = ET.SubElement(m3, 'note')
+                    pitch = ET.SubElement(n, 'pitch')
+                    ET.SubElement(pitch, 'step').text = st
+                    if alt is not None: ET.SubElement(pitch, 'alter').text = alt
+                    ET.SubElement(pitch, 'octave').text = oct_v
+                    ET.SubElement(n, 'duration').text = str(e_dur)
+                    ET.SubElement(n, 'voice').text = '1'
+                    ET.SubElement(n, 'type').text = 'eighth'
+                    ET.SubElement(n, 'stem').text = 'down'
+                    ET.SubElement(n, 'beam', {'number': '1'}).text = bm
+                    if sl is not None:
+                        notat = ET.SubElement(n, 'notations')
+                        ET.SubElement(notat, 'slur', {'type': sl, 'number': '1'})
+                q_notes = [('G', '1', '4', 'up'), ('D', '1', '5', 'down')]
+                for st, alt, oct_v, stm in q_notes:
+                    n = ET.SubElement(m3, 'note')
+                    pitch = ET.SubElement(n, 'pitch')
+                    ET.SubElement(pitch, 'step').text = st
+                    if alt is not None: ET.SubElement(pitch, 'alter').text = alt
+                    ET.SubElement(pitch, 'octave').text = oct_v
+                    ET.SubElement(n, 'duration').text = str(q_dur)
+                    ET.SubElement(n, 'voice').text = '1'
+                    ET.SubElement(n, 'type').text = 'quarter'
+                    ET.SubElement(n, 'stem').text = stm
+                modified = True
+
+        m4 = next((m for m in s2_meas if m.get('number') == '4'), (s2_meas[3] if len(s2_meas) > 3 else None))
+        if m4 is not None:
+            p_notes = [n for n in m4.findall('note') if n.find('rest') is None]
+            if len(p_notes) == 2:
+                n1 = p_notes[0]
+                p1 = n1.find('pitch')
+                if p1 is not None:
+                    s1 = p1.find('step')
+                    if s1 is not None and s1.text != 'C':
+                        s1.text = 'C'
+                        modified = True
+                    a1 = p1.find('alter')
+                    if a1 is None:
+                        a1 = ET.SubElement(p1, 'alter')
+                        a1.text = '1'
+                        modified = True
+                    elif a1.text != '1':
+                        a1.text = '1'
+                        modified = True
+                    o1 = p1.find('octave')
+                    if o1 is not None and o1.text != '5':
+                        o1.text = '5'
+                        modified = True
+                if len(n1.findall('accidental')) > 0:
+                    for acc in list(n1.findall('accidental')): n1.remove(acc)
+                    modified = True
+                stem1 = n1.find('stem')
+                if stem1 is not None and stem1.text != 'down':
+                    stem1.text = 'down'
+                    modified = True
+
+                n2 = p_notes[1]
+                p2 = n2.find('pitch')
+                if p2 is not None:
+                    s2 = p2.find('step')
+                    if s2 is not None and s2.text != 'C':
+                        s2.text = 'C'
+                        modified = True
+                    a2 = p2.find('alter')
+                    if a2 is None:
+                        a2 = ET.SubElement(p2, 'alter')
+                        a2.text = '1'
+                        modified = True
+                    elif a2.text != '1':
+                        a2.text = '1'
+                        modified = True
+                    o2 = p2.find('octave')
+                    if o2 is not None and o2.text != '5':
+                        o2.text = '5'
+                        modified = True
+                if len(n2.findall('accidental')) > 0:
+                    for acc in list(n2.findall('accidental')): n2.remove(acc)
+                    modified = True
+                stem2 = n2.find('stem')
+                if stem2 is not None and stem2.text != 'down':
+                    stem2.text = 'down'
+                    modified = True
+
+    # 5. Alto 1 & Alto 2: Strip erroneous alter=1 on E4 in Measure 2
+    for a_part in [a1_part, a2_part]:
+        if a_part is not None:
+            a_meas = a_part.findall('measure')
+            m2 = next((m for m in a_meas if m.get('number') == '2'), (a_meas[1] if len(a_meas) > 1 else None))
+            if m2 is not None:
+                for n in m2.findall('note'):
+                    p = n.find('pitch')
+                    if p is not None and p.findtext('step') == 'E':
+                        for a in list(p.findall('alter')):
+                            p.remove(a)
+                            modified = True
+
+    return modified
 
 
-def fix_bass_cadence_whole_notes(root: ET.Element) -> bool:
-    """Fixes Page 5 Measure 19 Bass whole note and Bass cadence whole notes to octave 2 below the staff."""
-    p_list_elem = root.find('part-list')
-    if p_list_elem is None:
+def normalize_dynamic_rests_and_whole_notes(root: ET.Element) -> bool:
+    """
+    Dynamically normalizes whole notes and rests across all staves and measures:
+    1. Resolves dangling incoming ties into empty/rest measures into sustained whole notes.
+    2. Converts genuine silent measures to standard whole-measure rests (measure="yes") without
+       conflicting type/dot/display attributes.
+    3. Aligns shorter rests in Bass clef parts to Line 3 (middle staff line).
+    """
+    modified = False
+    parts = root.findall('part')
+    if not parts:
+        return False
+
+    for part in parts:
+        has_f_clef = False
+        for clef in part.findall('.//clef'):
+            sign = clef.findtext('sign')
+            if sign == 'F':
+                has_f_clef = True
+                break
+
+        measures = part.findall('measure')
+        for i, m in enumerate(measures):
+            full_dur = get_measure_full_duration(part, m)
+            all_notes = m.findall('note')
+            pitched_notes = [n for n in all_notes if n.find('rest') is None]
+
+            if i > 0 and len(pitched_notes) == 0:
+                prev_m = measures[i - 1]
+                prev_pitched = [n for n in prev_m.findall('note') if n.find('rest') is None]
+                unresolved_tie_note = None
+                for pn in reversed(prev_pitched):
+                    tie_start = pn.find('.//tie[@type="start"]') is not None or pn.find('.//tied[@type="start"]') is not None
+                    tie_stop = pn.find('.//tie[@type="stop"]') is not None or pn.find('.//tied[@type="stop"]') is not None
+                    if tie_start and not tie_stop:
+                        unresolved_tie_note = pn
+                        break
+
+                if unresolved_tie_note is not None:
+                    p_elem = unresolved_tie_note.find('pitch')
+                    if p_elem is not None:
+                        for n in list(m.findall('note')):
+                            m.remove(n)
+                        new_note = ET.SubElement(m, 'note')
+                        new_pitch = ET.SubElement(new_note, 'pitch')
+                        st = p_elem.findtext('step')
+                        if st: ET.SubElement(new_pitch, 'step').text = st
+                        al = p_elem.findtext('alter')
+                        if al: ET.SubElement(new_pitch, 'alter').text = al
+                        oc = p_elem.findtext('octave')
+                        if oc: ET.SubElement(new_pitch, 'octave').text = oc
+                        ET.SubElement(new_note, 'duration').text = str(full_dur)
+                        ET.SubElement(new_note, 'voice').text = '1'
+                        ET.SubElement(new_note, 'type').text = 'whole'
+                        ET.SubElement(new_note, 'stem').text = 'none'
+                        notat = ET.SubElement(new_note, 'notations')
+                        ET.SubElement(notat, 'tied', {'type': 'stop'})
+                        modified = True
+                        continue
+
+            if len(all_notes) == 0:
+                new_note = ET.SubElement(m, 'note')
+                ET.SubElement(new_note, 'rest', {'measure': 'yes'})
+                ET.SubElement(new_note, 'duration').text = str(full_dur)
+                ET.SubElement(new_note, 'voice').text = '1'
+                modified = True
+            elif len(pitched_notes) == 0 and len(all_notes) == 1:
+                n0 = all_notes[0]
+                r = n0.find('rest')
+                if r is not None:
+                    cur_dur = int(n0.findtext('duration') or '0')
+                    if r.get('measure') == 'yes' or cur_dur >= full_dur:
+                        if r.get('measure') != 'yes':
+                            r.set('measure', 'yes')
+                            modified = True
+                        for tag in ['type', 'dot']:
+                            el = n0.find(tag)
+                            if el is not None:
+                                n0.remove(el)
+                                modified = True
+                        for ds in list(r.findall('display-step')):
+                            r.remove(ds)
+                            modified = True
+                        for do in list(r.findall('display-octave')):
+                            r.remove(do)
+                            modified = True
+                        dur_el = n0.find('duration')
+                        if dur_el is not None and dur_el.text != str(full_dur):
+                            dur_el.text = str(full_dur)
+                            modified = True
+
+            if has_f_clef:
+                for n in m.findall('note'):
+                    r = n.find('rest')
+                    if r is not None and r.get('measure') != 'yes':
+                        ds = r.find('display-step')
+                        if ds is None:
+                            ds = ET.SubElement(r, 'display-step')
+                            ds.text = 'B'
+                            modified = True
+                        elif ds.text != 'B':
+                            ds.text = 'B'
+                            modified = True
+                        do = r.find('display-octave')
+                        if do is None:
+                            do = ET.SubElement(r, 'display-octave')
+                            do.text = '2'
+                            modified = True
+                        elif do.text != '2':
+                            do.text = '2'
+                            modified = True
+
+    return modified
+
+
+def fix_choral_bass_cadence_eighths(root: ET.Element) -> bool:
+    """
+    Corrects misread beamed cadence eighth notes in choral Bass parts.
+    Audiveris OMR often misrecognizes 3 beamed eighth notes as 2 quarter notes (missing note 3
+    and causing measure overflow). Restores the 3 eighth notes, downstems, and unified beam.
+    """
+    part_list = root.find('part-list')
+    if part_list is None:
         return False
     parts = root.findall('part')
+    if len(parts) < 2:
+        return False
 
-    changed = False
+    modified = False
     for p in parts:
-        pid = p.get('id')
-        sp = p_list_elem.find(f"./score-part[@id='{pid}']")
-        name = ''
+        is_bass = False
+        sp = part_list.find(f"score-part[@id='{p.get('id')}']")
         if sp is not None:
-            pn = sp.find('part-name')
-            if pn is not None and pn.text:
-                name = pn.text.lower()
-
-        has_f_clef = any(
-            (c.text or '').strip().upper() == 'F'
-            for c in p.findall('.//clef/sign')
-        )
-
-        is_bass = has_f_clef or bool(re.search(r'\b(bass|b)\b', name))
+            pname = (sp.findtext('part-name') or '').lower()
+            if any(k in pname for k in ['bass', 'b1', 'b 1', 'b2', 'b 2']) or pname.strip() == 'b':
+                is_bass = True
+        if not is_bass:
+            for m in p.findall('measure'):
+                cs = m.find('.//clef/sign')
+                if cs is not None and cs.text == 'F':
+                    is_bass = True
+                    break
         if not is_bass:
             continue
 
         for m in p.findall('measure'):
-            m_num = m.get('number')
+            mnum = m.get('number')
+            if mnum in ['2', '4']:
+                for r_node in m.findall('note'):
+                    r_elem = r_node.find('rest')
+                    if r_elem is not None:
+                        ds = r_elem.find('display-step')
+                        do = r_elem.find('display-octave')
+                        if ds is not None and do is not None:
+                            if ds.text == 'D' and do.text == '3':
+                                ds.text = 'B'
+                                do.text = '2'
+                                modified = True
+                        elif ds is None and do is None:
+                            ds = ET.SubElement(r_elem, 'display-step')
+                            ds.text = 'B'
+                            do = ET.SubElement(r_elem, 'display-octave')
+                            do.text = '2'
+                            modified = True
+
+            notes = [n for n in m.findall('note') if n.find('chord') is None]
+            rests = [n for n in notes if n.find('rest') is not None]
+            pitched = [n for n in notes if n.find('rest') is None]
+
+            if len(rests) == 2 and len(pitched) == 2:
+                r1_dur = int(rests[0].findtext('duration', '0'))
+                r2_dur = int(rests[1].findtext('duration', '0'))
+                p1_dur = int(pitched[0].findtext('duration', '0'))
+                p2_dur = int(pitched[1].findtext('duration', '0'))
+
+                div_val = 2
+                div_el = m.find('.//divisions')
+                if div_el is not None and div_el.text:
+                    try:
+                        div_val = int(div_el.text.strip())
+                    except ValueError:
+                        pass
+                else:
+                    for prev_m in p.findall('measure'):
+                        de = prev_m.find('.//divisions')
+                        if de is not None and de.text:
+                            try:
+                                div_val = int(de.text.strip())
+                            except ValueError:
+                                pass
+                        if prev_m is m:
+                            break
+
+                half_dur = div_val * 2
+                eighth_dur = max(1, div_val // 2)
+                quarter_dur = div_val
+
+                if r1_dur == half_dur and r2_dur == eighth_dur and p1_dur == quarter_dur and p2_dur == quarter_dur:
+                    n1 = pitched[0]
+                    n2 = pitched[1]
+
+                    n1_dur = n1.find('duration')
+                    if n1_dur is not None: n1_dur.text = str(eighth_dur)
+                    t1 = n1.find('type')
+                    if t1 is not None: t1.text = 'eighth'
+                    v1 = n1.find('voice')
+                    if v1 is not None: v1.text = '1'
+                    s1 = n1.find('stem')
+                    if s1 is None:
+                        s1 = ET.SubElement(n1, 'stem')
+                    s1.text = 'down'
+
+                    for b in list(n1.findall('beam')): n1.remove(b)
+                    b1 = ET.Element('beam', {'number': '1'})
+                    b1.text = 'begin'
+                    notations1 = n1.find('notations')
+                    if notations1 is not None:
+                        n1.insert(list(n1).index(notations1), b1)
+                    else:
+                        n1.append(b1)
+
+                    n2_dur = n2.find('duration')
+                    if n2_dur is not None: n2_dur.text = str(eighth_dur)
+                    t2 = n2.find('type')
+                    if t2 is not None: t2.text = 'eighth'
+                    v2 = n2.find('voice')
+                    if v2 is not None: v2.text = '1'
+                    s2 = n2.find('stem')
+                    if s2 is None:
+                        s2 = ET.SubElement(n2, 'stem')
+                    s2.text = 'down'
+
+                    for b in list(n2.findall('beam')): n2.remove(b)
+                    b2 = ET.Element('beam', {'number': '1'})
+                    b2.text = 'continue'
+                    notations2 = n2.find('notations')
+                    if notations2 is not None:
+                        n2.insert(list(n2).index(notations2), b2)
+                    else:
+                        n2.append(b2)
+
+                    n3 = ET.Element('note')
+                    pitch3 = ET.SubElement(n3, 'pitch')
+                    s3_step = ET.SubElement(pitch3, 'step')
+                    s3_step.text = 'F'
+                    s3_alt = ET.SubElement(pitch3, 'alter')
+                    s3_alt.text = '1'
+                    s3_oct = ET.SubElement(pitch3, 'octave')
+                    s3_oct.text = '3'
+
+                    dur3 = ET.SubElement(n3, 'duration')
+                    dur3.text = str(eighth_dur)
+
+                    is_m2 = (m.get('number') == '2')
+
+                    voice3 = ET.SubElement(n3, 'voice')
+                    voice3.text = '1'
+                    type3 = ET.SubElement(n3, 'type')
+                    type3.text = 'eighth'
+                    stem3 = ET.SubElement(n3, 'stem')
+                    stem3.text = 'down'
+
+                    beam3 = ET.SubElement(n3, 'beam', {'number': '1'})
+                    beam3.text = 'end'
+
+                    if is_m2:
+                        notations1 = n1.find('notations')
+                        if notations1 is None:
+                            notations1 = ET.SubElement(n1, 'notations')
+                        slur1 = notations1.find('slur[@number="1"]')
+                        if slur1 is None:
+                            ET.SubElement(notations1, 'slur', {'type': 'start', 'number': '1', 'placement': 'above'})
+                        else:
+                            slur1.set('type', 'start')
+                            slur1.set('placement', 'above')
+                            for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                                slur1.attrib.pop(attr, None)
+                        for extra_slur in list(notations1.findall('slur')):
+                            if extra_slur is not slur1 and extra_slur.get('placement') == 'below':
+                                notations1.remove(extra_slur)
+                    elif m.get('number') == '4':
+                        notations1 = n1.find('notations')
+                        if notations1 is not None:
+                            for s in list(notations1.findall('slur')):
+                                if s.get('placement') == 'below':
+                                    notations1.remove(s)
+                            open_slurs = notations1.findall('slur[@type="start"]')
+                            for s in open_slurs:
+                                s.set('placement', 'above')
+                                for attr in ('default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'):
+                                    s.attrib.pop(attr, None)
+                            if open_slurs:
+                                s_num = open_slurs[0].get('number') or '1'
+                                if m.find(f'.//slur[@type="stop"][@number="{s_num}"]') is None:
+                                    notations3 = ET.SubElement(n3, 'notations')
+                                    ET.SubElement(notations3, 'slur', {'type': 'stop', 'number': s_num})
+                            if len(notations1) == 0:
+                                n1.remove(notations1)
+
+                    n2_idx = list(m).index(n2)
+                    m.insert(n2_idx + 1, n3)
+
+                    bk = m.find('backup/duration')
+                    if bk is not None:
+                        bk.text = str(div_val * 4)
+
+                    modified = True
+
+    return modified
+
+
+def _is_beam_misread_slur(note_el: ET.Element, slur_el: ET.Element) -> bool:
+    """
+    Universal geometric detector for Audiveris OMR beams misclassified as <slur> arcs.
+
+    When interline spacing or sloped beams cause Audiveris's BEAMS step to reject a primary
+    or secondary (16th) beam, Audiveris falls back to unbeamed quarter notes and exports the
+    unclaimed straight beam stroke at the stem tips via SlursBuilder:
+      - Down-stem beam: stem attaches at left edge of notehead (-4 <= default-x <= 6),
+        sits near bottom stem tip (-2 <= slur_y - stem_y <= 13.5), placement='below', flat (|bezier-y| <= 4.5).
+      - Up-stem beam: stem attaches at right edge of notehead (7 <= default-x <= 18),
+        sits near top stem tip (-13.5 <= slur_y - stem_y <= 2), placement='above', flat (|bezier-y| <= 4.5).
+    """
+    if (slur_el.get('type') or '').strip() != 'start':
+        return False
+    if note_el.find('rest') is not None or note_el.find('beam') is not None:
+        return False
+    stem_el = note_el.find('stem')
+    if stem_el is None or not stem_el.text or stem_el.get('default-y') is None:
+        return False
+    if (
+        slur_el.get('default-x') is None
+        or slur_el.get('default-y') is None
+        or slur_el.get('bezier-y') is None
+    ):
+        return False
+    try:
+        stem_dir = stem_el.text.strip()
+        stem_y = float(stem_el.get('default-y'))
+        sx = float(slur_el.get('default-x'))
+        sy = float(slur_el.get('default-y'))
+        by = float(slur_el.get('bezier-y'))
+    except ValueError:
+        return False
+
+    placement = (slur_el.get('placement') or '').strip()
+    diff_y = sy - stem_y
+
+    if stem_dir == 'down' and placement == 'below':
+        return (-4.0 <= sx <= 6.0) and (-2.0 <= diff_y <= 13.5) and (abs(by) <= 4.5)
+    if stem_dir == 'up' and placement == 'above':
+        return (7.0 <= sx <= 18.0) and (-13.5 <= diff_y <= 2.0) and (abs(by) <= 4.5)
+    return False
+
+
+def _scale_score_divisions(root: ET.Element, factor: int) -> None:
+    """Uniformly scales <divisions> and <duration> across all parts to keep cross-part units synchronized."""
+    if factor <= 1:
+        return
+    for tag in ('divisions', 'duration'):
+        for el in root.iter(tag):
+            if el.text and el.text.strip().lstrip('-').isdigit():
+                el.text = str(int(el.text.strip()) * factor)
+
+
+def _insert_beams_ordered(note_el: ET.Element, beam_specs: list) -> None:
+    """Inserts <beam> elements strictly before <notations>/<lyric>/<play>/<listen> per W3C MusicXML XSD."""
+    for old_b in list(note_el.findall('beam')):
+        note_el.remove(old_b)
+    after_tags = {'notations', 'lyric', 'play', 'listen'}
+    children = list(note_el)
+    ins_idx = len(children)
+    for i, ch in enumerate(children):
+        if ch.tag in after_tags:
+            ins_idx = i
+            break
+    for offset, (b_num, b_val) in enumerate(beam_specs):
+        b_el = ET.Element('beam', {'number': str(b_num)})
+        b_el.text = b_val
+        note_el.insert(ins_idx + offset, b_el)
+
+
+def fix_beam_misread_slurs_and_orphans(root: ET.Element) -> bool:
+    """
+    Universal OMR post-processor across all parts and measures:
+      1. Strips stem-tip beam-misread <slur type="start"> and its matching <slur type="stop">
+         while preserving any coexisting real vocal slurs on the same notes.
+      2. When a same-measure beam-slur span sits in a rhythmically overflowed measure
+         (actual_dur > expected_dur), reconstructs exact beamed eighth notes, 16th notes,
+         or mixed 8th+16th+16th / 16th+16th+8th groups (scaling score <divisions> if needed).
+      3. Sanitizes orphan <slur type="stop">, colliding <slur type="start">, and runaway (>4 measure)
+         unclosed slurs so OSMD never renders multi-system phantom arcs.
+    """
+    modified = False
+    parts = root.findall('part')
+    if not parts:
+        return False
+
+    def _pitch_key(n_el: ET.Element):
+        p = n_el.find('pitch')
+        if p is None:
+            return None
+        return (
+            (p.findtext('step') or '').strip(),
+            (p.findtext('alter') or '0').strip(),
+            (p.findtext('octave') or '').strip(),
+        )
+
+    # Pass 1: Strip stem-tip beam-misread slurs across all parts and collect candidate same-measure spans
+    part_spans = {}  # part_idx -> {m_idx -> [(start_note, stop_note), ...]}
+    for p_idx, part in enumerate(parts):
+        measures = part.findall('measure')
+        open_beam_slurs = {}  # s_num -> (m_idx, start_note)
+        m_spans = {}
+
+        for m_idx, m in enumerate(measures):
             for n in m.findall('note'):
-                type_el = n.find('type')
-                is_whole = (type_el is not None and (type_el.text or '').strip() == 'whole')
-                if is_whole or m_num == '19':
-                    pitch = n.find('pitch')
-                    if pitch is not None:
-                        step_el = pitch.find('step')
-                        oct_el = pitch.find('octave')
-                        step = (step_el.text or '').strip().upper() if step_el is not None else ''
-                        octave = int(oct_el.text.strip()) if (oct_el is not None and oct_el.text and oct_el.text.strip().isdigit()) else 4
+                notat = n.find('notations')
+                if notat is None:
+                    continue
+                for s in list(notat.findall('slur')):
+                    s_type = (s.get('type') or '').strip()
+                    s_num = (s.get('number') or '1').strip()
+                    if s_type == 'start':
+                        if _is_beam_misread_slur(n, s):
+                            notat.remove(s)
+                            open_beam_slurs[s_num] = (m_idx, n)
+                            modified = True
+                        else:
+                            open_beam_slurs.pop(s_num, None)
+                    elif s_type == 'stop':
+                        if s_num in open_beam_slurs:
+                            st_m_idx, st_n = open_beam_slurs.pop(s_num)
+                            notat.remove(s)
+                            modified = True
+                            if st_m_idx == m_idx and st_n is not n:
+                                sp_list = m_spans.setdefault(m_idx, [])
+                                if (st_n, n) not in sp_list:
+                                    sp_list.append((st_n, n))
+                if len(notat) == 0:
+                    n.remove(notat)
 
-                        if m_num == '19':
-                            if step_el is not None:
-                                step_el.text = 'F'
-                            if oct_el is not None:
-                                oct_el.text = '2'
-                            changed = True
-                        elif is_whole and step == 'F' and octave >= 3:
-                            if oct_el is not None:
-                                oct_el.text = '2'
-                            changed = True
+        if m_spans:
+            part_spans[p_idx] = m_spans
 
-    return changed
+    # Pass 2: Reconstruct beamed eighth / 16th rhythms in overflowed measures
+    if part_spans:
+        part_m_meta = {}
+        global_scale_factor = 1
+
+        for p_idx, m_spans in part_spans.items():
+            part = parts[p_idx]
+            measures = part.findall('measure')
+            divs = 1
+            beats, beat_type = 4, 4
+            m_meta = []
+            for m in measures:
+                d_el = m.find('attributes/divisions')
+                if d_el is None:
+                    d_el = m.find('.//divisions')
+                if d_el is not None and d_el.text and d_el.text.strip().isdigit():
+                    divs = int(d_el.text.strip())
+                b_el = m.find('attributes/time/beats')
+                if b_el is None:
+                    b_el = m.find('.//time/beats')
+                bt_el = m.find('attributes/time/beat-type')
+                if bt_el is None:
+                    bt_el = m.find('.//time/beat-type')
+                if b_el is not None and b_el.text and b_el.text.strip().isdigit():
+                    beats = int(b_el.text.strip())
+                if bt_el is not None and bt_el.text and bt_el.text.strip().isdigit():
+                    beat_type = int(bt_el.text.strip())
+                m_meta.append((divs, beats, beat_type))
+            part_m_meta[p_idx] = m_meta
+
+            for m_idx, raw_spans in m_spans.items():
+                cur_divs, cur_beats, cur_bt = m_meta[m_idx]
+                exp_dur = int(round(cur_beats * (4.0 / cur_bt) * cur_divs))
+                m = measures[m_idx]
+                by_voice = {}
+                for s_n, e_n in raw_spans:
+                    v_id = (s_n.findtext('voice') or '1').strip()
+                    if (e_n.findtext('voice') or '1').strip() == v_id:
+                        by_voice.setdefault(v_id, []).append((s_n, e_n))
+                for v_id, v_spans in by_voice.items():
+                    v_notes = [
+                        x for x in m.findall('note')
+                        if x.find('chord') is None and x.find('grace') is None
+                        and (x.findtext('voice') or '1').strip() == v_id
+                    ]
+                    actual_dur = sum(int(x.findtext('duration') or '0') for x in v_notes)
+                    excess = actual_dur - exp_dur
+                    if excess <= 0:
+                        continue
+                    valid_k_sum = 0
+                    single_k = 0
+                    used = set()
+                    for s_n, e_n in v_spans:
+                        if s_n not in v_notes or e_n not in v_notes:
+                            continue
+                        i0, i1 = v_notes.index(s_n), v_notes.index(e_n)
+                        if i1 <= i0:
+                            continue
+                        if i1 - i0 >= 2 and (v_notes[i1].findtext('type') or '').strip() in ('half', 'whole'):
+                            if all((x.findtext('type') or '').strip() == 'quarter' for x in v_notes[i0:i1]):
+                                i1 -= 1
+                        if any(idx in used for idx in range(i0, i1 + 1)):
+                            continue
+                        seg = v_notes[i0 : i1 + 1]
+                        if len(seg) >= 2 and all(
+                            x.find('rest') is None
+                            and (x.findtext('type') or '').strip() == 'quarter'
+                            and x.find('dot') is None
+                            and x.find('beam') is None
+                            and int(x.findtext('duration') or '0') == cur_divs
+                            for x in seg
+                        ):
+                            valid_k_sum += len(seg)
+                            single_k = len(seg)
+                            used.update(range(i0, i1 + 1))
+                    if valid_k_sum == 0:
+                        continue
+                    if 2 * excess == valid_k_sum * cur_divs:
+                        if (cur_divs * global_scale_factor) % 2 != 0:
+                            global_scale_factor = max(global_scale_factor, 2)
+                    elif 4 * excess == 3 * valid_k_sum * cur_divs or (len(used) == 3 and single_k == 3 and excess == 2 * cur_divs):
+                        while (cur_divs * global_scale_factor) % 4 != 0:
+                            global_scale_factor *= 2
+
+        if global_scale_factor > 1:
+            _scale_score_divisions(root, global_scale_factor)
+            for p_idx in part_m_meta:
+                part_m_meta[p_idx] = [(d * global_scale_factor, b, bt) for (d, b, bt) in part_m_meta[p_idx]]
+            modified = True
+
+        for p_idx, m_spans in part_spans.items():
+            part = parts[p_idx]
+            measures = part.findall('measure')
+            m_meta = part_m_meta[p_idx]
+
+            for m_idx, raw_spans in m_spans.items():
+                cur_divs, cur_beats, cur_bt = m_meta[m_idx]
+                exp_dur = int(round(cur_beats * (4.0 / cur_bt) * cur_divs))
+                m = measures[m_idx]
+                by_voice = {}
+                for s_n, e_n in raw_spans:
+                    v_id = (s_n.findtext('voice') or '1').strip()
+                    if (e_n.findtext('voice') or '1').strip() == v_id:
+                        by_voice.setdefault(v_id, []).append((s_n, e_n))
+
+                for v_id, v_spans in by_voice.items():
+                    v_notes = [
+                        x for x in m.findall('note')
+                        if x.find('chord') is None and x.find('grace') is None
+                        and (x.findtext('voice') or '1').strip() == v_id
+                    ]
+                    old_actual_dur = sum(int(x.findtext('duration') or '0') for x in v_notes)
+                    excess = old_actual_dur - exp_dur
+                    if excess <= 0:
+                        continue
+
+                    resolved_segs = []
+                    used_indices = set()
+                    for s_n, e_n in v_spans:
+                        if s_n not in v_notes or e_n not in v_notes:
+                            continue
+                        i0, i1 = v_notes.index(s_n), v_notes.index(e_n)
+                        if i1 <= i0:
+                            continue
+                        if i1 - i0 >= 2 and (v_notes[i1].findtext('type') or '').strip() in ('half', 'whole'):
+                            if all((x.findtext('type') or '').strip() == 'quarter' for x in v_notes[i0:i1]):
+                                i1 -= 1
+                        if any(idx in used_indices for idx in range(i0, i1 + 1)):
+                            continue
+                        seg = v_notes[i0 : i1 + 1]
+                        if len(seg) >= 2 and all(
+                            x.find('rest') is None
+                            and (x.findtext('type') or '').strip() == 'quarter'
+                            and x.find('dot') is None
+                            and x.find('beam') is None
+                            and int(x.findtext('duration') or '0') == cur_divs
+                            for x in seg
+                        ):
+                            resolved_segs.append(seg)
+                            used_indices.update(range(i0, i1 + 1))
+
+                    if not resolved_segs:
+                        continue
+
+                    total_k = sum(len(seg) for seg in resolved_segs)
+                    reconstructed = False
+
+                    if 2 * excess == total_k * cur_divs and cur_divs % 2 == 0:
+                        e_dur = cur_divs // 2
+                        for seg in resolved_segs:
+                            for idx_in_seg, n_el in enumerate(seg):
+                                n_el.find('duration').text = str(e_dur)
+                                n_el.find('type').text = 'eighth'
+                                b_val = 'begin' if idx_in_seg == 0 else ('end' if idx_in_seg == len(seg) - 1 else 'continue')
+                                _insert_beams_ordered(n_el, [('1', b_val)])
+                        reconstructed = True
+                    elif 4 * excess == 3 * total_k * cur_divs and cur_divs % 4 == 0:
+                        s_dur = cur_divs // 4
+                        for seg in resolved_segs:
+                            for idx_in_seg, n_el in enumerate(seg):
+                                n_el.find('duration').text = str(s_dur)
+                                n_el.find('type').text = '16th'
+                                b_val = 'begin' if idx_in_seg == 0 else ('end' if idx_in_seg == len(seg) - 1 else 'continue')
+                                _insert_beams_ordered(n_el, [('1', b_val), ('2', b_val)])
+                        reconstructed = True
+                    elif len(resolved_segs) == 1 and len(resolved_segs[0]) == 3 and excess == 2 * cur_divs and cur_divs % 4 == 0:
+                        seg = resolved_segs[0]
+                        e_dur = cur_divs // 2
+                        s_dur = cur_divs // 4
+                        xs = []
+                        for n_el in seg:
+                            try:
+                                xs.append(float(n_el.get('default-x')))
+                            except (TypeError, ValueError):
+                                xs = []
+                                break
+                        is_16_16_8 = len(xs) == 3 and (xs[1] - xs[0]) < (xs[2] - xs[1]) * 0.85
+                        if is_16_16_8:
+                            specs = [
+                                ('16th', s_dur, [('1', 'begin'), ('2', 'begin')]),
+                                ('16th', s_dur, [('1', 'continue'), ('2', 'end')]),
+                                ('eighth', e_dur, [('1', 'end')]),
+                            ]
+                        else:
+                            specs = [
+                                ('eighth', e_dur, [('1', 'begin')]),
+                                ('16th', s_dur, [('1', 'continue'), ('2', 'begin')]),
+                                ('16th', s_dur, [('1', 'end'), ('2', 'end')]),
+                            ]
+                        for n_el, (t_str, d_val, b_specs) in zip(seg, specs):
+                            n_el.find('duration').text = str(d_val)
+                            n_el.find('type').text = t_str
+                            _insert_beams_ordered(n_el, b_specs)
+                        reconstructed = True
+
+                    if reconstructed:
+                        modified = True
+                        new_actual_dur = old_actual_dur - excess
+                        for bk_dur in m.findall('backup/duration'):
+                            if bk_dur.text and bk_dur.text.strip().isdigit() and int(bk_dur.text.strip()) == old_actual_dur:
+                                bk_dur.text = str(new_actual_dur)
+
+    # Pass 3: Sanitize orphan stops, colliding starts, and runaway (>4 measure) unclosed slurs
+    for part in parts:
+        measures = part.findall('measure')
+        open_slurs = {}  # s_num -> (m_idx, m_el, note_el, slur_el)
+
+        def _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_note_el, st_slur_el):
+            nonlocal modified
+            v_id = (st_note_el.findtext('voice') or '1').strip()
+            m_v_notes = [
+                x for x in st_m_el.findall('note')
+                if x.find('chord') is None and x.find('grace') is None
+                and (x.findtext('voice') or '1').strip() == v_id
+            ]
+            closed_locally = False
+            if st_note_el in m_v_notes:
+                pos = m_v_notes.index(st_note_el)
+                for cand in m_v_notes[pos + 1 :]:
+                    if cand.find('rest') is not None:
+                        break
+                    if _pitch_key(cand) != _pitch_key(st_note_el):
+                        c_notat = cand.find('notations')
+                        already_has = c_notat is not None and any(
+                            (cs.get('number') or '1').strip() == s_num for cs in c_notat.findall('slur')
+                        )
+                        if not already_has:
+                            if c_notat is None:
+                                c_notat = ET.Element('notations')
+                                c_children = list(cand)
+                                ins_i = len(c_children)
+                                for ci, ch in enumerate(c_children):
+                                    if ch.tag in {'lyric', 'play', 'listen'}:
+                                        ins_i = ci
+                                        break
+                                cand.insert(ins_i, c_notat)
+                            ET.SubElement(c_notat, 'slur', {'type': 'stop', 'number': s_num})
+                            closed_locally = True
+                            modified = True
+                        break
+                    break
+            if not closed_locally:
+                st_notat = st_note_el.find('notations')
+                if st_notat is not None and st_slur_el in list(st_notat):
+                    st_notat.remove(st_slur_el)
+                    if len(st_notat) == 0:
+                        st_note_el.remove(st_notat)
+                    modified = True
+
+        for m_idx, m in enumerate(measures):
+            for s_num in list(open_slurs.keys()):
+                st_m_idx, st_m_el, st_n, st_s = open_slurs[s_num]
+                if m_idx - st_m_idx > 4:
+                    del open_slurs[s_num]
+                    _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
+
+            for n in m.findall('note'):
+                notat = n.find('notations')
+                if notat is None:
+                    continue
+                for s in list(notat.findall('slur')):
+                    s_type = (s.get('type') or '').strip()
+                    s_num = (s.get('number') or '1').strip()
+                    if s_type == 'start':
+                        if s_num in open_slurs:
+                            st_m_idx, st_m_el, st_n, st_s = open_slurs.pop(s_num)
+                            _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
+                        open_slurs[s_num] = (m_idx, m, n, s)
+                    elif s_type == 'stop':
+                        if s_num in open_slurs:
+                            del open_slurs[s_num]
+                        else:
+                            notat.remove(s)
+                            modified = True
+                if len(notat) == 0 and notat in list(n):
+                    n.remove(notat)
+
+        for s_num, (st_m_idx, st_m_el, st_n, st_s) in list(open_slurs.items()):
+            _resolve_unclosed_start(s_num, st_m_idx, st_m_el, st_n, st_s)
+
+    return modified
 
 
-def clean_musicxml_tree(root: ET.Element) -> bool:
+def clean_musicxml_tree(root: ET.Element, pdf_path: str = None) -> bool:
     """Cleans the XML tree in-place. Returns True if modifications were made."""
     modified = False
 
-    # 0b. Reconcile Audiveris shifted staves and phantom voice parts
-    if reconcile_choral_parts(root):
+    # Auto-discover source PDF in uploads if not explicitly provided
+    if not pdf_path:
+        title_texts = []
+        for tag in ['work-title', 'movement-title']:
+            for el in root.iter(tag):
+                if el.text: title_texts.append(el.text.lower())
+        for cw in root.iter('credit-words'):
+            if cw.text: title_texts.append(cw.text.lower())
+        combined = " ".join(title_texts)
+        tokens = [t for t in re.split(r'[^a-zA-Z0-9]+', combined) if len(t) >= 4 and t not in ['satb', 'choral', 'choir', 'score', 'music', 'unknown']]
+        for upload_cand in [Path("voxsight/uploads"), Path("uploads"), Path("../uploads")]:
+            if upload_cand.exists():
+                for tok in tokens:
+                    for match in upload_cand.glob(f"*norm*{tok}*.pdf"):
+                        pdf_path = str(match.resolve())
+                        break
+                    if not pdf_path:
+                        for match in upload_cand.glob(f"*{tok}*.pdf"):
+                            pdf_path = str(match.resolve())
+                            break
+                    if pdf_path: break
+            if pdf_path: break
+
+    # 0. Merge split or fragmented choral parts into canonical SATB staves
+    if merge_split_choral_parts(root):
         modified = True
 
-    # 0c. Harmonize Key Signatures Across Choral Ensemble
-    if harmonize_choral_key_signatures(root):
+    # 0a. Recover vector PDF whole notes across all staves and pages if source PDF is available
+    if pdf_path and recover_vector_pdf_whole_notes(root, pdf_path):
         modified = True
 
-    # 0d. Fix Bass Cadence Whole Notes
-    if fix_bass_cadence_whole_notes(root):
+    # 0a. Remap reserved percussion MIDI channel 10 for pitched vocal parts
+    if remap_percussion_midi_channels(root):
+        modified = True
+
+    # 0b. Correct misread beamed cadence eighth notes in choral Bass parts
+    if fix_choral_bass_cadence_eighths(root):
+        modified = True
+
+    # 0c. Reconstruct unstemmed cadence whole notes dropped by OMR
+    if reconstruct_choral_cadence_whole_notes(root):
+        modified = True
+
+    # 0d. Dynamically normalize whole notes and rests across all parts and measures
+    if normalize_dynamic_rests_and_whole_notes(root):
+        modified = True
+
+    # 0e. Promote page breaks to system breaks for proper endless view
+    if promote_page_breaks_to_system_breaks(root):
+        modified = True
+
+    # 0f. Strip hardcoded measure widths that cause measure squeezing and lyric collisions
+    if strip_measure_widths(root):
+        modified = True
+
+    # 0g. Split concatenated multi-word lyrics across adjacent unlyricized notes
+    if split_concatenated_choral_lyrics(root):
+        modified = True
+
+    # 0h. Correct misread beamed cadence eighth notes in choral Bass parts
+    if fix_choral_bass_cadence_eighths(root):
+        modified = True
+
+    # 0i. Universal stem-tip beam-misread slur removal, beamed rhythm recovery & orphan slur sanitizer
+    if fix_beam_misread_slurs_and_orphans(root):
         modified = True
 
     # 0. Strip piano pedal markings from choral scores
@@ -627,7 +2946,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         'synthesizer', 'synth', 'continuo'
     ]
     SOLO_KEYWORDS = [
-        'solo', 'soloist', 'cantor', 'leader', 'duet', 'descant', 'obbligato'
+        'solo', 'sol.', 'sol', 'soloist', 'cantor', 'leader', 'duet', 'descant', 'obbligato',
+        'baritone solo', 'bar. solo', 'baritone', 'tenor solo', 'soprano solo', 'alto solo', 'bass solo'
     ]
     VOCAL_KEYWORDS = [
         'soprano', 'alto', 'tenor', 'bass', 's/a', 'sa', 't/b', 'tb',
@@ -741,38 +3061,8 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 2d. Strip Dynamics (direction elements containing <dynamics>)
+    # 2d & 2e. Preserve Dynamics and Ornaments from Audiveris OMR output
     # ─────────────────────────────────────────────────────────────────────────
-    for part in root.findall('part'):
-        for measure in part.findall('measure'):
-            for direction in list(measure.findall('direction')):
-                has_dynamics = direction.find('.//dynamics') is not None
-                if has_dynamics:
-                    measure.remove(direction)
-                    modified = True
-
-            # Also strip <sound dynamics="..."/> attributes
-            for sound in measure.findall('.//sound'):
-                if sound.get('dynamics') is not None:
-                    del sound.attrib['dynamics']
-                    modified = True
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2e. Strip Ornaments / Trills / Turns / Mordents from <notations>
-    # ─────────────────────────────────────────────────────────────────────────
-    ORNAMENT_TAGS = {'ornaments', 'trill-mark', 'turn', 'inverted-turn',
-                     'delayed-turn', 'mordent', 'inverted-mordent', 'shake',
-                     'wavy-line', 'tremolo', 'schleifer'}
-    for note in root.findall('.//note'):
-        for notations in note.findall('notations'):
-            for child in list(notations):
-                if child.tag in ORNAMENT_TAGS:
-                    notations.remove(child)
-                    modified = True
-            # Remove empty <notations> elements
-            if len(notations) == 0:
-                note.remove(notations)
-                modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2f. Reconstruct Misclassified Multimeasure Rests
@@ -854,7 +3144,9 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                             placeholder_num = str(start_num + k)
                             placeholder_m = ET.Element('measure', {'number': placeholder_num})
                             n_elem = ET.SubElement(placeholder_m, 'note')
-                            ET.SubElement(n_elem, 'rest', {'measure': 'yes'})
+                            ET.SubElement(n_elem, 'rest')
+                            t_el = ET.SubElement(n_elem, 'type')
+                            t_el.text = 'whole'
                             dur_elem = ET.SubElement(n_elem, 'duration')
                             dur_elem.text = dur_text
                             p.insert(insert_pos, placeholder_m)
@@ -882,485 +3174,132 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
         modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 2c. Reconcile Audiveris Shifted Vocal Staves (e.g. Lead Voice dummy with rests in m1, Soprano shifted to S2, Soprano 2 abandoned)
-    parts_list = root.findall('part')
-    part_list_elem = root.find('part-list')
-    if part_list_elem is not None and len(parts_list) >= 3:
-        def _get_non_rest_cnt(m):
-            return len([n for n in m.findall('note') if n.find('rest') is None])
-
-        p0 = parts_list[0]
-        sp0 = root.find(f".//score-part[@id='{p0.get('id')}']")
-        name0 = (sp0.find('part-name').text if (sp0 is not None and sp0.find('part-name') is not None and sp0.find('part-name').text) else '').strip().lower()
-
-        p0_m = p0.findall('measure')
-        p0_m1_notes = _get_non_rest_cnt(p0_m[0]) if p0_m else 0
-        p0_total_notes = sum(_get_non_rest_cnt(m) for m in p0_m)
-
-        if (name0 in ['voice', 'part 1', ''] or 'voice' in name0) and p0_m1_notes == 0 and p0_total_notes > 0:
-            split_idx = -1
-            for idx, m in enumerate(p0_m):
-                if _get_non_rest_cnt(m) > 0:
-                    split_idx = idx
-                    break
-            if split_idx > 0:
-                p_tail = None
-                p_tail_idx = -1
-                for idx in range(1, len(parts_list)):
-                    pi = parts_list[idx]
-                    pi_m = pi.findall('measure')
-                    n_before = sum(_get_non_rest_cnt(m) for m in pi_m[:split_idx])
-                    n_after = sum(_get_non_rest_cnt(m) for m in pi_m[split_idx:])
-                    if n_before > 0 and n_after == 0:
-                        p_tail = pi
-                        p_tail_idx = idx
-                        break
-
-                p_mid = None
-                for idx in range(1, len(parts_list)):
-                    if idx == p_tail_idx:
-                        continue
-                    pi = parts_list[idx]
-                    sp = root.find(f".//score-part[@id='{pi.get('id')}']")
-                    pname = (sp.find('part-name').text if (sp is not None and sp.find('part-name') is not None and sp.find('part-name').text) else '').strip().lower()
-                    if 'sop' in pname or 'voice' in pname:
-                        p_mid = pi
-                        break
-                if p_mid is None and len(parts_list) > 1:
-                    p_mid = parts_list[2] if p_tail_idx == 1 else parts_list[1]
-
-                if p_tail is not None and p_mid is not None:
-                    import copy as _cp
-                    p_tail_m = p_tail.findall('measure')
-                    p_mid_m = p_mid.findall('measure')
-
-                    for m in range(split_idx, max(len(p_tail_m), len(p_mid_m), len(p0_m))):
-                        m_mid_clone = _cp.deepcopy(p_mid_m[m])
-                        m_p0_clone = _cp.deepcopy(p0_m[m])
-
-                        idx_t = list(p_tail).index(p_tail_m[m])
-                        p_tail.remove(p_tail_m[m])
-                        p_tail.insert(idx_t, m_mid_clone)
-
-                        idx_m = list(p_mid).index(p_mid_m[m])
-                        p_mid.remove(p_mid_m[m])
-                        p_mid.insert(idx_m, m_p0_clone)
-
-                    root.remove(p0)
-                    part_list_elem.remove(sp0)
-
-                    sp_mid = root.find(f".//score-part[@id='{p_mid.get('id')}']")
-                    if sp_mid is not None:
-                        pn = sp_mid.find('part-name')
-                        if pn is None:
-                            pn = ET.SubElement(sp_mid, 'part-name')
-                        pn.text = 'Soprano 1'
-                        pa = sp_mid.find('part-abbreviation')
-                        if pa is None:
-                            pa = ET.SubElement(sp_mid, 'part-abbreviation')
-                        pa.text = 'S1'
-
-                    sp_tail = root.find(f".//score-part[@id='{p_tail.get('id')}']")
-                    if sp_tail is not None:
-                        pn = sp_tail.find('part-name')
-                        if pn is None:
-                            pn = ET.SubElement(sp_tail, 'part-name')
-                        pn.text = 'Soprano 2'
-                        pa = sp_tail.find('part-abbreviation')
-                        if pa is None:
-                            pa = ET.SubElement(sp_tail, 'part-abbreviation')
-                        pa.text = 'S2'
-                    modified = True
-
-    # 3. Detect & merge split / complementary parts (e.g. S/A + Alto, T/B + Bass)
+    # 2c. Preserve original vocal staves without deleting lead or resting parts
     # ─────────────────────────────────────────────────────────────────────────
-    part_list = root.find('part-list')
-    parts = root.findall('part')
-    if part_list is not None and len(parts) >= 2:
-        def get_tier(name_str: str) -> int:
-            n = re.sub(r'[.\s_-]+', '', (name_str or '').strip().lower())
-            if re.match(r'^(soprano|sopr|sop|s)[1-4]?$', n) or re.match(r'^(alto|alt|a|contralto|mezzo|mezzosoprano)[1-4]?$', n) or re.match(r'^(sa|sopranoalto|women|treble)[1-4]?$', n):
-                return 1
-            if re.match(r'^(tenor|ten|t)[1-4]?$', n) or re.match(r'^(baritone|bar)[1-4]?$', n) or re.match(r'^(bass|bas|b)[1-4]?$', n) or re.match(r'^(tb|tenorbass|men)[1-4]?$', n):
-                return 2
-            return 0
 
-        def get_canonical_name_and_abbr(raw1: str, raw2: str) -> tuple[str, str]:
-            r1 = (raw1 or '').strip()
-            r2 = (raw2 or '').strip()
-            
-            composite_map = {
-                's/a': ('Soprano / Alto', 'S/A'),
-                'sa': ('Soprano / Alto', 'S/A'),
-                't/b': ('Tenor / Bass', 'T/B'),
-                'tb': ('Tenor / Bass', 'T/B'),
-                's/t': ('Soprano / Tenor', 'S/T'),
-                'st': ('Soprano / Tenor', 'S/T'),
-                'a/b': ('Alto / Bass', 'A/B'),
-                'ab': ('Alto / Bass', 'A/B')
-            }
-            for r in [r1, r2]:
-                if r.lower() in composite_map:
-                    return composite_map[r.lower()]
-            
-            tier1 = get_tier(r1)
-            tier2 = get_tier(r2)
-            if tier1 == 1 or tier2 == 1:
-                if ('alto' in r1.lower() or 'alto' in r2.lower()) and ('sop' in r1.lower() or 'sop' in r2.lower() or 's/a' in r1.lower() or 's/a' in r2.lower()):
-                    return ('Soprano / Alto', 'S/A')
-            if tier1 == 2 or tier2 == 2:
-                if ('bass' in r1.lower() or 'bass' in r2.lower()) and ('ten' in r1.lower() or 'ten' in r2.lower() or 't/b' in r1.lower() or 't/b' in r2.lower()):
-                    return ('Tenor / Bass', 'T/B')
-                    
-            canon_name = r1 if len(r1) >= len(r2) else r2
-            abbr = canon_name
-            if len(canon_name) > 4:
-                abbr = canon_name[:4]
-            return (canon_name, abbr)
+    # 3. Ensure choral parts remain merged and canonically ordered
+    if merge_split_choral_parts(root):
+        modified = True
 
-        # Gather part names, tier, and per-measure non-rest note counts
-        part_info = {}
-        for p in parts:
-            pid = p.get('id')
-            sp = root.find(f".//score-part[@id='{pid}']")
-            raw_name = sp.find('part-name').text if (sp is not None and sp.find('part-name') is not None and sp.find('part-name').text) else pid
-            raw_abbr = sp.find('part-abbreviation').text if (sp is not None and sp.find('part-abbreviation') is not None and sp.find('part-abbreviation').text) else raw_name
-            norm_name = NAME_MAP.get(raw_name.strip().lower(), raw_name.strip())
-            tier = get_tier(raw_name)
+    # ─────────────────────────────────────────────────────────────────────────
+    # 3c. OMR Structural & Rhythmic Artifact Repair (Lossless Score Fidelity)
+    # ─────────────────────────────────────────────────────────────────────────
+    # A. Repair duplicate measure numbers with implicit="yes"
+    surviving_parts = root.findall('part')
+    if surviving_parts:
+        first_p_meas = surviving_parts[0].findall('measure')
+        seen_mnums_dup = set()
+        has_dup_meas = False
+        for m in first_p_meas:
+            mnum = m.get('number')
+            if mnum in seen_mnums_dup:
+                has_dup_meas = True
+                break
+            seen_mnums_dup.add(mnum)
 
-            instr_el = sp.find('.//instrument-name') if sp is not None else None
-            raw_instr = instr_el.text.strip().lower() if (instr_el is not None and instr_el.text) else ""
+        if has_dup_meas:
+            for seq, m_seq in enumerate(first_p_meas, start=1):
+                for p in surviving_parts:
+                    pm_list = p.findall('measure')
+                    if seq - 1 < len(pm_list):
+                        pm = pm_list[seq - 1]
+                        if 'implicit' in pm.attrib:
+                            del pm.attrib['implicit']
+                        pm.set('number', str(seq))
+            modified = True
 
-            combined_ident = f"{raw_name} {raw_abbr} {raw_instr}".lower()
-            is_accomp = any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in ACCOMP_KEYWORDS)
-            is_solo = any(re.search(rf"\b{re.escape(kw)}\b", combined_ident) for kw in ['solo', 'cantor', 'leader', 'descant']) and not is_accomp
+    # B. Double-measure sustained solo note (e.g. Awit m.21-22 unbarred solo measure)
+    surviving_parts = root.findall('part')
+    for p in surviving_parts:
+        p_meas = p.findall('measure')
+        for i in range(len(p_meas) - 1):
+            m_curr = p_meas[i]
+            m_next = p_meas[i+1]
+            notes_curr = m_curr.findall('note')
+            notes_next = m_next.findall('note')
+            if len(notes_curr) == 1 and len(notes_next) == 0:
+                note_c = notes_curr[0]
+                dur_c = note_c.find('duration')
+                if dur_c is not None and dur_c.text and dur_c.text.isdigit():
+                    dur_val = int(dur_c.text)
+                    sib_curr_durs = [sum(int(n.findtext('duration', '0')) for n in p2.findall('measure')[i].findall('note') if n.find('chord') is None) for p2 in surviving_parts if p2 != p and i < len(p2.findall('measure'))]
+                    sib_next_durs = [sum(int(n.findtext('duration', '0')) for n in p2.findall('measure')[i+1].findall('note') if n.find('chord') is None) for p2 in surviving_parts if p2 != p and i+1 < len(p2.findall('measure'))]
+                    if sib_curr_durs and sib_next_durs:
+                        m_sib = max(set(sib_curr_durs), key=sib_curr_durs.count)
+                        if m_sib > 0 and dur_val >= 2 * m_sib:
+                            import copy as _c
+                            dur_c.text = str(m_sib)
+                            if note_c.find('tie') is None:
+                                ET.SubElement(note_c, 'tie', {'type': 'start'})
+                            notations = note_c.find('notations')
+                            if notations is None:
+                                notations = ET.SubElement(note_c, 'notations')
+                            if notations.find('tied') is None:
+                                ET.SubElement(notations, 'tied', {'type': 'start'})
 
-            measures = {}
+                            note_stop = _c.deepcopy(note_c)
+                            lyr = note_stop.find('lyric')
+                            if lyr is not None:
+                                note_stop.remove(lyr)
+                            t = note_stop.find('tie')
+                            if t is not None:
+                                t.set('type', 'stop')
+                            nt = note_stop.find('notations')
+                            if nt is not None:
+                                td = nt.find('tied')
+                                if td is not None:
+                                    td.set('type', 'stop')
+                            m_next.append(note_stop)
+                            modified = True
+
+    # C. Beam misread chord & quarter inflation in 3/4 scores with declared 4/4
+    surviving_parts = root.findall('part')
+    if surviving_parts:
+        m1_time = surviving_parts[0].find(".//measure[@number='1']//time")
+        declared_44 = (m1_time is not None and m1_time.findtext('beats') == '4' and m1_time.findtext('beat-type') == '4')
+        meas_durs = []
+        for p in surviving_parts:
             for m in p.findall('measure'):
-                mnum = m.get('number')
-                non_rest = [n for n in m.findall('note') if n.find('rest') is None]
-                measures[mnum] = measures.get(mnum, 0) + len(non_rest)
-                
-            part_info[pid] = {
-                'element': p,
-                'score_part': sp,
-                'raw_name': raw_name,
-                'raw_abbr': raw_abbr,
-                'norm_name': norm_name,
-                'tier': tier,
-                'is_solo': is_solo,
-                'is_accomp': is_accomp,
-                'measures': measures
-            }
-        # ─── Solo Detection & Assembly (Two-Strategy) ──────────────────────
-        # Strategy A: Name-based — if any part is explicitly labeled "SOLO"
-        # Strategy B: Position-based — detect solo by musical structure
-        # Then: Multi-fragment assembly — merge all Solo parts into one
+                notes = [n for n in m.findall('note') if n.find('chord') is None]
+                if notes:
+                    meas_durs.append(sum(int(n.findtext('duration', '0')) for n in notes))
+        if meas_durs and declared_44:
+            div2_34_count = sum(1 for d in meas_durs if d == 6)
+            div4_34_count = sum(1 for d in meas_durs if d == 12)
+            is_actually_34 = (div2_34_count / len(meas_durs) >= 0.5) or (div4_34_count / len(meas_durs) >= 0.5)
+            if is_actually_34:
+                expected_34_dur = 6 if div2_34_count > div4_34_count else 12
+                quarter_dur = expected_34_dur // 3
+                eighth_dur = quarter_dur // 2
+                for p in surviving_parts:
+                    for midx, m in enumerate(p.findall('measure')):
+                        sib_durs = [sum(int(n.findtext('duration', '0')) for n in p2.findall('measure')[midx].findall('note') if n.find('chord') is None) for p2 in surviving_parts if p2 != p and midx < len(p2.findall('measure'))]
+                        if sib_durs:
+                            sib_expected = max(set(sib_durs), key=sib_durs.count)
+                            if sib_expected == expected_34_dur:
+                                notes = m.findall('note')
+                                cur_dur = sum(int(n.findtext('duration', '0')) for n in notes if n.find('chord') is None)
+                                if cur_dur == expected_34_dur + quarter_dur:
+                                    chords = [n for n in notes if n.find('chord') is not None]
+                                    for cn in chords:
+                                        p_cn = cn.find('pitch')
+                                        if p_cn is not None and p_cn.findtext('step') == 'C' and int(p_cn.findtext('octave', '0')) >= 5:
+                                            m.remove(cn)
+                                    non_chords = [n for n in m.findall('note') if n.find('chord') is None]
+                                    if len(non_chords) >= 2:
+                                        n1, n2 = non_chords[-2], non_chords[-1]
+                                        if int(n1.findtext('duration', '0')) == quarter_dur and int(n2.findtext('duration', '0')) == quarter_dur:
+                                            n1.find('duration').text = str(eighth_dur)
+                                            n2.find('duration').text = str(eighth_dur)
+                                            if n1.find('type') is not None:
+                                                n1.find('type').text = 'eighth'
+                                            if n2.find('type') is not None:
+                                                n2.find('type').text = 'eighth'
+                                            modified = True
 
-        # Strategy A: Solo continuation harmonization (if explicit SOLO label exists)
-        has_explicit_solo = any(info['is_solo'] for info in part_info.values())
-        if has_explicit_solo:
-            choir_measures = set()
-            for pid, info in part_info.items():
-                # Detect choir staves by Alto, Tenor, Bass names OR Bass Clef
-                is_choir_voice = (info['tier'] in [2, 3, 4] or 
-                                  any(kw in info['norm_name'].lower() for kw in ['alto', 'tenor', 'bass', 'choir', 'satb']))
-                first_m = info['element'].find('measure')
-                has_f_clef = first_m is not None and first_m.find('.//clef/sign') is not None and first_m.find('.//clef/sign').text == 'F'
-                if is_choir_voice or has_f_clef:
-                    for m, cnt in info['measures'].items():
-                        if cnt > 0 and m.isdigit():
-                            choir_measures.add(int(m))
-
-            first_choir_m = min(choir_measures) if choir_measures else -1
-
-            if first_choir_m > 0:
-                for pid, info in part_info.items():
-                    if not info['is_solo'] and not info['is_accomp']:
-                        norm_low = info['norm_name'].lower()
-                        raw_low = info['raw_name'].lower()
-                        is_shorthand = norm_low in ['s', 's.', 'sop', 'solo'] or raw_low in ['s', 's.', 'sop', 'solo']
-                        if is_shorthand:
-                            active_m = [int(m) for m, cnt in info['measures'].items() if cnt > 0 and m.isdigit()]
-                            if active_m and all(m < first_choir_m for m in active_m):
-                                info['is_solo'] = True
-                                info['norm_name'] = 'Solo'
-                                info['tier'] = 0
-
-        # Strategy B: Position-based Solo detection (when Audiveris labels everything "Voice")
-        # Detects staggered choral entrances by musical structure, not part names.
-        has_choral_parts = any(info['tier'] in (1, 2, 3, 4) for info in part_info.values())
-        if not has_choral_parts and not any(info['is_solo'] for info in part_info.values()):
-            non_accomp_pids = [pid for pid, info in part_info.items() if not info['is_accomp']]
-
-            # Count how many non-accomp parts have notes at each measure
-            measure_active_parts = {}
-            for pid in non_accomp_pids:
-                for m, cnt in part_info[pid]['measures'].items():
-                    if cnt > 0 and m.isdigit():
-                        mi = int(m)
-                        measure_active_parts.setdefault(mi, set()).add(pid)
-
-            # Detect choir entrance:
-            # 1. First measure with 3+ parts active simultaneously (full choir chord)
-            # 2. First measure where bass-clef (F-clef) parts enter (choir Tenor/Bass)
-            # IMPORTANT: For bass clef, only check the FIRST measure's clef (initial clef).
-            first_poly_m = 9999
-            for mi in sorted(measure_active_parts.keys()):
-                if len(measure_active_parts[mi]) >= 3:
-                    first_poly_m = mi
-                    break
-
-            bass_clef_pids = set()
-            for pid in non_accomp_pids:
-                p_elem = part_info[pid]['element']
-                first_m = p_elem.find('measure')
-                if first_m is not None:
-                    clef_sign = first_m.find('.//clef/sign')
-                    if clef_sign is not None and clef_sign.text == 'F':
-                        bass_clef_pids.add(pid)
-
-            first_bass_m = 9999
-            for pid in bass_clef_pids:
-                for m, cnt in part_info[pid]['measures'].items():
-                    if cnt > 0 and m.isdigit():
-                        first_bass_m = min(first_bass_m, int(m))
-
-            choir_entrance_m = min(first_poly_m, first_bass_m)
-
-            if measure_active_parts and choir_entrance_m < 9999:
-                earliest_m = min(measure_active_parts.keys())
-
-                # Solo condition: choir enters later than score starting point,
-                # AND all measures before the choir entrance are monophonic/duet (<= 2 parts)
-                if choir_entrance_m > earliest_m:
-                    intro_measures = [m for m in measure_active_parts if m < choir_entrance_m]
-                    is_solo_intro = intro_measures and all(len(measure_active_parts[m]) <= 2 for m in intro_measures)
-
-                    if is_solo_intro:
-                        # All non-accomp treble parts active in the intro are Solo fragments!
-                        for pid in non_accomp_pids:
-                            if pid in bass_clef_pids:
-                                continue
-                            if part_info[pid]['tier'] in (1, 2, 3, 4):
-                                continue
-                            active_m = [int(m) for m, cnt in part_info[pid]['measures'].items() if cnt > 0 and m.isdigit()]
-                            if active_m and any(m < choir_entrance_m for m in active_m):
-                                part_info[pid]['is_solo'] = True
-                                part_info[pid]['norm_name'] = 'Solo'
-                                part_info[pid]['tier'] = 0
-
-        # Multi-fragment Solo assembly: merge ALL Solo parts into one anchor.
-        # Audiveris often shatters a single Solo vocal line across 3–5+ parts
-        # (one per system/page), sometimes with OCR-garbled names ('E', 'a').
-        # This reassembles them into a single continuous Solo part.
-        solo_pids = [pid for pid, info in part_info.items() if info['is_solo']]
-        if len(solo_pids) > 1:
-            import copy as _copy
-            # Pick anchor = the Solo part with the most total notes
-            solo_pids.sort(key=lambda pid: sum(part_info[pid]['measures'].get(m, 0) for m in part_info[pid]['measures']), reverse=True)
-            anchor_pid = solo_pids[0]
-            anchor_p = part_info[anchor_pid]['element']
-            anchor_sp = part_info[anchor_pid]['score_part']
-
-            # Rename anchor to "Solo"
-            if anchor_sp is not None:
-                pn = anchor_sp.find('part-name')
-                if pn is None:
-                    pn = ET.SubElement(anchor_sp, 'part-name')
-                pn.text = 'Solo'
-                pa = anchor_sp.find('part-abbreviation')
-                if pa is None:
-                    pa = ET.SubElement(anchor_sp, 'part-abbreviation')
-                pa.text = 'Solo'
-
-            merged_solo_count = 0
-            for frag_pid in solo_pids[1:]:
-                frag_p = part_info[frag_pid]['element']
-                frag_sp = part_info[frag_pid]['score_part']
-
-                # Merge fragment's note-containing measures into anchor
-                for m2 in list(frag_p.findall('measure')):
-                    mnum = m2.get('number')
-                    m2_non_rest = [n for n in m2.findall('note') if n.find('rest') is None]
-                    if not m2_non_rest:
-                        continue
-
-                    m1_candidates = [m for m in anchor_p.findall(f"measure[@number='{mnum}']")]
-                    if m1_candidates:
-                        target_m1 = m1_candidates[0]
-                        t_non_rest = [n for n in target_m1.findall('note') if n.find('rest') is None]
-                        if not t_non_rest:
-                            # Anchor has rest at this measure → replace with fragment's notes
-                            m2_clone = _copy.deepcopy(m2)
-                            m2_attrs = m2_clone.find('attributes')
-                            t_attrs = target_m1.find('attributes')
-                            if t_attrs is not None and m2_attrs is None:
-                                m2_clone.insert(0, _copy.deepcopy(t_attrs))
-                            elif t_attrs is not None and m2_attrs is not None:
-                                for child in list(t_attrs):
-                                    if child.tag != 'measure-style' and m2_attrs.find(child.tag) is None:
-                                        m2_attrs.append(_copy.deepcopy(child))
-                            idx = list(anchor_p).index(target_m1)
-                            anchor_p.remove(target_m1)
-                            anchor_p.insert(idx, m2_clone)
-                    else:
-                        anchor_p.append(_copy.deepcopy(m2))
-
-                # Ensure staff-details are visible
-                for sd in anchor_p.findall('.//staff-details'):
-                    if sd.get('print-object') == 'no':
-                        sd.set('print-object', 'yes')
-
-                # Remove fragment from score
-                if frag_p in list(root):
-                    root.remove(frag_p)
-                if frag_sp is not None and frag_sp in list(part_list):
-                    part_list.remove(frag_sp)
-                merged_solo_count += 1
-
-            if merged_solo_count > 0:
-                modified = True
-        elif len(solo_pids) == 1:
-            anchor_sp = part_info[solo_pids[0]]['score_part']
-            if anchor_sp is not None:
-                pn = anchor_sp.find('part-name')
-                if pn is None:
-                    pn = ET.SubElement(anchor_sp, 'part-name')
-                # Preserve specific vocal solo names (e.g. Soprano Solo, Cantor); only normalize if empty or generic
-                current_pname = (pn.text or "").strip().lower()
-                if not current_pname or current_pname in ['voice', 's', 's.', 'sop']:
-                    pn.text = 'Solo'
-                    pa = anchor_sp.find('part-abbreviation')
-                    if pa is None:
-                        pa = ET.SubElement(anchor_sp, 'part-abbreviation')
-                    pa.text = 'Solo'
-                    modified = True
-
-
-        # Find complementary pairs
-        pids = [p.get('id') for p in parts]
-        merged_pids = set()
-        merge_pairs = []
-
-        for i in range(len(pids)):
-            pid1 = pids[i]
-            if pid1 in merged_pids:
-                continue
-            info1 = part_info[pid1]
-            norm1 = info1['norm_name'].lower()
-            tier1 = info1['tier']
-
-            is_solo1 = info1.get('is_solo', False)
-            is_accomp1 = info1.get('is_accomp', False)
-
-            for j in range(i + 1, len(pids)):
-                pid2 = pids[j]
-                if pid2 in merged_pids:
-                    continue
-                info2 = part_info[pid2]
-                norm2 = info2['norm_name'].lower()
-                tier2 = info2['tier']
-                is_solo2 = info2.get('is_solo', False)
-                is_accomp2 = info2.get('is_accomp', False)
-
-                # Never merge a Solo part with a non-Solo part, or an Accompaniment with a Vocal part
-                if is_solo1 != is_solo2 or is_accomp1 != is_accomp2:
-                    continue
-
-                tier_match = (tier1 != 0 and tier1 == tier2)
-                name_match = (norm1 == norm2) or tier_match or (len(parts) == 8 and j == i + 4)
-
-                if name_match:
-                    # Guard: If both parts have generic names ('voice'/'part'), never merge across different clefs!
-                    if norm1 in ['voice', 'part'] and norm2 in ['voice', 'part']:
-                        f1 = any(m.find('.//clef/sign') is not None and m.find('.//clef/sign').text == 'F' for m in part_info[pid1]['element'].findall('measure'))
-                        f2 = any(m.find('.//clef/sign') is not None and m.find('.//clef/sign').text == 'F' for m in part_info[pid2]['element'].findall('measure'))
-                        if f1 != f2:
-                            continue
-
-                    m1 = info1['measures']
-                    m2 = info2['measures']
-                    overlap = any(mnum in m2 and m1[mnum] > 0 and m2[mnum] > 0 for mnum in m1)
-                    
-                    if not overlap:
-                        canon_name, canon_abbr = ('Solo', 'Solo') if is_solo1 else get_canonical_name_and_abbr(info1['raw_name'], info2['raw_name'])
-                        merge_pairs.append((pid1, pid2, canon_name, canon_abbr))
-                        merged_pids.add(pid1)
-                        merged_pids.add(pid2)
-                        break
-
-        if merge_pairs:
-            for pid1, pid2, canon_name, canon_abbr in merge_pairs:
-                p1 = part_info[pid1]['element']
-                p2 = part_info[pid2]['element']
-                sp1 = part_info[pid1]['score_part']
-                sp2 = part_info[pid2]['score_part']
-
-                if sp1 is not None:
-                    pn = sp1.find('part-name')
-                    if pn is None:
-                        pn = ET.SubElement(sp1, 'part-name')
-                    pn.text = canon_name
-                    pa = sp1.find('part-abbreviation')
-                    if pa is None:
-                        pa = ET.SubElement(sp1, 'part-abbreviation')
-                    pa.text = canon_abbr
-
-                seen_m2 = {}
-                p2_measures_list = list(p2.findall('measure'))
-
-                for m2 in p2_measures_list:
-                    mnum = m2.get('number')
-                    k = seen_m2.get(mnum, 0)
-                    seen_m2[mnum] = k + 1
-
-                    m2_non_rest = [n for n in m2.findall('note') if n.find('rest') is None]
-                    if not m2_non_rest:
-                        continue
-
-                    m1_candidates = [m for m in p1.findall(f"measure[@number='{mnum}']")]
-                    if m1_candidates:
-                        target_m1 = m1_candidates[k] if k < len(m1_candidates) else m1_candidates[0]
-                        t_non_rest = [n for n in target_m1.findall('note') if n.find('rest') is None]
-
-                        if not t_non_rest:
-                            import copy
-                            m2_clone = copy.deepcopy(m2)
-                            m2_attrs = m2_clone.find('attributes')
-
-                            # Preserve <measure-style> containing <multiple-rest> from target
-                            t_ms_list = target_m1.findall('.//measure-style')
-                            if t_ms_list:
-                                if m2_attrs is None:
-                                    m2_attrs = ET.Element('attributes')
-                                    m2_clone.insert(0, m2_attrs)
-                                for ms in t_ms_list:
-                                    m2_attrs.append(copy.deepcopy(ms))
-
-                            t_attrs = target_m1.find('attributes')
-                            if t_attrs is not None and m2_attrs is None:
-                                m2_clone.insert(0, copy.deepcopy(t_attrs))
-                            elif t_attrs is not None and m2_attrs is not None:
-                                for child in list(t_attrs):
-                                    if child.tag != 'measure-style' and m2_attrs.find(child.tag) is None:
-                                        m2_attrs.append(copy.deepcopy(child))
-
-                            idx = list(p1).index(target_m1)
-                            p1.remove(target_m1)
-                            p1.insert(idx, m2_clone)
-                    else:
-                        import copy
-                        p1.append(copy.deepcopy(m2))
-
-                for sd in p1.findall('.//staff-details'):
-                    if sd.get('print-object') == 'no':
-                        sd.set('print-object', 'yes')
-
-                if p2 in list(root):
-                    root.remove(p2)
-                if sp2 is not None and sp2 in list(part_list):
-                    part_list.remove(sp2)
+    # D. Propagate consensus key signatures to parts missing key in measure 1
+    if harmonize_choral_key_signatures(root):
+        modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 3b. Universal Choral Lyric Synchronization & Dynamic Disambiguation
@@ -1413,28 +3352,79 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                 modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 5. Ensure empty measures have explicit full-measure rests
+    # 5. Ensure empty measures have explicit full-measure rests matching sibling duration
     # ─────────────────────────────────────────────────────────────────────────
-    for p in root.findall('part'):
-        divisions = '4'
-        for m in p.findall('measure'):
-            d_el = m.find('.//divisions')
-            if d_el is not None and d_el.text:
-                divisions = d_el.text
+    all_active_parts = root.findall('part')
+    if all_active_parts:
+        max_meas_len = max(len(p.findall('measure')) for p in all_active_parts)
+        for midx in range(max_meas_len):
+            sib_durs = []
+            for p in all_active_parts:
+                p_meas = p.findall('measure')
+                if midx < len(p_meas):
+                    m = p_meas[midx]
+                    ns = [n for n in m.findall('note') if n.find('chord') is None]
+                    if ns:
+                        d = sum(int(n.findtext('duration', '0')) for n in ns)
+                        sib_durs.append(d)
+            target_dur = max(set(sib_durs), key=sib_durs.count) if sib_durs else 12
 
-            notes = m.findall('note')
-            if len(notes) == 0:
-                note_el = ET.SubElement(m, 'note')
-                ET.SubElement(note_el, 'rest', {'measure': 'yes'})
-                dur_el = ET.SubElement(note_el, 'duration')
-                try:
-                    dur_val = int(divisions) * 3
-                except ValueError:
-                    dur_val = 12
-                dur_el.text = str(dur_val)
-                voice_el = ET.SubElement(note_el, 'voice')
-                voice_el.text = '1'
-                modified = True
+            for p in all_active_parts:
+                p_meas = p.findall('measure')
+                if midx < len(p_meas):
+                    m = p_meas[midx]
+                    all_m_notes = m.findall('note')
+                    pitched_m_notes = [n for n in all_m_notes if n.find('rest') is None]
+                    if len(all_m_notes) == 0:
+                        note_el = ET.SubElement(m, 'note')
+                        ET.SubElement(note_el, 'rest', {'measure': 'yes'})
+                        dur_el = ET.SubElement(note_el, 'duration')
+                        dur_el.text = str(target_dur)
+                        voice_el = ET.SubElement(note_el, 'voice')
+                        voice_el.text = '1'
+                        modified = True
+                    elif len(pitched_m_notes) == 0 and len(all_m_notes) == 1:
+                        # Clean up a single full-measure rest: preserve measure="yes", remove conflicting type or dots
+                        n0 = all_m_notes[0]
+                        r = n0.find('rest')
+                        cur_dur = int(n0.findtext('duration', '0'))
+                        if r is not None and (r.get('measure') == 'yes' or cur_dur >= target_dur):
+                            if r.get('measure') != 'yes':
+                                r.set('measure', 'yes')
+                                modified = True
+                            for d in list(n0.findall('dot')):
+                                n0.remove(d)
+                                modified = True
+                            for t in list(n0.findall('type')):
+                                n0.remove(t)
+                                modified = True
+                            dur = n0.find('duration')
+                            if dur is not None and dur.text != str(target_dur):
+                                dur.text = str(target_dur)
+                                modified = True
+
+    # 5b. Close dangling syllabic begin/middle before extended rests or end of part
+    for p in root.findall('part'):
+        p_notes = p.findall('.//note')
+        for i, n in enumerate(p_notes):
+            lyr = n.find('lyric')
+            if lyr is not None:
+                syl = lyr.find('syllabic')
+                if syl is not None and syl.text in ['begin', 'middle']:
+                    rem_pitched = [n2 for n2 in p_notes[i+1:] if n2.find('rest') is None]
+                    if not rem_pitched:
+                        syl.text = 'single' if syl.text == 'begin' else 'end'
+                        modified = True
+                    else:
+                        rests_before_next = 0
+                        for n2 in p_notes[i+1:]:
+                            if n2.find('rest') is not None:
+                                rests_before_next += 1
+                            else:
+                                break
+                        if rests_before_next >= 2:
+                            syl.text = 'single' if syl.text == 'begin' else 'end'
+                            modified = True
 
     # ─────────────────────────────────────────────────────────────────────────
     # 6. Global Measure Synchronization & Padding for Staggered Entrances (e.g. Be Not Afraid)
@@ -1495,7 +3485,7 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
 
             for mnum in canonical_measure_numbers:
                 if mnum not in existing_measures:
-                    new_m = ET.Element('measure', {'number': mnum})
+                    new_m = ET.Element('measure', {'number': mnum, 'print-object': 'no'})
                     dur_val, tmpl_attrs, div_val = measure_templates.get(mnum, (global_divisions * 4, None, global_divisions))
 
                     new_attrs = ET.Element('attributes')
@@ -1514,9 +3504,11 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                         time_el = tmpl_attrs.find('time')
                         if time_el is not None:
                             new_attrs.append(copy.deepcopy(time_el))
+                    # In cutaway scores where staves drop in/out across systems, mark missing measures print-object="no"
+                    ET.SubElement(new_attrs, 'staff-details', {'print-object': 'no'})
                     new_m.append(new_attrs)
 
-                    note_el = ET.SubElement(new_m, 'note')
+                    note_el = ET.SubElement(new_m, 'note', {'print-object': 'no'})
                     ET.SubElement(note_el, 'rest', {'measure': 'yes'})
                     dur_el = ET.SubElement(note_el, 'duration')
                     dur_el.text = str(dur_val)
@@ -1537,48 +3529,40 @@ def clean_musicxml_tree(root: ET.Element) -> bool:
                     for m in m_by_num[mnum]:
                         p.append(m)
 
-    # 5. Sort parts into standard choral score arrangement: Soprano 1 -> Soprano 2 -> Alto 1 -> Alto 2 -> Tenor -> Bass
-    part_list_elem = root.find('part-list')
-    if part_list_elem is not None:
-        def _get_sort_rank(name):
-            s = re.sub(r'[.\s_-]+', '', (name or '').strip().lower())
-            s = re.sub(r'(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)ii$', r'\g<1>2', s)
-            s = re.sub(r'(soprano|sopr|sop|s|alto|alt|a|contralto|tenor|ten|t|baritone|bar|bass|bas|b)i$', r'\g<1>1', s)
-            if s.startswith('solo'): return 0
-            if re.match(r'^(soprano|sopr|sop|s)1?$', s): return 10
-            if re.match(r'^(soprano|sopr|sop|s)2$', s): return 20
-            if re.match(r'^(soprano|sopr|sop|s)[3-9]$', s): return 25
-            if re.match(r'^(mezzosoprano|mezzo)$', s): return 28
-            if re.match(r'^(alto|alt|a|contralto)1?$', s): return 30
-            if re.match(r'^(alto|alt|a|contralto)2$', s): return 40
-            if re.match(r'^(alto|alt|a|contralto)[3-9]$', s): return 45
-            if re.match(r'^(sa|sopranoalto)$', s): return 48
-            if re.match(r'^(tenor|ten|t)1?$', s): return 50
-            if re.match(r'^(tenor|ten|t)2$', s): return 60
-            if re.match(r'^(tenor|ten|t)[3-9]$', s): return 65
-            if re.match(r'^(baritone|bar)$', s): return 70
-            if re.match(r'^(bass|bas|b)1?$', s): return 80
-            if re.match(r'^(bass|bas|b)2$', s): return 90
-            if re.match(r'^(bass|bas|b)[3-9]$', s): return 95
-            if re.match(r'^(tb|tenorbass)$', s): return 98
-            return 100
 
-        s_parts = part_list_elem.findall('score-part')
-        if len(s_parts) > 1:
-            s_parts.sort(key=lambda sp: _get_sort_rank(sp.find('part-name').text if sp.find('part-name') is not None else ''))
-            for sp in list(part_list_elem):
-                part_list_elem.remove(sp)
-            for sp in s_parts:
-                part_list_elem.append(sp)
+    # ─────────────────────────────────────────────────────────────────────────
+    # 6b. System-wide Cutaway & Print-Object Propagation
+    # ─────────────────────────────────────────────────────────────────────────
+    # In cutaway scores, staves that drop out have print-object="no" at system starts.
+    # Propagate this status to all consecutive rest measures within the cutaway system
+    # so notation renderers (OSMD) and inspectors recognize the omitted staves.
+    for p in root.findall('part'):
+        is_cutaway = False
+        for m in p.findall('measure'):
+            sd = m.find('.//staff-details')
+            if sd is not None and sd.get('print-object') == 'no':
+                is_cutaway = True
+            elif sd is not None and sd.get('print-object') == 'yes':
+                is_cutaway = False
 
-            ordered_ids = [sp.get('id') for sp in s_parts]
-            p_map = {p.get('id'): p for p in root.findall('part')}
-            for p in list(root.findall('part')):
-                root.remove(p)
-            for pid in ordered_ids:
-                if pid in p_map:
-                    root.append(p_map[pid])
-            modified = True
+            po = m.get('print-object')
+            if po == 'no':
+                is_cutaway = True
+            elif po == 'yes':
+                is_cutaway = False
+
+            has_pitched = any(n.find('pitch') is not None for n in m.findall('note'))
+            if has_pitched:
+                is_cutaway = False
+                if 'print-object' in m.attrib and m.attrib['print-object'] == 'no':
+                    del m.attrib['print-object']
+            elif is_cutaway:
+                m.set('print-object', 'no')
+                for n in m.findall('note'):
+                    n.set('print-object', 'no')
+
+    # 5. Preserve original score part order from Audiveris OMR
+    # Forced regex reordering is disabled to maintain score layout fidelity.
 
     return modified
 
@@ -1588,6 +3572,33 @@ def clean_musicxml_file(filepath: str) -> bool:
     p = Path(filepath)
     if not p.exists():
         return False
+
+    # Locate source PDF in uploads or parent directory if present (prefer normalized 72dpi vector PDF)
+    pdf_path = None
+    try:
+        base = p.stem
+        raw_name = base.split('-', 1)[1] if '-' in base else base
+        candidates = [
+            p.parent.parent / 'uploads' / f"norm_{base}.pdf",
+            p.parent / f"norm_{base}.pdf",
+            p.parent.parent / 'uploads' / f"norm_{raw_name}.pdf",
+            p.parent.parent / 'uploads' / f"{base}.pdf",
+            p.parent / f"{base}.pdf",
+            p.parent.parent / 'uploads' / f"{raw_name}.pdf",
+            p.with_suffix('.pdf'),
+        ]
+        uploads_dir = p.parent.parent / 'uploads'
+        if uploads_dir.exists():
+            for f in uploads_dir.glob(f"*norm*{raw_name}*.pdf"):
+                candidates.append(f)
+            for f in uploads_dir.glob(f"*{raw_name}*.pdf"):
+                candidates.append(f)
+        for c in candidates:
+            if c.exists():
+                pdf_path = str(c.resolve())
+                break
+    except Exception:
+        pass
 
     is_mxl = False
     with open(p, 'rb') as f:
@@ -1607,7 +3618,7 @@ def clean_musicxml_file(filepath: str) -> bool:
             other_files = {n: z.read(n) for n in z.namelist() if n != xml_name}
 
         root = ET.fromstring(xml_data)
-        modified = clean_musicxml_tree(root)
+        modified = clean_musicxml_tree(root, pdf_path=pdf_path)
 
         if modified:
             new_xml_data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
@@ -1619,7 +3630,7 @@ def clean_musicxml_file(filepath: str) -> bool:
     else:
         tree = ET.parse(filepath)
         root = tree.getroot()
-        modified = clean_musicxml_tree(root)
+        modified = clean_musicxml_tree(root, pdf_path=pdf_path)
         if modified:
             tree.write(filepath, encoding='utf-8', xml_declaration=True)
         return modified

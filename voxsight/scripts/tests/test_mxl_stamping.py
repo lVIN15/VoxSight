@@ -40,7 +40,35 @@ try:
     stamp = note.get('data-vx-voice')
     print("MXL note stamped voice:", stamp)
     assert stamp in ['S', 'A', 'T', 'B', 'Solo', 'Others'], f"Unexpected stamp {stamp}"
+    assert note.get('data-vx-id') is not None, "Stable note identity was not stamped"
+    assert res['events'][0]['source_note_id'] == int(note.get('data-vx-id'))
+    assert res['events'][0]['source_part_id'] == 'P1'
     print("[PASS] MXL test passed cleanly!")
 finally:
     if os.path.exists(mxl_path):
         os.remove(mxl_path)
+
+
+# Explicit editor assignments survive re-analysis; unmarked legacy labels are
+# recalculated as backend output rather than being mistaken for user decisions.
+override_xml = ET.fromstring("""<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Choir</part-name></score-part></part-list>
+  <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+    <note data-vx-id="7" data-vx-voice="B" data-vx-voice-source="user"><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+    <note data-vx-voice="B"><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure></part>
+</score-partwise>""")
+override_events = [
+    {"part_id": 1, "measure_number": 1, "pitch_midi": None, "satb_voice": "S"},
+    {"part_id": 1, "measure_number": 1, "pitch_midi": None, "satb_voice": "T"},
+]
+stamped = satb_analyzer.match_and_stamp_voices(override_xml, override_events)
+override_notes = override_xml.findall('.//note')
+assert stamped == 2
+assert override_notes[0].get('data-vx-voice') == 'B'
+assert override_notes[0].get('data-vx-voice-source') == 'user_override'
+assert override_events[0]['satb_voice'] == 'B'
+assert override_notes[1].get('data-vx-voice') == 'T'
+assert override_notes[1].get('data-vx-voice-source') == 'backend'
+assert override_events[1]['source_note_id'] == int(override_notes[1].get('data-vx-id'))
+print("[PASS] User voice overrides and source note IDs survive backend re-analysis.")

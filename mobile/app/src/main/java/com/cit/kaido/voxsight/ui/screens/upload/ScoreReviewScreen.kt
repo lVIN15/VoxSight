@@ -102,6 +102,14 @@ fun ScoreReviewScreen(
         extractScorePartLegendItems(parsedScore, dynamicVoiceCodes)
     }
 
+    LaunchedEffect(musicXml, isWebLoaded) {
+        if (isWebLoaded && musicXml.isNotBlank()) {
+            val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
+            val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
+            webViewInstance?.evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded');", null)
+        }
+    }
+
     BackHandler(enabled = isFullscreen) {
         isFullscreen = false
         webViewInstance?.evaluateJavascript("zoomFit();", null)
@@ -389,8 +397,16 @@ fun ScoreReviewScreen(
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            val activityManager = ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                            val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
+                            if (isLowEnd) {
+                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                            } else {
+                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                            }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                             settings.allowFileAccess = true
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
@@ -399,9 +415,6 @@ fun ScoreReviewScreen(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoaded = true
-                                    // Inject raw MusicXML into page using Base64 to avoid quoting issues
-                                    val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
-                                    evaluateJavascript("loadScoreBase64('$encoded');", null)
                                 }
                             }
                             addJavascriptInterface(EditorJsBridge(), "VoxSightBridge")
@@ -628,10 +641,20 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
 
     score.parts.forEach { part ->
         val nameLower = part.name.lowercase()
+        val nonRestNotes = part.notes.filter { !it.isRest }
+        val avgMidi = if (nonRestNotes.isNotEmpty()) {
+            nonRestNotes.map { calculateMidiNote(it.step, it.alter, it.octave) }.average()
+        } else {
+            0.0
+        }
+        val isBaritoneSoloPart = nameLower.contains("baritone") || nameLower.contains("solo") ||
+            nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") ||
+            nameLower.contains("sol.") || nameLower.trim() == "sol" || Regex("(?i)\\bsol\\b").containsMatchIn(nameLower)
+
         val isCondensedSA = (nameLower.contains("soprano") && nameLower.contains("alto")) ||
-            nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower == "sa"
+            nameLower.contains("s/a") || nameLower.contains("s & a") || nameLower.contains("s.a.") || nameLower.contains("s. a.") || nameLower == "sa"
         val isCondensedTB = (nameLower.contains("tenor") && nameLower.contains("bass")) ||
-            nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower == "tb"
+            nameLower.contains("t/b") || nameLower.contains("t & b") || nameLower.contains("t.b.") || nameLower.contains("t. b.") || nameLower == "tb"
 
         part.notes.forEach { note ->
             // Priority 1: Explicit user override from data-vx-voice (customVoiceStr or customVoice)
@@ -658,7 +681,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                     "UNISON_T1T2", "T1T2" -> "TENOR 1 / 2"
                     "UNISON_B1B2", "B1B2" -> "BASS 1 / 2"
                     "TUTTI", "UNISON_ALL", "ALL" -> "TUTTI"
-                    "5", "SOLO" -> "SOLO"
+                    "BARITONE SOLO", "BARITONE_SOLO", "BARITONE", "5", "SOLO" -> "SOLO"
                     "6", "OTHERS", "OTHER" -> "OTHERS"
                     else -> note.customVoiceStr
                 }
@@ -686,6 +709,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                         }
                     }
                 }
+                isBaritoneSoloPart -> "BARITONE SOLO"
                 nameLower.contains("solo") || nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") -> "SOLO"
                 nameLower.contains("piano") || nameLower.contains("organ") || nameLower.contains("keyboard") || nameLower.contains("guitar") || nameLower.contains("accomp") || nameLower.contains("orch") || nameLower.contains("strings") || nameLower.contains("other") -> "OTHERS"
                 isCondensedSA -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
@@ -968,10 +992,10 @@ fun extractScorePartLegendItems(
 ): List<ScorePartLegendItem> {
     if (score == null) {
         return listOf(
-            ScorePartLegendItem("S", "Soprano", Color(0xFFE91E63)),
+            ScorePartLegendItem("S", "Soprano", Color(0xFFE11D48)),
             ScorePartLegendItem("A", "Alto", Color(0xFF8E24AA)),
-            ScorePartLegendItem("T", "Tenor", Color(0xFF1976D2)),
-            ScorePartLegendItem("B", "Bass", Color(0xFF2E7D32))
+            ScorePartLegendItem("T", "Tenor", Color(0xFF2563EB)),
+            ScorePartLegendItem("B", "Bass", Color(0xFF16A34A))
         )
     }
 
@@ -1010,54 +1034,71 @@ fun extractScorePartLegendItems(
     // Include dynamic voice codes from interactive editing in this session
     scoreCustomVoices.addAll(dynamicVoiceCodes.map { it.uppercase().trim() })
 
-    // Add unisons and special indicators if present
+    // Add cross-family unisons and special indicators if present in score or dynamic session
     if (scoreCustomVoices.any { it in setOf("UNISON_TB", "TB") }) {
-        addPartIfNew("UNISON_TB", "Tenor / Bass", Color(0xFF00BFA5))
+        addPartIfNew("UNISON_TB", "Tenor / Bass", Color(0xFF0D9488))
     }
     if (scoreCustomVoices.any { it in setOf("UNISON_SA", "SA") }) {
-        addPartIfNew("UNISON_SA", "Soprano / Alto", Color(0xFFD81B60))
-    }
-    if (scoreCustomVoices.any { it in setOf("UNISON_S1S2", "S1S2") }) {
-        addPartIfNew("UNISON_S1S2", "Soprano 1/2", Color(0xFFFF80AB))
-    }
-    if (scoreCustomVoices.any { it in setOf("UNISON_A1A2", "A1A2") }) {
-        addPartIfNew("UNISON_A1A2", "Alto 1/2", Color(0xFFCE93D8))
-    }
-    if (scoreCustomVoices.any { it in setOf("UNISON_T1T2", "T1T2") }) {
-        addPartIfNew("UNISON_T1T2", "Tenor 1/2", Color(0xFF80D8FF))
-    }
-    if (scoreCustomVoices.any { it in setOf("UNISON_B1B2", "B1B2") }) {
-        addPartIfNew("UNISON_B1B2", "Bass 1/2", Color(0xFFB9F6CA))
+        addPartIfNew("UNISON_SA", "Soprano / Alto", Color(0xFF4F46E5))
     }
     if (scoreCustomVoices.any { it in setOf("TUTTI", "UNISON_ALL", "ALL") }) {
-        addPartIfNew("TUTTI", "Tutti (All)", Color(0xFFFFB300))
+        addPartIfNew("TUTTI", "Tutti (All)", Color(0xFFCA8A04))
+    }
+
+    // Add divisi parts if present in note voices
+    if (scoreCustomVoices.any { it in setOf("S1", "SOPRANO 1", "SOPRANO1") }) {
+        addPartIfNew("S1", "Soprano 1", Color(0xFFFB7185))
+    }
+    if (scoreCustomVoices.any { it in setOf("S2", "SOPRANO 2", "SOPRANO2") }) {
+        addPartIfNew("S2", "Soprano 2", Color(0xFF881337))
+    }
+    if (scoreCustomVoices.any { it in setOf("A1", "ALTO 1", "ALTO1") }) {
+        addPartIfNew("A1", "Alto 1", Color(0xFFC084FC))
+    }
+    if (scoreCustomVoices.any { it in setOf("A2", "ALTO 2", "ALTO2") }) {
+        addPartIfNew("A2", "Alto 2", Color(0xFF4C1D95))
+    }
+    if (scoreCustomVoices.any { it in setOf("T1", "TENOR 1", "TENOR1") }) {
+        addPartIfNew("T1", "Tenor 1", Color(0xFF0284C7))
+    }
+    if (scoreCustomVoices.any { it in setOf("T2", "TENOR 2", "TENOR2") }) {
+        addPartIfNew("T2", "Tenor 2", Color(0xFF1E3A8A))
+    }
+    if (scoreCustomVoices.any { it in setOf("B1", "BASS 1", "BASS1") }) {
+        addPartIfNew("B1", "Bass 1", Color(0xFF65A30D))
+    }
+    if (scoreCustomVoices.any { it in setOf("B2", "BASS 2", "BASS2") }) {
+        addPartIfNew("B2", "Bass 2", Color(0xFF064E3B))
     }
 
     // Dynamic divisi or other parts added by user during editing
     dynamicVoiceCodes.forEach { code ->
         val upper = code.uppercase().trim()
         when (upper) {
-            "S" -> addPartIfNew("S", "Soprano", Color(0xFFE91E63))
-            "S1" -> addPartIfNew("S1", "Soprano 1", Color(0xFFFF1493))
-            "S2" -> addPartIfNew("S2", "Soprano 2", Color(0xFFD50000))
+            "S" -> addPartIfNew("S", "Soprano", Color(0xFFE11D48))
+            "S1" -> addPartIfNew("S1", "Soprano 1", Color(0xFFFB7185))
+            "S2" -> addPartIfNew("S2", "Soprano 2", Color(0xFF881337))
             "A" -> addPartIfNew("A", "Alto", Color(0xFF8E24AA))
-            "A1" -> addPartIfNew("A1", "Alto 1", Color(0xFFAB47BC))
-            "A2" -> addPartIfNew("A2", "Alto 2", Color(0xFF3F51B5))
-            "T" -> addPartIfNew("T", "Tenor", Color(0xFF1976D2))
-            "T1" -> addPartIfNew("T1", "Tenor 1", Color(0xFF00BCD4))
-            "T2" -> addPartIfNew("T2", "Tenor 2", Color(0xFF0D47A1))
-            "B" -> addPartIfNew("B", "Bass", Color(0xFF2E7D32))
-            "B1" -> addPartIfNew("B1", "Bass 1", Color(0xFF7CB342))
-            "B2" -> addPartIfNew("B2", "Bass 2", Color(0xFF1B5E20))
-            "SOLO" -> addPartIfNew("SOLO", "Solo", Color(0xFFFF6D00))
+            "A1" -> addPartIfNew("A1", "Alto 1", Color(0xFFC084FC))
+            "A2" -> addPartIfNew("A2", "Alto 2", Color(0xFF4C1D95))
+            "T" -> addPartIfNew("T", "Tenor", Color(0xFF2563EB))
+            "T1" -> addPartIfNew("T1", "Tenor 1", Color(0xFF0284C7))
+            "T2" -> addPartIfNew("T2", "Tenor 2", Color(0xFF1E3A8A))
+            "B" -> addPartIfNew("B", "Bass", Color(0xFF16A34A))
+            "B1" -> addPartIfNew("B1", "Bass 1", Color(0xFF65A30D))
+            "B2" -> addPartIfNew("B2", "Bass 2", Color(0xFF064E3B))
+            "UNISON_TB", "TB" -> addPartIfNew("UNISON_TB", "Tenor / Bass", Color(0xFF0D9488))
+            "UNISON_SA", "SA" -> addPartIfNew("UNISON_SA", "Soprano / Alto", Color(0xFF4F46E5))
+            "TUTTI", "UNISON_ALL", "ALL" -> addPartIfNew("TUTTI", "Tutti (All)", Color(0xFFCA8A04))
+            "SOLO", "BARITONE SOLO", "BARITONE", "TENOR SOLO", "SOPRANO SOLO", "ALTO SOLO", "BASS SOLO" -> addPartIfNew("SOLO", "Solo", Color(0xFFFF6D00))
             "OTHERS" -> addPartIfNew("OTHERS", "Accompaniment", Color(0xFF546E7A))
         }
     }
 
     return if (result.isNotEmpty()) result else listOf(
-        ScorePartLegendItem("S", "Soprano", Color(0xFFE91E63)),
+        ScorePartLegendItem("S", "Soprano", Color(0xFFE11D48)),
         ScorePartLegendItem("A", "Alto", Color(0xFF8E24AA)),
-        ScorePartLegendItem("T", "Tenor", Color(0xFF1976D2)),
-        ScorePartLegendItem("B", "Bass", Color(0xFF2E7D32))
+        ScorePartLegendItem("T", "Tenor", Color(0xFF2563EB)),
+        ScorePartLegendItem("B", "Bass", Color(0xFF16A34A))
     )
 }
