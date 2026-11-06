@@ -158,6 +158,20 @@
             transform: scale(1.1);
         }
 
+        .hud-btn-close {
+            background: #EDE5F4;
+            border-color: #E0D4ED;
+            color: #5B2D8E;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .hud-btn-close:hover {
+            background: #E0D4ED;
+            color: #3E1A63;
+            transform: scale(1.08);
+        }
+
         .hud-divider {
             width: 1px;
             height: 16px;
@@ -219,7 +233,7 @@
         /* ─── Drag-to-Trash Drop Zone (Glowing Bottom Target) ─── */
         .trash-drop-zone {
             position: fixed;
-            bottom: 60px;
+            bottom: 74px;
             left: 50%;
             transform: translateX(-50%) translateY(24px);
             opacity: 0;
@@ -257,7 +271,7 @@
         /* ─── Floating Bottom Quick Palette Dock (Duration & Stamping) ─── */
         .editor-palette-dock {
             position: fixed;
-            bottom: 30px;
+            bottom: 16px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
@@ -398,21 +412,7 @@
 
         /* Status Bar at Bottom */
         #status-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 28px;
-            background: rgba(255, 255, 255, 0.95);
-            border-top: 1px solid #E0D4ED;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 16px;
-            font-size: 11px;
-            color: #6B6B80;
-            z-index: 200;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: none !important;
         }
 
         #status-bar .status-accent {
@@ -773,8 +773,11 @@
             <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">𝄽</button>
             <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">♯</button>
             <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">·</button>
+            <button id="hud-btn-details" class="hud-btn" title="Edit Details & Lyrics" onclick="openNoteDetails()">✏️</button>
             <div class="hud-divider"></div>
             <div id="hud-note-badge" class="hud-note-badge">G4</div>
+            <div class="hud-divider"></div>
+            <button id="hud-btn-close" class="hud-btn hud-btn-close" title="Deselect" onclick="deselectNote()">✕</button>
         </div>
         <canvas id="highlight-canvas"></canvas>
     </div>
@@ -3309,20 +3312,109 @@
             }, 300);
         };
 
+        // ─── Deselect & Open Details API ────────────────────────────────
+        function deselectNote() {
+            clearHighlights();
+            selectedNoteId = null;
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onNoteDeselected === 'function') {
+                window.VoxSightBridge.onNoteDeselected();
+            }
+        }
+        window.deselectNote = deselectNote;
+
+        function openNoteDetails() {
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onOpenNoteDetails === 'function') {
+                window.VoxSightBridge.onOpenNoteDetails();
+            }
+        }
+        window.openNoteDetails = openNoteDetails;
+
+        // ─── Proximity & Layer Hit Testing ──────────────────────────────
+        function findNoteAtPoint(clientX, clientY) {
+            var clickTarget = document.getElementById('score-container');
+            if (!clickTarget) return null;
+            var containerRect = clickTarget.getBoundingClientRect();
+            var clickX = clientX - containerRect.left + clickTarget.scrollLeft;
+            var clickY = clientY - containerRect.top + clickTarget.scrollTop;
+
+            var candidates = [];
+            function addCandidate(id) {
+                if (!isNaN(id) && noteMap.has(id) && candidates.indexOf(id) === -1) {
+                    candidates.push(id);
+                }
+            }
+
+            // 1. Direct SVG element from point layers
+            if (typeof document.elementsFromPoint === 'function') {
+                var elements = document.elementsFromPoint(clientX, clientY);
+                for (let i = 0; i < elements.length; i++) {
+                    var el = elements[i];
+                    var matchEl = el.closest ? el.closest('[data-vx-id]') : null;
+                    if (matchEl && matchEl.hasAttribute('data-vx-id')) {
+                        addCandidate(parseInt(matchEl.getAttribute('data-vx-id'), 10));
+                    }
+                }
+            }
+
+            // 2. Proximity search within 42px
+            for (let i = 0; i < noteCoordinates.length; i++) {
+                var nc = noteCoordinates[i];
+                var dx = nc.cx - clickX;
+                var dy = nc.cy - clickY;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 42) {
+                    addCandidate(nc.id);
+                }
+            }
+
+            if (candidates.length > 0) {
+                var bestId = candidates[0];
+                var bestDist = Infinity;
+                for (let i = 0; i < candidates.length; i++) {
+                    var cId = candidates[i];
+                    var entry = noteMap.get(cId);
+                    if (entry && entry.coord) {
+                        var dx = entry.coord.cx - clickX;
+                        var dy = entry.coord.cy - clickY;
+                        var d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            bestId = cId;
+                        }
+                    }
+                }
+                return bestId;
+            }
+            return null;
+        }
+        window.findNoteAtPoint = findNoteAtPoint;
+
         // ─── Click Handlers ─────────────────────────────────────────────
         function setupClickListeners() {
             var clickTarget = document.getElementById('score-container');
             if (clickTarget) {
                 clickTarget.onclick = function (e) {
+                    // Suppress click immediately following drag-and-drop
+                    if (Date.now() - lastPitchDragEndTime < 350) return;
+
+                    var targetEl = e.target;
+                    // Ignore clicks on micro-HUD, palette dock, or floating stepper
+                    if (targetEl && targetEl.closest && (
+                        targetEl.closest('#note-micro-hud') ||
+                        targetEl.closest('#editor-palette-dock') ||
+                        targetEl.closest('#multirest-stepper-panel') ||
+                        targetEl.closest('#zoom-controls') ||
+                        targetEl.closest('#palette-drag-ghost')
+                    )) {
+                        return;
+                    }
+
                     var containerRect = clickTarget.getBoundingClientRect();
                     var clickX = e.clientX - containerRect.left + clickTarget.scrollLeft;
                     var clickY = e.clientY - containerRect.top + clickTarget.scrollTop;
 
                     // 0. Multimeasure Rest Hit Test (Staff-Specific Precision)
-                    // Check direct SVG target first
-                    var clickedTargetEl = e.target;
-                    var clickedMrSvg = clickedTargetEl ? (clickedTargetEl.closest ? clickedTargetEl.closest('.multirest, g[id*="vf-multi"]') : null) : null;
-
+                    var clickedMrSvg = targetEl ? (targetEl.closest ? targetEl.closest('.multirest, g[id*="vf-multi"]') : null) : null;
                     var matchedMrItem = null;
                     if (clickedMrSvg) {
                         matchedMrItem = multiRestMeasures.find(function (item) {
@@ -3330,7 +3422,6 @@
                         });
                     }
 
-                    // Fallback to bounding box hit test per staff
                     if (!matchedMrItem) {
                         var bestDist = 9999;
                         for (var mri = 0; mri < multiRestMeasures.length; mri++) {
@@ -3354,63 +3445,13 @@
                     // If clicked outside of multirest, close stepper panel
                     closeMultiRestPanel();
 
-                    var candidates = [];
-                    function addCandidate(id) {
-                        if (!isNaN(id) && noteMap.has(id) && candidates.indexOf(id) === -1) {
-                            candidates.push(id);
-                        }
-                    }
-
-                    // 1. Direct SVG target
-                    var targetEl = e.target;
-                    if (targetEl) {
-                        var noteEl = targetEl.closest ? targetEl.closest('[data-vx-id]') : null;
-                        if (noteEl && noteEl.hasAttribute('data-vx-id')) {
-                            addCandidate(parseInt(noteEl.getAttribute('data-vx-id'), 10));
-                        }
-                    }
-
-                    // 2. Multi-element point hit test (all overlapping SVG layers)
-                    if (typeof document.elementsFromPoint === 'function') {
-                        var elements = document.elementsFromPoint(e.clientX, e.clientY);
-                        for (let i = 0; i < elements.length; i++) {
-                            var el = elements[i];
-                            var matchEl = el.closest ? el.closest('[data-vx-id]') : null;
-                            if (matchEl && matchEl.hasAttribute('data-vx-id')) {
-                                addCandidate(parseInt(matchEl.getAttribute('data-vx-id'), 10));
-                            }
-                        }
-                    }
-
-                    // 3. Proximity search from noteCoordinates within 45px radius
-                    for (let i = 0; i < noteCoordinates.length; i++) {
-                        var nc = noteCoordinates[i];
-                        var dx = nc.cx - clickX;
-                        var dy = nc.cy - clickY;
-                        var dist = Math.sqrt(dx * dx + dy * dy);
-                        if (dist < 45) {
-                            addCandidate(nc.id);
-                        }
-                    }
-
-                    // 4. Distance-weighted selection: pick candidate closest to tap coordinate
-                    if (candidates.length > 0) {
-                        var bestId = candidates[0];
-                        var bestDist = Infinity;
-                        for (let i = 0; i < candidates.length; i++) {
-                            var cId = candidates[i];
-                            var entry = noteMap.get(cId);
-                            if (entry && entry.coord) {
-                                var dx = entry.coord.cx - clickX;
-                                var dy = entry.coord.cy - clickY;
-                                var d = Math.sqrt(dx * dx + dy * dy);
-                                if (d < bestDist) {
-                                    bestDist = d;
-                                    bestId = cId;
-                                }
-                            }
-                        }
+                    // 1. Proximity & layer lookup for note selection
+                    var bestId = findNoteAtPoint(e.clientX, e.clientY);
+                    if (bestId !== null) {
                         selectNote(bestId);
+                    } else {
+                        // Tapped on empty score whitespace: DESELECT immediately!
+                        deselectNote();
                     }
                 };
             }
@@ -6221,166 +6262,251 @@
         const DIATONIC_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
         const STEP_MIDI_OFFSETS = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
 
-        function initPitchDragging() {
+        let lastPitchDragEndTime = 0;
+
+        function startPitchDrag(noteId, clientX, clientY) {
+            if (noteId === null || noteId === undefined) return;
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl) return;
+
+            selectedNoteId = noteId;
+            drawHighlight(noteId);
+
             var ind = document.getElementById('selection-indicator');
-            if (!ind) return;
+            isPitchDragging = true;
+            pitchDragStartX = clientX;
+            pitchDragStartY = clientY;
+            isOverTrash = false;
 
-            function onDragStart(e) {
-                if (selectedNoteId === null) return;
-                var noteEl = getXmlNoteElement(selectedNoteId);
-                if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (pEl && !isRest) {
+                pitchDragStartStep = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                var altEl = pEl.getElementsByTagName('alter')[0];
+                pitchDragStartAlter = altEl ? (parseInt(altEl.textContent.trim(), 10) || 0) : 0;
+                pitchDragStartOctave = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            } else {
+                pitchDragStartStep = 'C';
+                pitchDragStartAlter = 0;
+                pitchDragStartOctave = 4;
+            }
 
-                var target = e.target;
-                if (!ind.contains(target) && target !== ind) return;
+            var stepIdx = DIATONIC_STEPS.indexOf(pitchDragStartStep);
+            if (stepIdx === -1) stepIdx = 0;
+            pitchDragInitialDiatonicIndex = pitchDragStartOctave * 7 + stepIdx;
+            pitchDragCurrentDiatonicIndex = pitchDragInitialDiatonicIndex;
 
-                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+            var vOverride = noteEl.getAttribute('data-vx-voice');
+            pitchDragVoiceCode = vOverride || '';
 
-                isPitchDragging = true;
-                pitchDragStartX = clientX;
-                pitchDragStartY = clientY;
+            if (ind) ind.classList.add('dragging');
+
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            if (badge) {
+                badge.style.left = clientX + 'px';
+                badge.style.top = (clientY - 38) + 'px';
+                var nameEl = document.getElementById('drag-pitch-name');
+                var voiceEl = document.getElementById('drag-pitch-voice');
+                var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                if (nameEl) nameEl.textContent = pitchDragStartStep + altSign + pitchDragStartOctave;
+                if (voiceEl) {
+                    voiceEl.textContent = pitchDragVoiceCode || 'Voice';
+                    voiceEl.style.display = pitchDragVoiceCode ? 'inline-block' : 'none';
+                }
+                badge.classList.remove('danger');
+                badge.classList.add('visible');
+            }
+            if (trashZone) {
+                trashZone.classList.add('visible');
+                trashZone.classList.remove('active-hover');
+            }
+
+            var startMidi = (pitchDragStartOctave + 1) * 12 + (STEP_MIDI_OFFSETS[pitchDragStartStep] || 0) + pitchDragStartAlter;
+            playNotePreview(startMidi, 140);
+
+            window.addEventListener('mousemove', onDragMove, { passive: false });
+            window.addEventListener('mouseup', onDragEnd);
+            window.addEventListener('touchmove', onDragMove, { passive: false });
+            window.addEventListener('touchend', onDragEnd);
+        }
+        window.startPitchDrag = startPitchDrag;
+
+        function onDragMove(e) {
+            if (!isPitchDragging) return;
+            if (e.cancelable) e.preventDefault();
+
+            var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+            var dy = pitchDragStartY - clientY;
+            var stepPx = Math.max(4.0, 5.0 * (osmd ? osmd.zoom : 1.0));
+            var deltaSteps = Math.round(dy / stepPx);
+
+            var newDiatonicIndex = Math.max(14, Math.min(50, pitchDragInitialDiatonicIndex + deltaSteps));
+            var newOctave = Math.floor(newDiatonicIndex / 7);
+            var newStep = DIATONIC_STEPS[((newDiatonicIndex % 7) + 7) % 7];
+
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            var ind = document.getElementById('selection-indicator');
+
+            if (badge) {
+                badge.style.left = clientX + 'px';
+                badge.style.top = (clientY - 38) + 'px';
+            }
+
+            if (clientY >= window.innerHeight - 80) {
+                isOverTrash = true;
+                if (trashZone) trashZone.classList.add('active-hover');
+                if (badge) {
+                    badge.classList.add('danger');
+                    var nameEl = document.getElementById('drag-pitch-name');
+                    if (nameEl) nameEl.textContent = '🗑️ Release to Delete';
+                }
+                if (ind) ind.style.transform = 'none';
+                return;
+            } else {
                 isOverTrash = false;
-
-                var pEl = noteEl.getElementsByTagName('pitch')[0];
-                var isRest = (noteEl.getElementsByTagName('rest').length > 0);
-                if (pEl && !isRest) {
-                    pitchDragStartStep = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
-                    var altEl = pEl.getElementsByTagName('alter')[0];
-                    pitchDragStartAlter = altEl ? (parseInt(altEl.textContent.trim(), 10) || 0) : 0;
-                    pitchDragStartOctave = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
-                } else {
-                    pitchDragStartStep = 'C';
-                    pitchDragStartAlter = 0;
-                    pitchDragStartOctave = 4;
-                }
-
-                var stepIdx = DIATONIC_STEPS.indexOf(pitchDragStartStep);
-                if (stepIdx === -1) stepIdx = 0;
-                pitchDragInitialDiatonicIndex = pitchDragStartOctave * 7 + stepIdx;
-                pitchDragCurrentDiatonicIndex = pitchDragInitialDiatonicIndex;
-
-                var vOverride = noteEl.getAttribute('data-vx-voice');
-                pitchDragVoiceCode = vOverride || '';
-
-                ind.classList.add('dragging');
-
-                var badge = document.getElementById('drag-pitch-badge');
-                var trashZone = document.getElementById('trash-drop-zone');
-                if (badge) {
-                    badge.style.left = clientX + 'px';
-                    badge.style.top = (clientY - 38) + 'px';
-                    var nameEl = document.getElementById('drag-pitch-name');
-                    var voiceEl = document.getElementById('drag-pitch-voice');
-                    var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
-                    if (nameEl) nameEl.textContent = pitchDragStartStep + altSign + pitchDragStartOctave;
-                    if (voiceEl) {
-                        voiceEl.textContent = pitchDragVoiceCode || 'Voice';
-                        voiceEl.style.display = pitchDragVoiceCode ? 'inline-block' : 'none';
-                    }
-                    badge.classList.remove('danger');
-                    badge.classList.add('visible');
-                }
-                if (trashZone) {
-                    trashZone.classList.add('visible');
-                    trashZone.classList.remove('active-hover');
-                }
-
-                var startMidi = (pitchDragStartOctave + 1) * 12 + (STEP_MIDI_OFFSETS[pitchDragStartStep] || 0) + pitchDragStartAlter;
-                playNotePreview(startMidi, 140);
-
-                window.addEventListener('mousemove', onDragMove, { passive: false });
-                window.addEventListener('mouseup', onDragEnd);
-                window.addEventListener('touchmove', onDragMove, { passive: false });
-                window.addEventListener('touchend', onDragEnd);
+                if (trashZone) trashZone.classList.remove('active-hover');
+                if (badge) badge.classList.remove('danger');
             }
 
-            function onDragMove(e) {
-                if (!isPitchDragging) return;
-                if (e.cancelable) e.preventDefault();
+            if (newDiatonicIndex !== pitchDragCurrentDiatonicIndex) {
+                pitchDragCurrentDiatonicIndex = newDiatonicIndex;
+                var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                var nameEl = document.getElementById('drag-pitch-name');
+                if (nameEl) nameEl.textContent = newStep + altSign + newOctave;
 
-                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+                var newMidi = (newOctave + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + pitchDragStartAlter;
+                playNotePreview(newMidi, 110);
 
-                var dy = pitchDragStartY - clientY;
-                var stepPx = Math.max(4.0, 5.0 * (osmd ? osmd.zoom : 1.0));
-                var deltaSteps = Math.round(dy / stepPx);
-
-                var newDiatonicIndex = Math.max(14, Math.min(50, pitchDragInitialDiatonicIndex + deltaSteps));
-                var newOctave = Math.floor(newDiatonicIndex / 7);
-                var newStep = DIATONIC_STEPS[((newDiatonicIndex % 7) + 7) % 7];
-
-                var badge = document.getElementById('drag-pitch-badge');
-                var trashZone = document.getElementById('trash-drop-zone');
-
-                if (badge) {
-                    badge.style.left = clientX + 'px';
-                    badge.style.top = (clientY - 38) + 'px';
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(8); } catch (e) {}
                 }
-
-                if (clientY >= window.innerHeight - 80) {
-                    isOverTrash = true;
-                    if (trashZone) trashZone.classList.add('active-hover');
-                    if (badge) {
-                        badge.classList.add('danger');
-                        var nameEl = document.getElementById('drag-pitch-name');
-                        if (nameEl) nameEl.textContent = '🗑️ Release to Delete';
-                    }
-                    ind.style.transform = 'none';
-                    return;
-                } else {
-                    isOverTrash = false;
-                    if (trashZone) trashZone.classList.remove('active-hover');
-                    if (badge) badge.classList.remove('danger');
-                }
-
-                if (newDiatonicIndex !== pitchDragCurrentDiatonicIndex) {
-                    pitchDragCurrentDiatonicIndex = newDiatonicIndex;
-                    var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
-                    var nameEl = document.getElementById('drag-pitch-name');
-                    if (nameEl) nameEl.textContent = newStep + altSign + newOctave;
-
-                    var newMidi = (newOctave + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + pitchDragStartAlter;
-                    playNotePreview(newMidi, 110);
-
-                    if (navigator.vibrate) {
-                        try { navigator.vibrate(8); } catch (e) {}
-                    }
-                }
-
-                ind.style.transform = 'translate3d(0, ' + (-deltaSteps * stepPx) + 'px, 0)';
             }
 
-            function onDragEnd() {
-                if (!isPitchDragging) return;
-                isPitchDragging = false;
+            if (ind) ind.style.transform = 'translate3d(0, ' + (-deltaSteps * stepPx) + 'px, 0)';
+        }
+
+        function onDragEnd() {
+            if (!isPitchDragging) return;
+            isPitchDragging = false;
+            lastPitchDragEndTime = Date.now();
+
+            var ind = document.getElementById('selection-indicator');
+            if (ind) {
                 ind.classList.remove('dragging');
                 ind.style.transform = 'none';
+            }
 
-                var badge = document.getElementById('drag-pitch-badge');
-                var trashZone = document.getElementById('trash-drop-zone');
-                if (badge) badge.classList.remove('visible', 'danger');
-                if (trashZone) trashZone.classList.remove('visible', 'active-hover');
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            if (badge) badge.classList.remove('visible', 'danger');
+            if (trashZone) trashZone.classList.remove('visible', 'active-hover');
 
-                window.removeEventListener('mousemove', onDragMove);
-                window.removeEventListener('mouseup', onDragEnd);
-                window.removeEventListener('touchmove', onDragMove);
-                window.removeEventListener('touchend', onDragEnd);
+            window.removeEventListener('mousemove', onDragMove);
+            window.removeEventListener('mouseup', onDragEnd);
+            window.removeEventListener('touchmove', onDragMove);
+            window.removeEventListener('touchend', onDragEnd);
 
-                if (isOverTrash) {
-                    deleteSelectedNote();
+            if (isOverTrash) {
+                deleteSelectedNote();
+                return;
+            }
+
+            if (pitchDragCurrentDiatonicIndex !== pitchDragInitialDiatonicIndex && selectedNoteId !== null) {
+                var finalOctave = Math.floor(pitchDragCurrentDiatonicIndex / 7);
+                var finalStep = DIATONIC_STEPS[((pitchDragCurrentDiatonicIndex % 7) + 7) % 7];
+                updateNotePitch(selectedNoteId, finalStep, pitchDragStartAlter, finalOctave);
+                updateStatus('Pitch changed to ' + finalStep + finalOctave);
+            }
+        }
+
+        function initPitchDragging() {
+            var ind = document.getElementById('selection-indicator');
+            var scoreContainer = document.getElementById('score-container');
+            if (!scoreContainer) return;
+
+            var touchTrackCandidateId = null;
+            var touchStartX = 0, touchStartY = 0;
+            var isTrackingTouch = false;
+            var didStartPitchDrag = false;
+
+            function onTouchStartScore(e) {
+                var target = e.target;
+                if (target && target.closest && (
+                    target.closest('#note-micro-hud') ||
+                    target.closest('#editor-palette-dock') ||
+                    target.closest('#multirest-stepper-panel') ||
+                    target.closest('#zoom-controls') ||
+                    target.closest('#palette-drag-ghost')
+                )) {
                     return;
                 }
 
-                if (pitchDragCurrentDiatonicIndex !== pitchDragInitialDiatonicIndex && selectedNoteId !== null) {
-                    var finalOctave = Math.floor(pitchDragCurrentDiatonicIndex / 7);
-                    var finalStep = DIATONIC_STEPS[((pitchDragCurrentDiatonicIndex % 7) + 7) % 7];
-                    updateNotePitch(selectedNoteId, finalStep, pitchDragStartAlter, finalOctave);
-                    updateStatus('Pitch changed to ' + finalStep + finalOctave);
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                if (ind && (ind.contains(target) || target === ind) && selectedNoteId !== null) {
+                    touchTrackCandidateId = selectedNoteId;
+                } else {
+                    touchTrackCandidateId = findNoteAtPoint(clientX, clientY);
+                }
+
+                touchStartX = clientX;
+                touchStartY = clientY;
+                isTrackingTouch = true;
+                didStartPitchDrag = false;
+            }
+
+            function onTouchMoveScore(e) {
+                if (!isTrackingTouch || didStartPitchDrag) return;
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                var dx = clientX - touchStartX;
+                var dy = clientY - touchStartY;
+                var dist = Math.hypot(dx, dy);
+
+                // If user dragged finger vertically more than 7px on a note, start direct drag!
+                if (dist > 7) {
+                    if (touchTrackCandidateId !== null) {
+                        didStartPitchDrag = true;
+                        isTrackingTouch = false;
+                        if (e.cancelable) e.preventDefault();
+                        startPitchDrag(touchTrackCandidateId, clientX, clientY);
+                    } else {
+                        isTrackingTouch = false;
+                    }
                 }
             }
 
-            ind.addEventListener('mousedown', onDragStart);
-            ind.addEventListener('touchstart', onDragStart, { passive: true });
+            function onTouchEndScore(e) {
+                if (!isTrackingTouch) return;
+                isTrackingTouch = false;
+            }
+
+            scoreContainer.addEventListener('mousedown', onTouchStartScore);
+            window.addEventListener('mousemove', onTouchMoveScore, { passive: false });
+            window.addEventListener('mouseup', onTouchEndScore);
+
+            scoreContainer.addEventListener('touchstart', onTouchStartScore, { passive: false });
+            window.addEventListener('touchmove', onTouchMoveScore, { passive: false });
+            window.addEventListener('touchend', onTouchEndScore);
+
+            if (ind) {
+                ind.addEventListener('mousedown', function(e) {
+                    if (selectedNoteId !== null) {
+                        startPitchDrag(selectedNoteId, e.clientX, e.clientY);
+                    }
+                });
+                ind.addEventListener('touchstart', function(e) {
+                    if (selectedNoteId !== null && e.touches && e.touches.length > 0) {
+                        startPitchDrag(selectedNoteId, e.touches[0].clientX, e.touches[0].clientY);
+                    }
+                }, { passive: false });
+            }
         }
 
         // ─── Floating Bottom Palette Dock (Tap-to-Set & Drag-and-Drop) ─────────

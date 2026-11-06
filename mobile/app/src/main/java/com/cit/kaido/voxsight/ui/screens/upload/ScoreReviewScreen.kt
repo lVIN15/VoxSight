@@ -93,6 +93,7 @@ fun ScoreReviewScreen(
     val context = LocalContext.current
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var selectedNote by remember { mutableStateOf<SelectedNoteInfo?>(null) }
+    var showNoteBottomSheet by remember { mutableStateOf(false) }
     var selectedMultiRest by remember { mutableStateOf<SelectedMultiRestInfo?>(null) }
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
@@ -172,6 +173,25 @@ fun ScoreReviewScreen(
                     isRest = isRest,
                     isDotted = isDotted
                 )
+                // In-situ note selection: bottom sheet is NOT shown automatically on selection,
+                // keeping the sheet music clear for direct drag-and-drop & micro-HUD interaction.
+            }
+        }
+
+        @JavascriptInterface
+        fun onNoteDeselected() {
+            (context as? android.app.Activity)?.runOnUiThread {
+                selectedNote = null
+                showNoteBottomSheet = false
+            }
+        }
+
+        @JavascriptInterface
+        fun onOpenNoteDetails() {
+            (context as? android.app.Activity)?.runOnUiThread {
+                if (selectedNote != null) {
+                    showNoteBottomSheet = true
+                }
             }
         }
 
@@ -179,6 +199,7 @@ fun ScoreReviewScreen(
         fun onMultiRestSelected(measureNum: Int, count: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
                 selectedNote = null
+                showNoteBottomSheet = false
                 selectedMultiRest = SelectedMultiRestInfo(measureNum, count)
             }
         }
@@ -225,6 +246,15 @@ fun ScoreReviewScreen(
                                 contentDescription = "Redo",
                                 tint = if (canRedo) VoxPurplePrimary else Color.LightGray
                             )
+                        }
+                        if (selectedNote != null) {
+                            IconButton(onClick = { showNoteBottomSheet = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edit Details & Lyrics",
+                                    tint = VoxPurplePrimary
+                                )
+                            }
                         }
                         IconButton(onClick = { showMetadataDialog = true }) {
                             Icon(
@@ -501,127 +531,123 @@ fun ScoreReviewScreen(
                     }
                 }
 
-                // Floating Controls (Zooming feature centered directly above Next/Prev Page buttons)
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(bottom = if (isFullscreen) 14.dp else 52.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Floating Zoom Controls Pill (Positioned in middle above page buttons, draggable if moved)
+                // Floating Page Navigation Pill (Visible for multi-page scores, docked at top center)
+                if (editorTotalPages > 1) {
                     Surface(
                         modifier = Modifier
-                            .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
-                            .pointerInput(Unit) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    zoomOffsetX += dragAmount.x
-                                    zoomOffsetY += dragAmount.y
-                                }
-                            },
+                            .align(Alignment.TopCenter)
+                            .padding(top = 10.dp),
                         color = Color.White.copy(alpha = 0.95f),
                         shadowElevation = 6.dp,
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.DragHandle,
-                                contentDescription = "Drag to move",
-                                tint = VoxPurplePrimary.copy(alpha = 0.45f),
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .padding(end = 2.dp)
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
+                                enabled = editorCurrentPage > 1,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous Page",
+                                    tint = if (editorCurrentPage > 1) VoxPurplePrimary else Color.LightGray,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Text(
+                                text = "Page $editorCurrentPage of $editorTotalPages",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = VoxPurplePrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp)
                             )
+
                             IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                                onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
+                                enabled = editorCurrentPage < editorTotalPages,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.ZoomOut,
-                                    contentDescription = "Zoom Out",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            TextButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Text(
-                                    text = "FIT",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = VoxPurplePrimary
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ZoomIn,
-                                    contentDescription = "Zoom In",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next Page",
+                                    tint = if (editorCurrentPage < editorTotalPages) VoxPurplePrimary else Color.LightGray,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
                     }
+                }
 
-                    // Floating Page Navigation Pill (Visible for multi-page scores)
-                    if (editorTotalPages > 1) {
-                        Surface(
-                            color = Color.White.copy(alpha = 0.95f),
-                            shadowElevation = 6.dp,
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
-                                    enabled = editorCurrentPage > 1,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                        contentDescription = "Previous Page",
-                                        tint = if (editorCurrentPage > 1) VoxPurplePrimary else Color.LightGray,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                Text(
-                                    text = "Page $editorCurrentPage of $editorTotalPages",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = VoxPurplePrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp)
-                                )
-
-                                IconButton(
-                                    onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
-                                    enabled = editorCurrentPage < editorTotalPages,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                        contentDescription = "Next Page",
-                                        tint = if (editorCurrentPage < editorTotalPages) VoxPurplePrimary else Color.LightGray,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
+                // Floating Zoom Controls Pill (Positioned in bottom-right margin, draggable if moved)
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(end = 12.dp, bottom = if (isFullscreen) 24.dp else 70.dp)
+                        .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                zoomOffsetX += dragAmount.x
+                                zoomOffsetY += dragAmount.y
                             }
+                        },
+                    color = Color.White.copy(alpha = 0.95f),
+                    shadowElevation = 6.dp,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag to move",
+                            tint = VoxPurplePrimary.copy(alpha = 0.45f),
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(end = 2.dp)
+                        )
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomOut,
+                                contentDescription = "Zoom Out",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text(
+                                text = "FIT",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = VoxPurplePrimary
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomIn,
+                                contentDescription = "Zoom In",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -648,70 +674,71 @@ fun ScoreReviewScreen(
             )
         }
 
-        // Show Edit sheet if a note or rest is selected
-        selectedNote?.let { note ->
-            NoteEditorBottomSheet(
-                noteId = note.id,
-                pitchStep = note.pitchStep,
-                alter = note.alter,
-                octave = note.octave,
-                durationType = note.durationType,
-                voiceId = note.voiceId,
-                voiceCode = note.voiceCode,
-                measureNumber = note.measureNumber,
-                lyricText = note.lyricText,
-                isRest = note.isRest,
-                isDotted = note.isDotted,
-                onLyricChanged = { newLyric ->
-                    val escapedLyric = escapeJavascriptString(newLyric)
-                    webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
-                    selectedNote = selectedNote?.copy(lyricText = newLyric)
-                },
-                onVoiceChanged = { newVoiceCode ->
-                    val escapedCode = escapeJavascriptString(newVoiceCode)
-                    webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
-                    selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
-                    dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
-                },
-                onPitchChanged = { newStep, newAlter, newOctave ->
-                    webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
-                    selectedNote = selectedNote?.copy(pitchStep = newStep, alter = newAlter, octave = newOctave, isRest = false)
-                },
-                onDurationChanged = { newDuration, dotted ->
-                    webViewInstance?.evaluateJavascript("updateNoteDuration(${note.id}, '$newDuration', $dotted);", null)
-                    selectedNote = selectedNote?.copy(durationType = newDuration, isDotted = dotted)
-                },
-                onToggleDot = { dotted ->
-                    webViewInstance?.evaluateJavascript("toggleNoteDot(${note.id}, $dotted);", null)
-                    selectedNote = selectedNote?.copy(isDotted = dotted)
-                },
-                onConvertToRest = {
-                    webViewInstance?.evaluateJavascript("convertToRest(${note.id});", null)
-                    selectedNote = selectedNote?.copy(isRest = true)
-                },
-                onConvertToNote = { step, alter, octave ->
-                    webViewInstance?.evaluateJavascript("convertToNote(${note.id}, '$step', $alter, $octave);", null)
-                    selectedNote = selectedNote?.copy(isRest = false, pitchStep = step, alter = alter, octave = octave)
-                },
-                onAddNote = { pos, step, alter, octave, type, dotted ->
-                    webViewInstance?.evaluateJavascript("addNote(${note.id}, '$pos', '$step', $alter, $octave, '$type', $dotted);", null)
-                    Toast.makeText(context, "Note added", Toast.LENGTH_SHORT).show()
-                },
-                onAddRest = { pos, type, dotted ->
-                    webViewInstance?.evaluateJavascript("addRest(${note.id}, '$pos', '$type', $dotted);", null)
-                    Toast.makeText(context, "Rest added", Toast.LENGTH_SHORT).show()
-                },
-                onDeleteClicked = {
-                    webViewInstance?.evaluateJavascript("deleteNote(${note.id});", null)
-                    selectedNote = null
-                    Toast.makeText(context, "Element deleted successfully", Toast.LENGTH_SHORT).show()
-                },
-                onDismissRequest = {
-                    selectedNote = null
-                    // Clear graphic highlights
-                    webViewInstance?.evaluateJavascript("clearHighlights();", null)
-                }
-            )
+        // Show Edit sheet only if user explicitly requested note details & lyrics
+        if (showNoteBottomSheet) {
+            selectedNote?.let { note ->
+                NoteEditorBottomSheet(
+                    noteId = note.id,
+                    pitchStep = note.pitchStep,
+                    alter = note.alter,
+                    octave = note.octave,
+                    durationType = note.durationType,
+                    voiceId = note.voiceId,
+                    voiceCode = note.voiceCode,
+                    measureNumber = note.measureNumber,
+                    lyricText = note.lyricText,
+                    isRest = note.isRest,
+                    isDotted = note.isDotted,
+                    onLyricChanged = { newLyric ->
+                        val escapedLyric = escapeJavascriptString(newLyric)
+                        webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
+                        selectedNote = selectedNote?.copy(lyricText = newLyric)
+                    },
+                    onVoiceChanged = { newVoiceCode ->
+                        val escapedCode = escapeJavascriptString(newVoiceCode)
+                        webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
+                        selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
+                        dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
+                    },
+                    onPitchChanged = { newStep, newAlter, newOctave ->
+                        webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
+                        selectedNote = selectedNote?.copy(pitchStep = newStep, alter = newAlter, octave = newOctave, isRest = false)
+                    },
+                    onDurationChanged = { newDuration, dotted ->
+                        webViewInstance?.evaluateJavascript("updateNoteDuration(${note.id}, '$newDuration', $dotted);", null)
+                        selectedNote = selectedNote?.copy(durationType = newDuration, isDotted = dotted)
+                    },
+                    onToggleDot = { dotted ->
+                        webViewInstance?.evaluateJavascript("toggleNoteDot(${note.id}, $dotted);", null)
+                        selectedNote = selectedNote?.copy(isDotted = dotted)
+                    },
+                    onConvertToRest = {
+                        webViewInstance?.evaluateJavascript("convertToRest(${note.id});", null)
+                        selectedNote = selectedNote?.copy(isRest = true)
+                    },
+                    onConvertToNote = { step, alter, octave ->
+                        webViewInstance?.evaluateJavascript("convertToNote(${note.id}, '$step', $alter, $octave);", null)
+                        selectedNote = selectedNote?.copy(isRest = false, pitchStep = step, alter = alter, octave = octave)
+                    },
+                    onAddNote = { pos, step, alter, octave, type, dotted ->
+                        webViewInstance?.evaluateJavascript("addNote(${note.id}, '$pos', '$step', $alter, $octave, '$type', $dotted);", null)
+                        Toast.makeText(context, "Note added", Toast.LENGTH_SHORT).show()
+                    },
+                    onAddRest = { pos, type, dotted ->
+                        webViewInstance?.evaluateJavascript("addRest(${note.id}, '$pos', '$type', $dotted);", null)
+                        Toast.makeText(context, "Rest added", Toast.LENGTH_SHORT).show()
+                    },
+                    onDeleteClicked = {
+                        webViewInstance?.evaluateJavascript("deleteNote(${note.id});", null)
+                        selectedNote = null
+                        showNoteBottomSheet = false
+                        Toast.makeText(context, "Element deleted successfully", Toast.LENGTH_SHORT).show()
+                    },
+                    onDismissRequest = {
+                        showNoteBottomSheet = false
+                    }
+                )
+            }
         }
 
         // Show Native Edit Bottom Sheet if a multimeasure rest (H-bar) is selected

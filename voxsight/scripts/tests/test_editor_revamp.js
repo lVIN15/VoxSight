@@ -285,12 +285,22 @@ runTest('5.1 interactive_editor.html contains all required UI components', () =>
     assert(htmlContent.includes('id="hud-btn-rest"'), 'HUD rest toggle missing');
     assert(htmlContent.includes('id="hud-btn-accidental"'), 'HUD accidental toggle missing');
     assert(htmlContent.includes('id="hud-btn-dot"'), 'HUD dot toggle missing');
+    assert(htmlContent.includes('id="hud-btn-details"'), 'HUD details button missing');
+    assert(htmlContent.includes('id="hud-btn-close"'), 'HUD close / deselect button missing');
     assert(htmlContent.includes('id="selection-drag-handle"'), 'Selection drag handle missing');
     assert(htmlContent.includes('id="drag-pitch-badge"'), 'Drag pitch badge missing');
     assert(htmlContent.includes('id="trash-drop-zone"'), 'Trash drop zone missing');
     assert(htmlContent.includes('id="editor-palette-dock"'), 'Editor palette dock missing');
     assert(htmlContent.includes('id="palette-drag-ghost"'), 'Palette drag ghost missing');
     assert(htmlContent.includes('Tone.min.js'), 'Tone.min.js script tag missing');
+});
+
+runTest('5.2 Deselect, Details, and Direct Drag APIs are defined in JavaScript', () => {
+    assert(htmlContent.includes('function deselectNote()'), 'deselectNote missing');
+    assert(htmlContent.includes('function openNoteDetails()'), 'openNoteDetails missing');
+    assert(htmlContent.includes('function findNoteAtPoint('), 'findNoteAtPoint missing');
+    assert(htmlContent.includes('function startPitchDrag('), 'startPitchDrag missing');
+    assert(htmlContent.includes('display: none !important;'), 'Status bar not hidden via CSS');
 });
 
 console.log('\n' + '='.repeat(70));
