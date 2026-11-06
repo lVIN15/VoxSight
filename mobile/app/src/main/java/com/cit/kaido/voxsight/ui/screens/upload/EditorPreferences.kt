@@ -37,6 +37,7 @@ data class EditorSettings(
     val audioPreview: Boolean = true,
     val hapticFeedback: Boolean = true,
     // Visible tool groups
+    val showAddGroup: Boolean = true,
     val showNotesGroup: Boolean = true,
     val showRestsGroup: Boolean = true,
     val showModGroup: Boolean = true,
@@ -61,6 +62,7 @@ data class EditorSettings(
                 "autoScrollToNote" to autoScrollToNote,
                 "audioPreview" to audioPreview,
                 "hapticFeedback" to hapticFeedback,
+                "showAddGroup" to showAddGroup,
                 "showNotesGroup" to showNotesGroup,
                 "showRestsGroup" to showRestsGroup,
                 "showModGroup" to showModGroup,
@@ -93,6 +95,7 @@ object EditorPreferences {
     private const val KEY_AUTO_SCROLL = "pref_auto_scroll_to_note"
     private const val KEY_AUDIO_PREVIEW = "pref_audio_preview"
     private const val KEY_HAPTIC = "pref_haptic_feedback"
+    private const val KEY_GROUP_ADD = "pref_group_add"
     private const val KEY_GROUP_NOTES = "pref_group_notes"
     private const val KEY_GROUP_RESTS = "pref_group_rests"
     private const val KEY_GROUP_MOD = "pref_group_mod"
@@ -157,6 +160,7 @@ object EditorPreferences {
             autoScrollToNote = p.getBoolean(KEY_AUTO_SCROLL, true),
             audioPreview = p.getBoolean(KEY_AUDIO_PREVIEW, true),
             hapticFeedback = p.getBoolean(KEY_HAPTIC, true),
+            showAddGroup = p.getBoolean(KEY_GROUP_ADD, true),
             showNotesGroup = p.getBoolean(KEY_GROUP_NOTES, true),
             showRestsGroup = p.getBoolean(KEY_GROUP_RESTS, true),
             showModGroup = p.getBoolean(KEY_GROUP_MOD, true),
@@ -185,7 +189,8 @@ object EditorPreferences {
             putBoolean(KEY_AUTO_SCROLL, settings.autoScrollToNote)
             putBoolean(KEY_AUDIO_PREVIEW, settings.audioPreview)
             putBoolean(KEY_HAPTIC, settings.hapticFeedback)
-            putBoolean(KEY_GROUP_NOTES, settings.showNotesGroup)
+            putBoolean(KEY_GROUP_ADD, settings.showAddGroup)
+            .putBoolean(KEY_GROUP_NOTES, settings.showNotesGroup)
             putBoolean(KEY_GROUP_RESTS, settings.showRestsGroup)
             putBoolean(KEY_GROUP_MOD, settings.showModGroup)
             putBoolean(KEY_GROUP_CURVES, settings.showCurvesGroup)

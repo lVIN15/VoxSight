@@ -247,6 +247,9 @@ fun EditorSettingsBottomSheet(
                     .padding(bottom = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                ToolGroupFilterChip("Add (+Note/+Rest)", settings.showAddGroup) {
+                    onSettingsChanged(settings.copy(showAddGroup = it))
+                }
                 ToolGroupFilterChip("Notes", settings.showNotesGroup) {
                     onSettingsChanged(settings.copy(showNotesGroup = it))
                 }

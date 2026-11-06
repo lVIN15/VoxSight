@@ -463,7 +463,37 @@
         }
 
         /* Adaptive Toolbar Density & Settings Profiles */
-        body.density-comfortable .deck-glyph-btn {
+        body.density-comfortable         /* --- Add Note & Rest Toolbar Controls --- */
+        .deck-add-btn {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1px;
+            color: #5B2D8E;
+            font-weight: 700;
+        }
+
+        .deck-add-btn .glyph-sublabel {
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1;
+            color: #5B2D8E;
+            letter-spacing: -0.2px;
+        }
+
+        .deck-nav-btn-add {
+            color: #5B2D8E !important;
+            font-weight: 700 !important;
+            border-color: rgba(91, 45, 142, 0.3) !important;
+            background: rgba(91, 45, 142, 0.04) !important;
+        }
+
+        .deck-nav-btn-add:active {
+            background: rgba(91, 45, 142, 0.12) !important;
+        }
+
+        .deck-glyph-btn {
             min-width: 44px;
             height: 44px;
             font-size: 20px;
@@ -1220,6 +1250,14 @@
                         <polyline points="9 18 15 12 9 6"></polyline>
                     </svg>
                 </button>
+
+                <button id="deck-btn-add-quick" class="deck-nav-btn deck-nav-btn-add" onclick="insertNoteAfterSelected()" title="Add Note After Selected">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span class="nav-label">+Note</span>
+                </button>
             </div>
 
             <div class="deck-nav-group-right">
@@ -1257,6 +1295,28 @@
 
         <!-- Row 2: Musical Glyph Editing Toolbar -->
         <div class="deck-toolbar-scroll">
+            <!-- Group 0: Add Elements (Soundslice-style Quick Insert) -->
+            <div id="deck-group-add" class="deck-tool-group">
+                <span class="deck-group-label">Add</span>
+                <button id="deck-btn-add-note" class="deck-glyph-btn deck-add-btn" onclick="insertNoteAfterSelected()" title="Insert Note After Selected">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <ellipse cx="9" cy="15" rx="4.5" ry="3.2" transform="rotate(-15 9 15)" fill="currentColor"/>
+                        <line x1="13" y1="15" x2="13" y2="5" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M17 6h6m-3-3v6" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                    <span class="glyph-sublabel">+Note</span>
+                </button>
+                <button id="deck-btn-add-rest" class="deck-glyph-btn deck-add-btn" onclick="insertRestAfterSelected()" title="Insert Rest After Selected">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M12 4 L8 9 L12 11 C9.5 13, 8.5 15, 8.5 17 C8.5 18, 9.5 19, 10.5 19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                        <path d="M16 6h6m-3-3v6" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                    <span class="glyph-sublabel">+Rest</span>
+                </button>
+            </div>
+
+            <div id="deck-divider-add" class="deck-divider"></div>
+
             <!-- Group 1: Note Values (Crisp Vector Notation SVGs) -->
             <div id="deck-group-notes" class="deck-tool-group">
                 <span class="deck-group-label">Notes</span>
@@ -7146,6 +7206,7 @@
             autoScrollToNote: true,
             audioPreview: true,
             hapticFeedback: true,
+            showAddGroup: true,
             showNotesGroup: true,
             showRestsGroup: true,
             showModGroup: true,
@@ -7244,6 +7305,7 @@
                     if (div) div.style.display = (isVis !== false) ? '' : 'none';
                 }
 
+                setGroupVis('deck-group-add', 'deck-divider-add', window.editorPreferences.showAddGroup);
                 setGroupVis('deck-group-notes', 'deck-divider-notes', window.editorPreferences.showNotesGroup);
                 setGroupVis('deck-group-rests', 'deck-divider-rests', window.editorPreferences.showRestsGroup);
                 setGroupVis('deck-group-mod', 'deck-divider-mod', window.editorPreferences.showModGroup);
@@ -7526,6 +7588,106 @@
         window.shiftSelectedNoteOctave = shiftSelectedNoteOctave;
 
         // ─── Musical Editing Operations ──────────────────────────────
+        function getActiveOrFallbackNoteId() {
+            if (selectedNoteId !== null && selectedNoteId !== undefined) {
+                var el = getXmlNoteElement(selectedNoteId);
+                if (el) return selectedNoteId;
+            }
+            if (xmlDoc) {
+                var first = xmlDoc.querySelector('note[data-vx-id]');
+                if (first) {
+                    var idStr = first.getAttribute('data-vx-id');
+                    var parsed = parseInt(idStr, 10);
+                    if (!isNaN(parsed)) return parsed;
+                }
+            }
+            return null;
+        }
+
+        window.insertNoteAfterSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) {
+                console.warn('insertNoteAfterSelected: no target note found in score');
+                return;
+            }
+            var targetEl = getXmlNoteElement(targetId);
+            var step = 'C', oct = 4, alt = 0, type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var p = targetEl.querySelector('pitch');
+                if (p) {
+                    step = p.querySelector('step') ? p.querySelector('step').textContent.trim() : 'C';
+                    oct = p.querySelector('octave') ? parseInt(p.querySelector('octave').textContent.trim(), 10) : 4;
+                    alt = p.querySelector('alter') ? parseInt(p.querySelector('alter').textContent.trim(), 10) : 0;
+                }
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addNote(targetId, 'after', step, alt, oct, type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            if (typeof playToneForNote === 'function') {
+                playToneForNote(step, oct, alt);
+            }
+            updateStatus('Inserted note after selected');
+        };
+
+        window.insertRestAfterSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) {
+                console.warn('insertRestAfterSelected: no target note found in score');
+                return;
+            }
+            var targetEl = getXmlNoteElement(targetId);
+            var type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addRest(targetId, 'after', type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            updateStatus('Inserted rest after selected');
+        };
+
+        window.insertNoteBeforeSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) return;
+            var targetEl = getXmlNoteElement(targetId);
+            var step = 'C', oct = 4, alt = 0, type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var p = targetEl.querySelector('pitch');
+                if (p) {
+                    step = p.querySelector('step') ? p.querySelector('step').textContent.trim() : 'C';
+                    oct = p.querySelector('octave') ? parseInt(p.querySelector('octave').textContent.trim(), 10) : 4;
+                    alt = p.querySelector('alter') ? parseInt(p.querySelector('alter').textContent.trim(), 10) : 0;
+                }
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addNote(targetId, 'before', step, alt, oct, type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            if (typeof playToneForNote === 'function') {
+                playToneForNote(step, oct, alt);
+            }
+            updateStatus('Inserted note before selected');
+        };
+
+        window.insertRestBeforeSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) return;
+            var targetEl = getXmlNoteElement(targetId);
+            var type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addRest(targetId, 'before', type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            updateStatus('Inserted rest before selected');
+        };
+
         function applyDurationTool(typeName, isDotted) {
             if (selectedNoteId === null) return;
             var noteEl = getXmlNoteElement(selectedNoteId);

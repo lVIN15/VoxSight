@@ -45,6 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -251,9 +253,11 @@ fun ScoreReviewScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Review & Edit Score",
+                            text = "Review Score",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = VoxTextPrimary
                         )
                     },
@@ -267,28 +271,8 @@ fun ScoreReviewScreen(
                         }
                     },
                     actions = {
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("undo();", null) },
-                            enabled = canUndo
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.Undo,
-                                contentDescription = "Undo",
-                                tint = if (canUndo) VoxPurplePrimary else Color.LightGray
-                            )
-                        }
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("redo();", null) },
-                            enabled = canRedo
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.Redo,
-                                contentDescription = "Redo",
-                                tint = if (canRedo) VoxPurplePrimary else Color.LightGray
-                            )
-                        }
                         if (!originalScoreUri.isNullOrBlank()) {
-                            IconButton(onClick = { showOriginalScoreSheet = true }) {
+                            IconButton(onClick = { showOriginalScoreSheet = true }, modifier = Modifier.size(36.dp)) {
                                 Icon(
                                     imageVector = Icons.Outlined.Visibility,
                                     contentDescription = "Compare with Original Scan",
@@ -296,63 +280,22 @@ fun ScoreReviewScreen(
                                 )
                             }
                         }
-                        if (selectedNote != null) {
-                            IconButton(onClick = { showNoteBottomSheet = true }) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Edit,
-                                    contentDescription = "Edit Details & Lyrics",
-                                    tint = VoxPurplePrimary
-                                )
-                            }
-                        }
-                        IconButton(onClick = { showMetadataDialog = true }) {
+                        IconButton(onClick = { showMetadataDialog = true }, modifier = Modifier.size(36.dp)) {
                             Icon(
-                                imageVector = Icons.Outlined.Edit,
-                                contentDescription = "Edit Score Info & Words",
+                                imageVector = Icons.Outlined.Description,
+                                contentDescription = "Score Info & Metadata",
                                 tint = VoxPurplePrimary
                             )
                         }
-                        IconButton(onClick = { showSettingsSheet = true }) {
+                        IconButton(onClick = { showSettingsSheet = true }, modifier = Modifier.size(36.dp)) {
                             Icon(
                                 imageVector = Icons.Outlined.Settings,
                                 contentDescription = "Editor Settings",
                                 tint = VoxPurplePrimary
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-                )
-            }
-        },
-        bottomBar = {
-            if (!isFullscreen) {
-                Surface(
-                    color = Color.White,
-                    tonalElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onCancel,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Cancel", tint = VoxTextSubtitle)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("CANCEL", fontWeight = FontWeight.Bold, color = VoxTextSubtitle)
-                        }
-
                         Button(
                             onClick = {
-                                // Extract modified XML from WebView and confirm
                                 webViewInstance?.let { webView ->
                                     webView.evaluateJavascript("getModifiedXml();") { result ->
                                         if (result != null && result != "null" && result.isNotEmpty() && result != "\"\"") {
@@ -372,23 +315,36 @@ fun ScoreReviewScreen(
                                     }
                                 } ?: onConfirm(musicXml)
                             },
-                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = VoxPurplePrimary,
                                 contentColor = Color.White
                             ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                             modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
+                                .height(34.dp)
+                                .padding(end = 4.dp)
                         ) {
-                            Icon(Icons.Outlined.Check, contentDescription = "Confirm", tint = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White)
+                            Icon(
+                                imageVector = Icons.Outlined.Check,
+                                contentDescription = "Confirm",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Confirm",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
                         }
-                    }
-                }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                )
             }
-        }
+        },
+        bottomBar = {}
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -420,7 +376,7 @@ fun ScoreReviewScreen(
                     ) {
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomOut,
@@ -452,7 +408,7 @@ fun ScoreReviewScreen(
 
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomIn,
@@ -472,7 +428,7 @@ fun ScoreReviewScreen(
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
                                 enabled = editorCurrentPage > 1,
-                                modifier = Modifier.size(44.dp)
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -484,6 +440,8 @@ fun ScoreReviewScreen(
 
                             Text(
                                 text = "Page $editorCurrentPage of $editorTotalPages",
+                                maxLines = 1,
+                                softWrap = false,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = VoxTextPrimary,
                                 modifier = Modifier.padding(horizontal = 4.dp)
@@ -492,7 +450,7 @@ fun ScoreReviewScreen(
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
                                 enabled = editorCurrentPage < editorTotalPages,
-                                modifier = Modifier.size(44.dp)
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -525,6 +483,8 @@ fun ScoreReviewScreen(
                                 ) {
                                     Text(
                                         text = "Parts",
+                                        maxLines = 1,
+                                        softWrap = false,
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                         color = if (showPartsLegend) VoxPurplePrimary else VoxTextPrimary
                                     )
@@ -623,6 +583,7 @@ fun ScoreReviewScreen(
                     Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .navigationBarsPadding()
                         .background(Color.White)
                 }
             ) {
