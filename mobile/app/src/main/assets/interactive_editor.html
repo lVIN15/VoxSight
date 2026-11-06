@@ -43,11 +43,346 @@
             border: 2.5px solid #5B2D8E;
             background: rgba(91, 45, 142, 0.14);
             border-radius: 8px;
-            pointer-events: none;
-            transition: all 0.1s ease;
+            pointer-events: auto;
+            cursor: grab;
+            touch-action: none;
+            transition: border-color 0.15s ease, background 0.15s ease;
             display: none;
-            z-index: 100;
+            z-index: 150;
             box-shadow: 0 0 10px rgba(91, 45, 142, 0.35);
+        }
+
+        #selection-indicator.dragging {
+            cursor: grabbing;
+            border-color: #7C3AED;
+            background: rgba(124, 58, 237, 0.22);
+            box-shadow: 0 0 16px rgba(124, 58, 237, 0.55);
+            transition: none !important;
+        }
+
+        /* Drag Handle on Selection Ring */
+        .selection-drag-handle {
+            position: absolute;
+            right: -13px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 26px;
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: ns-resize;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.35);
+            pointer-events: auto;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .selection-drag-handle:active, #selection-indicator.dragging .selection-drag-handle {
+            background: #7C3AED;
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        /* ─── Floating Note Micro-HUD (Quick 1-Tap In-Situ Action Bar) ─── */
+        .note-micro-hud {
+            position: absolute;
+            display: none;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 5px;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1.5px solid #E0D4ED;
+            border-radius: 999px;
+            box-shadow: 0 4px 18px rgba(91, 45, 142, 0.2), 0 1px 4px rgba(0, 0, 0, 0.05);
+            z-index: 220;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            transform: translate(-50%, -100%);
+            margin-top: -8px;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+
+        .note-micro-hud.visible {
+            display: flex;
+        }
+
+        .hud-btn {
+            background: #F7F3FB;
+            border: 1px solid #E4D8F0;
+            color: #5B2D8E;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            flex-shrink: 0;
+            padding: 0;
+        }
+
+        .hud-btn:hover {
+            background: #EDE5F4;
+            color: #3E1A63;
+            transform: scale(1.08);
+        }
+
+        .hud-btn:active {
+            transform: scale(0.92);
+        }
+
+        .hud-btn-delete {
+            background: #FEE2E2;
+            border-color: #FECACA;
+            color: #DC2626;
+        }
+
+        .hud-btn-delete:hover {
+            background: #DC2626;
+            color: #FFFFFF;
+            border-color: #DC2626;
+            transform: scale(1.1);
+        }
+
+        .hud-divider {
+            width: 1px;
+            height: 16px;
+            background: #E0D4ED;
+            margin: 0 2px;
+            flex-shrink: 0;
+        }
+
+        .hud-note-badge {
+            font-size: 11px;
+            font-weight: 800;
+            color: #5B2D8E;
+            background: #EDE5F4;
+            padding: 2px 7px;
+            border-radius: 6px;
+            white-space: nowrap;
+            letter-spacing: 0.2px;
+        }
+
+        /* ─── Floating Pitch Drag Badge (Prevent Fat-Finger Occlusion) ─── */
+        .drag-pitch-badge {
+            position: fixed;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-radius: 999px;
+            box-shadow: 0 6px 24px rgba(91, 45, 142, 0.45);
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 400;
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            transition: background 0.15s ease;
+        }
+
+        .drag-pitch-badge.visible {
+            display: flex;
+        }
+
+        .drag-pitch-badge.danger {
+            background: #DC2626 !important;
+            box-shadow: 0 6px 24px rgba(220, 38, 38, 0.55) !important;
+        }
+
+        .drag-pitch-voice {
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.25);
+            padding: 1px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        /* ─── Drag-to-Trash Drop Zone (Glowing Bottom Target) ─── */
+        .trash-drop-zone {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%) translateY(24px);
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 20px;
+            background: rgba(254, 242, 242, 0.96);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 2px dashed #EF4444;
+            border-radius: 999px;
+            color: #DC2626;
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 450;
+            box-shadow: 0 4px 18px rgba(239, 68, 68, 0.2);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .trash-drop-zone.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .trash-drop-zone.active-hover {
+            background: #DC2626;
+            color: #FFFFFF;
+            border-style: solid;
+            box-shadow: 0 0 28px rgba(220, 38, 38, 0.6);
+            transform: translateX(-50%) scale(1.08);
+        }
+
+        /* ─── Floating Bottom Quick Palette Dock (Duration & Stamping) ─── */
+        .editor-palette-dock {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1.5px solid #E0D4ED;
+            border-radius: 999px;
+            box-shadow: 0 4px 20px rgba(91, 45, 142, 0.16), 0 1px 4px rgba(0, 0, 0, 0.05);
+            z-index: 350;
+            user-select: none;
+            -webkit-user-select: none;
+            max-width: calc(100vw - 16px);
+            touch-action: none;
+        }
+
+        .palette-chip {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 7px;
+            background: #F7F3FB;
+            border: 1px solid #E4D8F0;
+            border-radius: 16px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #554A66;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+            touch-action: none;
+        }
+
+        .palette-chip:hover {
+            background: #EDE5F4;
+            color: #5B2D8E;
+            transform: translateY(-1px);
+        }
+
+        .palette-chip.active {
+            background: #5B2D8E;
+            border-color: #5B2D8E;
+            color: #FFFFFF;
+            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.3);
+        }
+
+        .palette-chip:active {
+            transform: scale(0.92);
+        }
+
+        .chip-glyph {
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .chip-name {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+        }
+
+        .palette-divider {
+            width: 1px;
+            height: 16px;
+            background: #E0D4ED;
+            margin: 0 2px;
+            flex-shrink: 0;
+        }
+
+        .palette-tool-btn {
+            background: #F7F3FB;
+            color: #5B2D8E;
+            border: 1px solid #E4D8F0;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+            padding: 0;
+        }
+
+        .palette-tool-btn:hover:not(:disabled) {
+            background: #EDE5F4;
+            transform: scale(1.08);
+        }
+
+        .palette-tool-btn:active:not(:disabled) {
+            transform: scale(0.92);
+        }
+
+        .palette-tool-btn:disabled {
+            opacity: 0.38;
+            cursor: not-allowed;
+            color: #A38EC3;
+        }
+
+        /* ─── Floating Drag Ghost for Palette Drag-and-Drop Stamping ─── */
+        .palette-drag-ghost {
+            position: fixed;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #7C3AED;
+            color: #FFFFFF;
+            border-radius: 999px;
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 450;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            white-space: nowrap;
+        }
+
+        .palette-drag-ghost.visible {
+            display: flex;
         }
 
         /* Canvas overlay for selected note highlighting */
@@ -423,8 +758,80 @@
 
     <div id="score-container">
         <div id="osmd-render"></div>
-        <div id="selection-indicator"></div>
+        <div id="selection-indicator">
+            <div id="selection-drag-handle" class="selection-drag-handle" title="Drag vertically to change pitch">↕</div>
+        </div>
+        <div id="note-micro-hud" class="note-micro-hud">
+            <button id="hud-btn-delete" class="hud-btn hud-btn-delete" title="Delete Element" onclick="deleteSelectedNote()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+            </button>
+            <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">𝄽</button>
+            <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">♯</button>
+            <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">·</button>
+            <div class="hud-divider"></div>
+            <div id="hud-note-badge" class="hud-note-badge">G4</div>
+        </div>
         <canvas id="highlight-canvas"></canvas>
+    </div>
+
+    <!-- Floating Pitch Drag Badge -->
+    <div id="drag-pitch-badge" class="drag-pitch-badge">
+        <span id="drag-pitch-name">G4</span>
+        <span id="drag-pitch-voice" class="drag-pitch-voice">Tenor</span>
+    </div>
+
+    <!-- Drag-to-Trash Drop Zone -->
+    <div id="trash-drop-zone" class="trash-drop-zone">
+        <span class="trash-icon">🗑️</span>
+        <span id="trash-label" class="trash-label">Drop here to Delete</span>
+    </div>
+
+    <!-- Floating Palette Drag Ghost -->
+    <div id="palette-drag-ghost" class="palette-drag-ghost">
+        <span id="palette-ghost-glyph">𝅘</span>
+        <span id="palette-ghost-type">Quarter</span>
+    </div>
+
+    <!-- Floating Bottom Palette Dock -->
+    <div id="editor-palette-dock" class="editor-palette-dock">
+        <div class="palette-chip" data-type="whole" title="Whole Note">
+            <span class="chip-glyph">𝅝</span>
+            <span class="chip-name">Whole</span>
+        </div>
+        <div class="palette-chip" data-type="half" title="Half Note">
+            <span class="chip-glyph">𝅗</span>
+            <span class="chip-name">Half</span>
+        </div>
+        <div class="palette-chip active" data-type="quarter" title="Quarter Note">
+            <span class="chip-glyph">𝅘</span>
+            <span class="chip-name">Quarter</span>
+        </div>
+        <div class="palette-chip" data-type="eighth" title="8th Note">
+            <span class="chip-glyph">𝅙</span>
+            <span class="chip-name">8th</span>
+        </div>
+        <div class="palette-chip" data-type="rest" title="Rest">
+            <span class="chip-glyph">𝄽</span>
+            <span class="chip-name">Rest</span>
+        </div>
+        <div class="palette-divider"></div>
+        <button id="btn-undo" class="palette-tool-btn" onclick="undo()" title="Undo (Ctrl+Z)" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                <polyline points="1 4 1 10 7 10"></polyline>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+        </button>
+        <button id="btn-redo" class="palette-tool-btn" onclick="redo()" title="Redo (Ctrl+Y)" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+        </button>
     </div>
 
     <!-- Multimeasure Rest Stepper (Versatile Floating Capsule) -->
@@ -465,6 +872,7 @@
     </div>
 
     <script src="opensheetmusicdisplay.min.js"></script>
+    <script src="Tone.min.js"></script>
 
     <script>
         // ─── Globals ───────────────────────────────────────────────────────────
@@ -482,6 +890,128 @@
         let xmlDoc = null;
         let selectedNoteId = null;
         let currentTpq = 960;
+
+        // ─── Tone.js Audio Synth (Interactive Pitch Preview) ──────────────────
+        let synth = null;
+        let synthStarted = false;
+
+        function ensureAudio() {
+            if (typeof Tone === 'undefined') return;
+            if (!synthStarted) {
+                try {
+                    Tone.start();
+                    if (Tone.context) {
+                        Tone.context.lookAhead = 0.25;
+                    }
+                    var limiter = null;
+                    if (typeof Tone.Limiter === 'function') {
+                        limiter = new Tone.Limiter(-1.0).toDestination();
+                    }
+                    if (typeof Tone.PolySynth === 'function') {
+                        synth = new Tone.PolySynth(Tone.Synth, {
+                            maxPolyphony: 8,
+                            oscillator: { type: 'triangle' },
+                            envelope: { attack: 0.015, decay: 0.2, sustain: 0.25, release: 0.35 }
+                        });
+                        if (limiter) synth.connect(limiter);
+                        else synth.toDestination();
+                        if (synth.volume) synth.volume.value = -4;
+                    }
+                    synthStarted = true;
+                } catch (e) {
+                    console.warn('[VoxSight Editor] Audio init note:', e);
+                }
+            }
+            if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state !== 'running') {
+                try { Tone.context.resume(); } catch (e) {}
+            }
+        }
+
+        function playNotePreview(midiNote, durationMs) {
+            if (midiNote === undefined || midiNote === null || midiNote < 0) return;
+            ensureAudio();
+            if (!synth || typeof Tone === 'undefined') return;
+            try {
+                var freq = Tone.Frequency(midiNote, 'midi').toFrequency();
+                var dur = Math.max(0.08, (durationMs || 150) / 1000.0);
+                synth.triggerAttackRelease(freq, dur, Tone.now(), 0.85);
+            } catch (e) {
+                console.warn('[VoxSight Editor] playNotePreview notice:', e);
+            }
+        }
+
+        // ─── History Stack (Undo / Redo) ────────────────────────────────────
+        var undoStack = [];
+        var redoStack = [];
+        var MAX_UNDO = 30;
+
+        function pushUndoSnapshot() {
+            if (!xmlDoc) return;
+            try {
+                var serializer = new XMLSerializer();
+                var rawXml = serializer.serializeToString(xmlDoc);
+                var clean = sanitizeMusicXmlString(rawXml);
+                if (clean && clean.indexOf('<score-partwise') !== -1) {
+                    undoStack.push(clean);
+                    if (undoStack.length > MAX_UNDO) undoStack.shift();
+                    redoStack = [];
+                    updateUndoRedoUI();
+                }
+            } catch (e) {
+                console.warn('[VoxSight Editor] pushUndoSnapshot notice:', e);
+            }
+        }
+
+        function undo() {
+            if (undoStack.length === 0) return;
+            try {
+                var serializer = new XMLSerializer();
+                var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
+                redoStack.push(currentXml);
+                var prevXml = undoStack.pop();
+                window.isScoreEdited = true;
+                loadScore(prevXml, currentTpq, false);
+                updateUndoRedoUI();
+                updateStatus('Undid last action');
+            } catch (e) {
+                console.error('[VoxSight Editor] undo error:', e);
+            }
+        }
+
+        function redo() {
+            if (redoStack.length === 0) return;
+            try {
+                var serializer = new XMLSerializer();
+                var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
+                undoStack.push(currentXml);
+                var nextXml = redoStack.pop();
+                window.isScoreEdited = true;
+                loadScore(nextXml, currentTpq, false);
+                updateUndoRedoUI();
+                updateStatus('Redid last action');
+            } catch (e) {
+                console.error('[VoxSight Editor] redo error:', e);
+            }
+        }
+
+        function updateUndoRedoUI() {
+            var canUndo = undoStack.length > 0;
+            var canRedo = redoStack.length > 0;
+            var undoBtn = document.getElementById('btn-undo');
+            var redoBtn = document.getElementById('btn-redo');
+            if (undoBtn) undoBtn.disabled = !canUndo;
+            if (redoBtn) redoBtn.disabled = !canRedo;
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onHistoryChanged === 'function') {
+                try {
+                    window.VoxSightBridge.onHistoryChanged(canUndo, canRedo);
+                } catch (e) {}
+            }
+        }
+
+        window.undo = undo;
+        window.redo = redo;
+        window.canUndo = function() { return undoStack.length > 0; };
+        window.canRedo = function() { return redoStack.length > 0; };
 
         function calculateFitToWidthZoom() {
             var container = document.getElementById('score-container') || document.getElementById('osmd-render');
@@ -2674,6 +3204,7 @@
         })();
 
         window.adjustMultiRestCount = function (delta) {
+            pushUndoSnapshot();
             if (!selectedMultiRest || !xmlDoc) return;
             var mr = selectedMultiRest;
             var oldCount = mr.count;
@@ -2888,7 +3419,14 @@
         // ─── Direct Notehead Highlight System ────────────────────────────
         function clearHighlights() {
             var ind = document.getElementById('selection-indicator');
-            if (ind) ind.style.display = 'none';
+            if (ind) {
+                ind.style.display = 'none';
+                ind.classList.remove('dragging');
+                ind.style.transform = 'none';
+            }
+
+            var hud = document.getElementById('note-micro-hud');
+            if (hud) hud.classList.remove('visible');
 
             var oldMultiIndicators = document.querySelectorAll('.voxsight-multirest-indicator');
             for (var m = 0; m < oldMultiIndicators.length; m++) {
@@ -2960,6 +3498,35 @@
                 ind.style.width = (entry.coord.w + 10) + 'px';
                 ind.style.height = (entry.coord.h + 10) + 'px';
                 ind.style.display = 'block';
+            }
+
+            // Position and update Floating Micro-HUD right above selected element
+            var hud = document.getElementById('note-micro-hud');
+            if (hud && ind && ind.style.display !== 'none') {
+                var indLeft = parseFloat(ind.style.left) || 0;
+                var indTop = parseFloat(ind.style.top) || 0;
+                var indWidth = parseFloat(ind.style.width) || 20;
+
+                hud.style.left = (indLeft + indWidth / 2) + 'px';
+                hud.style.top = (indTop - 6) + 'px';
+                hud.classList.add('visible');
+
+                var xmlNote = getXmlNoteElement(vxId);
+                var hudBadge = document.getElementById('hud-note-badge');
+                if (hudBadge && xmlNote) {
+                    var isR = (xmlNote.getElementsByTagName('rest').length > 0);
+                    if (isR) {
+                        hudBadge.textContent = 'Rest';
+                    } else {
+                        var pEl = xmlNote.getElementsByTagName('pitch')[0];
+                        var step = pEl && pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C';
+                        var oct = pEl && pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4';
+                        var altEl = pEl ? pEl.getElementsByTagName('alter')[0] : null;
+                        var alt = altEl ? parseInt(altEl.textContent.trim(), 10) : 0;
+                        var altSign = (alt > 0) ? '♯' : ((alt < 0) ? '♭' : '');
+                        hudBadge.textContent = step + altSign + oct;
+                    }
+                }
             }
         }
 
@@ -3093,6 +3660,12 @@
 
             console.log('[VoxSight Editor] Note selected: vxId=' + vxId + ' isRest=' + isRest + ' isDotted=' + isDotted + ' pitch=' + pitchStep + alterVal + ' oct=' + octaveVal + ' dur=' + durationType + ' voice=' + voiceId + ' measure=' + measureNum + ' lyric=' + lyricText);
 
+            if (!isRest) {
+                var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+                var midiNote = (octaveVal + 1) * 12 + (stepOffsets[pitchStep] || 0) + alterVal;
+                playNotePreview(midiNote, 160);
+            }
+
             // Send to Android bridge
             if (window.VoxSightBridge) {
                 window.VoxSightBridge.onNoteSelected(
@@ -3147,6 +3720,7 @@
         }
 
         window.updateNoteLyric = function (noteId, lyricText) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteLyric: note', noteId, 'not found in XML'); return; }
 
@@ -3172,6 +3746,7 @@
         };
 
         window.updateNoteVoice = function (noteId, newVoice) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteVoice: note', noteId, 'not found in XML'); return; }
 
@@ -3207,6 +3782,7 @@
         };
 
         window.updateNotePitch = function (noteId, step, alter, octave) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNotePitch: note', noteId, 'not found in XML'); return; }
 
@@ -3243,6 +3819,7 @@
         };
 
         window.updateNoteDuration = function (noteId, typeName, isDotted) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteDuration: note', noteId, 'not found in XML'); return; }
 
@@ -3288,6 +3865,7 @@
         };
 
         window.toggleNoteDot = function (noteId, isDotted) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('toggleNoteDot: note', noteId, 'not found in XML'); return; }
 
@@ -3317,6 +3895,7 @@
         };
 
         window.convertToRest = function (noteId) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('convertToRest: note', noteId, 'not found in XML'); return; }
 
@@ -3336,6 +3915,7 @@
         };
 
         window.convertToNote = function (noteId, step, alter, octave) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('convertToNote: note', noteId, 'not found in XML'); return; }
 
@@ -3378,6 +3958,7 @@
         }
 
         window.addNote = function (targetNoteId, position, step, alter, octave, typeName, isDotted) {
+            pushUndoSnapshot();
             var targetEl = getXmlNoteElement(targetNoteId);
             if (!targetEl || !targetEl.parentNode) { console.warn('addNote: target note', targetNoteId, 'not found'); return; }
 
@@ -3459,6 +4040,7 @@
         };
 
         window.addRest = function (targetNoteId, position, typeName, isDotted) {
+            pushUndoSnapshot();
             var targetEl = getXmlNoteElement(targetNoteId);
             if (!targetEl || !targetEl.parentNode) { console.warn('addRest: target note', targetNoteId, 'not found'); return; }
 
@@ -3522,24 +4104,55 @@
             reloadScore();
         };
 
-        window.deleteNote = function (noteId) {
+        window.deleteNote = function (noteId, preserveRhythm) {
+            if (preserveRhythm === undefined) preserveRhythm = true;
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('deleteNote: note', noteId, 'not found in XML'); return; }
 
-            var isBaseNote = (noteEl.getElementsByTagName('chord').length === 0);
+            pushUndoSnapshot();
+
+            var isChord = (noteEl.getElementsByTagName('chord').length > 0);
             var nextNote = noteEl.nextElementSibling;
             while (nextNote && nextNote.tagName !== 'note') {
                 nextNote = nextNote.nextElementSibling;
             }
 
-            // If we delete the base note of a chord, the next note in the chord MUST drop its <chord/> tag
-            // so it becomes a valid standalone base note in MusicXML.
-            if (isBaseNote && nextNote && nextNote.getElementsByTagName('chord').length > 0) {
+            // If deleting base note of a chord, next note becomes base note
+            if (!isChord && nextNote && nextNote.getElementsByTagName('chord').length > 0) {
                 var chordTag = nextNote.getElementsByTagName('chord')[0];
                 if (chordTag) nextNote.removeChild(chordTag);
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+                selectedNoteId = null;
+                reloadScore();
+                return;
             }
 
-            if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+            // If non-base chord note, simply remove it
+            if (isChord) {
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+                selectedNoteId = null;
+                reloadScore();
+                return;
+            }
+
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest || !preserveRhythm) {
+                // If it was already a rest, or rhythm preservation not requested: remove element
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+            } else {
+                // Auto-balance: Turn standalone pitched note into rest of exact same duration
+                var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+                if (pitchEl) noteEl.removeChild(pitchEl);
+                var lyricEl = noteEl.getElementsByTagName('lyric')[0];
+                if (lyricEl) noteEl.removeChild(lyricEl);
+
+                var restEl = noteEl.getElementsByTagName('rest')[0];
+                if (!restEl) {
+                    restEl = xmlDoc.createElement('rest');
+                    noteEl.insertBefore(restEl, noteEl.firstChild);
+                }
+            }
+
             selectedNoteId = null;
             reloadScore();
         };
@@ -5541,7 +6154,446 @@
             return JSON.stringify(list);
         };
 
+        // ─── Floating Note Micro-HUD Controller ─────────────────────────────
+        function deleteSelectedNote() {
+            if (selectedNoteId === null) return;
+            var id = selectedNoteId;
+            deleteNote(id, true);
+            updateStatus('Element deleted');
+        }
+
+        function toggleSelectedNoteRest() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest) {
+                convertToNote(selectedNoteId, 'C', 0, 4);
+            } else {
+                convertToRest(selectedNoteId);
+            }
+        }
+
+        function cycleSelectedNoteAccidental() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest) return;
+
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            var altEl = pEl.getElementsByTagName('alter')[0];
+            var alt = altEl ? parseInt(altEl.textContent.trim(), 10) : 0;
+
+            // Cycle: Natural (0) -> Sharp (1) -> Flat (-1) -> Natural (0)
+            var nextAlt = (alt === 0) ? 1 : ((alt === 1) ? -1 : 0);
+            updateNotePitch(selectedNoteId, step, nextAlt, oct);
+        }
+
+        function toggleSelectedNoteDot() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isDotted = (noteEl.getElementsByTagName('dot').length > 0);
+            toggleNoteDot(selectedNoteId, !isDotted);
+        }
+
+        window.deleteSelectedNote = deleteSelectedNote;
+        window.toggleSelectedNoteRest = toggleSelectedNoteRest;
+        window.cycleSelectedNoteAccidental = cycleSelectedNoteAccidental;
+        window.toggleSelectedNoteDot = toggleSelectedNoteDot;
+
+        // ─── Tactile Vertical Pitch Dragging & Trash Drop Zone ────────────────
+        let isPitchDragging = false;
+        let pitchDragStartY = 0;
+        let pitchDragStartX = 0;
+        let pitchDragStartStep = 'C';
+        let pitchDragStartAlter = 0;
+        let pitchDragStartOctave = 4;
+        let pitchDragInitialDiatonicIndex = 28;
+        let pitchDragCurrentDiatonicIndex = 28;
+        let pitchDragVoiceCode = '';
+        let isOverTrash = false;
+
+        const DIATONIC_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+        const STEP_MIDI_OFFSETS = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+
+        function initPitchDragging() {
+            var ind = document.getElementById('selection-indicator');
+            if (!ind) return;
+
+            function onDragStart(e) {
+                if (selectedNoteId === null) return;
+                var noteEl = getXmlNoteElement(selectedNoteId);
+                if (!noteEl) return;
+
+                var target = e.target;
+                if (!ind.contains(target) && target !== ind) return;
+
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                isPitchDragging = true;
+                pitchDragStartX = clientX;
+                pitchDragStartY = clientY;
+                isOverTrash = false;
+
+                var pEl = noteEl.getElementsByTagName('pitch')[0];
+                var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+                if (pEl && !isRest) {
+                    pitchDragStartStep = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                    var altEl = pEl.getElementsByTagName('alter')[0];
+                    pitchDragStartAlter = altEl ? (parseInt(altEl.textContent.trim(), 10) || 0) : 0;
+                    pitchDragStartOctave = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                } else {
+                    pitchDragStartStep = 'C';
+                    pitchDragStartAlter = 0;
+                    pitchDragStartOctave = 4;
+                }
+
+                var stepIdx = DIATONIC_STEPS.indexOf(pitchDragStartStep);
+                if (stepIdx === -1) stepIdx = 0;
+                pitchDragInitialDiatonicIndex = pitchDragStartOctave * 7 + stepIdx;
+                pitchDragCurrentDiatonicIndex = pitchDragInitialDiatonicIndex;
+
+                var vOverride = noteEl.getAttribute('data-vx-voice');
+                pitchDragVoiceCode = vOverride || '';
+
+                ind.classList.add('dragging');
+
+                var badge = document.getElementById('drag-pitch-badge');
+                var trashZone = document.getElementById('trash-drop-zone');
+                if (badge) {
+                    badge.style.left = clientX + 'px';
+                    badge.style.top = (clientY - 38) + 'px';
+                    var nameEl = document.getElementById('drag-pitch-name');
+                    var voiceEl = document.getElementById('drag-pitch-voice');
+                    var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                    if (nameEl) nameEl.textContent = pitchDragStartStep + altSign + pitchDragStartOctave;
+                    if (voiceEl) {
+                        voiceEl.textContent = pitchDragVoiceCode || 'Voice';
+                        voiceEl.style.display = pitchDragVoiceCode ? 'inline-block' : 'none';
+                    }
+                    badge.classList.remove('danger');
+                    badge.classList.add('visible');
+                }
+                if (trashZone) {
+                    trashZone.classList.add('visible');
+                    trashZone.classList.remove('active-hover');
+                }
+
+                var startMidi = (pitchDragStartOctave + 1) * 12 + (STEP_MIDI_OFFSETS[pitchDragStartStep] || 0) + pitchDragStartAlter;
+                playNotePreview(startMidi, 140);
+
+                window.addEventListener('mousemove', onDragMove, { passive: false });
+                window.addEventListener('mouseup', onDragEnd);
+                window.addEventListener('touchmove', onDragMove, { passive: false });
+                window.addEventListener('touchend', onDragEnd);
+            }
+
+            function onDragMove(e) {
+                if (!isPitchDragging) return;
+                if (e.cancelable) e.preventDefault();
+
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                var dy = pitchDragStartY - clientY;
+                var stepPx = Math.max(4.0, 5.0 * (osmd ? osmd.zoom : 1.0));
+                var deltaSteps = Math.round(dy / stepPx);
+
+                var newDiatonicIndex = Math.max(14, Math.min(50, pitchDragInitialDiatonicIndex + deltaSteps));
+                var newOctave = Math.floor(newDiatonicIndex / 7);
+                var newStep = DIATONIC_STEPS[((newDiatonicIndex % 7) + 7) % 7];
+
+                var badge = document.getElementById('drag-pitch-badge');
+                var trashZone = document.getElementById('trash-drop-zone');
+
+                if (badge) {
+                    badge.style.left = clientX + 'px';
+                    badge.style.top = (clientY - 38) + 'px';
+                }
+
+                if (clientY >= window.innerHeight - 80) {
+                    isOverTrash = true;
+                    if (trashZone) trashZone.classList.add('active-hover');
+                    if (badge) {
+                        badge.classList.add('danger');
+                        var nameEl = document.getElementById('drag-pitch-name');
+                        if (nameEl) nameEl.textContent = '🗑️ Release to Delete';
+                    }
+                    ind.style.transform = 'none';
+                    return;
+                } else {
+                    isOverTrash = false;
+                    if (trashZone) trashZone.classList.remove('active-hover');
+                    if (badge) badge.classList.remove('danger');
+                }
+
+                if (newDiatonicIndex !== pitchDragCurrentDiatonicIndex) {
+                    pitchDragCurrentDiatonicIndex = newDiatonicIndex;
+                    var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                    var nameEl = document.getElementById('drag-pitch-name');
+                    if (nameEl) nameEl.textContent = newStep + altSign + newOctave;
+
+                    var newMidi = (newOctave + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + pitchDragStartAlter;
+                    playNotePreview(newMidi, 110);
+
+                    if (navigator.vibrate) {
+                        try { navigator.vibrate(8); } catch (e) {}
+                    }
+                }
+
+                ind.style.transform = 'translate3d(0, ' + (-deltaSteps * stepPx) + 'px, 0)';
+            }
+
+            function onDragEnd() {
+                if (!isPitchDragging) return;
+                isPitchDragging = false;
+                ind.classList.remove('dragging');
+                ind.style.transform = 'none';
+
+                var badge = document.getElementById('drag-pitch-badge');
+                var trashZone = document.getElementById('trash-drop-zone');
+                if (badge) badge.classList.remove('visible', 'danger');
+                if (trashZone) trashZone.classList.remove('visible', 'active-hover');
+
+                window.removeEventListener('mousemove', onDragMove);
+                window.removeEventListener('mouseup', onDragEnd);
+                window.removeEventListener('touchmove', onDragMove);
+                window.removeEventListener('touchend', onDragEnd);
+
+                if (isOverTrash) {
+                    deleteSelectedNote();
+                    return;
+                }
+
+                if (pitchDragCurrentDiatonicIndex !== pitchDragInitialDiatonicIndex && selectedNoteId !== null) {
+                    var finalOctave = Math.floor(pitchDragCurrentDiatonicIndex / 7);
+                    var finalStep = DIATONIC_STEPS[((pitchDragCurrentDiatonicIndex % 7) + 7) % 7];
+                    updateNotePitch(selectedNoteId, finalStep, pitchDragStartAlter, finalOctave);
+                    updateStatus('Pitch changed to ' + finalStep + finalOctave);
+                }
+            }
+
+            ind.addEventListener('mousedown', onDragStart);
+            ind.addEventListener('touchstart', onDragStart, { passive: true });
+        }
+
+        // ─── Floating Bottom Palette Dock (Tap-to-Set & Drag-and-Drop) ─────────
+        let activePaletteType = 'quarter';
+        let isPaletteDragging = false;
+        let paletteDragGhost = null;
+
+        function initPaletteInteractions() {
+            var dock = document.getElementById('editor-palette-dock');
+            var chips = dock ? dock.querySelectorAll('.palette-chip') : [];
+            paletteDragGhost = document.getElementById('palette-drag-ghost');
+
+            chips.forEach(function(chip) {
+                var type = chip.getAttribute('data-type');
+
+                chip.addEventListener('click', function() {
+                    chips.forEach(function(c) { c.classList.remove('active'); });
+                    chip.classList.add('active');
+                    activePaletteType = type;
+
+                    if (selectedNoteId !== null) {
+                        if (type === 'rest') {
+                            convertToRest(selectedNoteId);
+                            updateStatus('Converted to Rest');
+                        } else {
+                            var noteEl = getXmlNoteElement(selectedNoteId);
+                            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                                convertToNote(selectedNoteId, 'C', 0, 4);
+                            }
+                            updateNoteDuration(selectedNoteId, type, false);
+                            updateStatus('Duration updated to ' + type);
+                        }
+                    }
+                });
+
+                var touchStartX = 0, touchStartY = 0;
+                var hasLifted = false;
+
+                chip.addEventListener('touchstart', function(e) {
+                    if (e.touches.length !== 1) return;
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    hasLifted = false;
+                }, { passive: true });
+
+                chip.addEventListener('touchmove', function(e) {
+                    if (e.touches.length !== 1) return;
+                    var cx = e.touches[0].clientX;
+                    var cy = e.touches[0].clientY;
+                    var dist = Math.hypot(cx - touchStartX, cy - touchStartY);
+
+                    if (dist > 12 && !hasLifted) {
+                        hasLifted = true;
+                        isPaletteDragging = true;
+                        var glyph = chip.querySelector('.chip-glyph') ? chip.querySelector('.chip-glyph').textContent : '𝅘';
+                        var name = chip.querySelector('.chip-name') ? chip.querySelector('.chip-name').textContent : type;
+                        if (paletteDragGhost) {
+                            var gGlyph = document.getElementById('palette-ghost-glyph');
+                            var gType = document.getElementById('palette-ghost-type');
+                            if (gGlyph) gGlyph.textContent = glyph;
+                            if (gType) gType.textContent = name;
+                            paletteDragGhost.classList.add('visible');
+                        }
+                    }
+
+                    if (hasLifted && paletteDragGhost) {
+                        paletteDragGhost.style.left = cx + 'px';
+                        paletteDragGhost.style.top = cy + 'px';
+                    }
+                }, { passive: true });
+
+                chip.addEventListener('touchend', function(e) {
+                    if (hasLifted) {
+                        hasLifted = false;
+                        isPaletteDragging = false;
+                        if (paletteDragGhost) paletteDragGhost.classList.remove('visible');
+
+                        var changedTouch = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : null;
+                        if (changedTouch) {
+                            handlePaletteDropAt(changedTouch.clientX, changedTouch.clientY, type);
+                        }
+                    }
+                });
+            });
+        }
+
+        function handlePaletteDropAt(clientX, clientY, type) {
+            var container = document.getElementById('score-container');
+            if (!container) return;
+            var r = container.getBoundingClientRect();
+            var dropX = clientX - r.left + container.scrollLeft;
+            var dropY = clientY - r.top + container.scrollTop;
+
+            var bestDist = 55;
+            var bestId = null;
+            for (var i = 0; i < noteCoordinates.length; i++) {
+                var nc = noteCoordinates[i];
+                var d = Math.hypot(nc.cx - dropX, nc.cy - dropY);
+                if (d < bestDist) {
+                    bestDist = d;
+                    bestId = nc.id;
+                }
+            }
+
+            if (bestId !== null) {
+                if (type === 'rest') {
+                    convertToRest(bestId);
+                    selectNote(bestId);
+                    updateStatus('Stamped Rest');
+                } else {
+                    var noteEl = getXmlNoteElement(bestId);
+                    if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                        convertToNote(bestId, 'C', 0, 4);
+                    }
+                    updateNoteDuration(bestId, type, false);
+                    selectNote(bestId);
+                    updateStatus('Stamped ' + type + ' note');
+                }
+                playNotePreview(60, 150);
+            }
+        }
+
+        // ─── Keyboard Shortcuts for Power Users ────────────────────────────────
+        window.addEventListener('keydown', function(e) {
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                undo();
+                return;
+            }
+
+            if (((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||
+                ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))) {
+                e.preventDefault();
+                redo();
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                clearHighlights();
+                selectedNoteId = null;
+                return;
+            }
+
+            if (selectedNoteId !== null) {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    deleteSelectedNote();
+                    return;
+                }
+
+                if (e.key === 'r' || e.key === 'R') {
+                    e.preventDefault();
+                    toggleSelectedNoteRest();
+                    return;
+                }
+
+                if (e.key === '.') {
+                    e.preventDefault();
+                    toggleSelectedNoteDot();
+                    return;
+                }
+
+                if (e.key === '#' || e.key === '+' || e.key === '=') {
+                    e.preventDefault();
+                    cycleSelectedNoteAccidental();
+                    return;
+                }
+
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    stepSelectedNotePitch(e.shiftKey ? 7 : 1);
+                    return;
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    stepSelectedNotePitch(e.shiftKey ? -7 : -1);
+                    return;
+                }
+
+                if (e.key === '1') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'whole', false); return; }
+                if (e.key === '2') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'half', false); return; }
+                if (e.key === '4') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'quarter', false); return; }
+                if (e.key === '8') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'eighth', false); return; }
+            }
+        });
+
+        function stepSelectedNotePitch(stepDelta) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var alt = pEl.getElementsByTagName('alter')[0] ? (parseInt(pEl.getElementsByTagName('alter')[0].textContent.trim(), 10) || 0) : 0;
+            var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+
+            var sIdx = DIATONIC_STEPS.indexOf(step);
+            if (sIdx === -1) sIdx = 0;
+            var dIdx = Math.max(14, Math.min(50, oct * 7 + sIdx + stepDelta));
+            var newOct = Math.floor(dIdx / 7);
+            var newStep = DIATONIC_STEPS[((dIdx % 7) + 7) % 7];
+
+            updateNotePitch(selectedNoteId, newStep, alt, newOct);
+            var midi = (newOct + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + alt;
+            playNotePreview(midi, 120);
+        }
+
         initOSMD();
+        initPitchDragging();
+        initPaletteInteractions();
 
         var urlParams = new URLSearchParams(window.location.search);
         var targetFile = urlParams.get('score') || urlParams.get('file');

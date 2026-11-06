@@ -18,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
@@ -99,6 +101,8 @@ fun ScoreReviewScreen(
     var zoomOffsetY by remember { mutableStateOf(0f) }
     var editorCurrentPage by remember { mutableIntStateOf(1) }
     var editorTotalPages by remember { mutableIntStateOf(1) }
+    var canUndo by remember { mutableStateOf(false) }
+    var canRedo by remember { mutableStateOf(false) }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -125,6 +129,13 @@ fun ScoreReviewScreen(
 
     // JS Bridge class to capture note/rest clicks
     class EditorJsBridge {
+        @JavascriptInterface
+        fun onHistoryChanged(canUndoVal: Boolean, canRedoVal: Boolean) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                canUndo = canUndoVal
+                canRedo = canRedoVal
+            }
+        }
         @JavascriptInterface
         fun onPageChanged(currentPage: Int, totalPages: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
@@ -195,6 +206,26 @@ fun ScoreReviewScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("undo();", null) },
+                            enabled = canUndo
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.Undo,
+                                contentDescription = "Undo",
+                                tint = if (canUndo) VoxPurplePrimary else Color.LightGray
+                            )
+                        }
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("redo();", null) },
+                            enabled = canRedo
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.Redo,
+                                contentDescription = "Redo",
+                                tint = if (canRedo) VoxPurplePrimary else Color.LightGray
+                            )
+                        }
                         IconButton(onClick = { showMetadataDialog = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
