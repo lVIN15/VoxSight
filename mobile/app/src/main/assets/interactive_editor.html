@@ -266,74 +266,312 @@
             transform: translateX(-50%) scale(1.08);
         }
 
-        /* ─── Floating Bottom Quick Palette Dock (Duration & Stamping) ─── */
-        .editor-palette-dock {
+        /* ─── Sleek Floating Edge Tab (Docked on Left Side) ─── */
+        #side-toolbox-tab {
             position: fixed;
-            bottom: max(12px, env(safe-area-inset-bottom, 12px));
-            left: 50%;
-            transform: translateX(-50%);
+            left: 0;
+            top: 42%;
+            transform: translateY(-50%);
             display: flex;
             align-items: center;
             gap: 4px;
-            padding: 3px 6px;
-            background: #FFFFFF;
-            border: 1.5px solid #D8CCE6;
-            border-radius: 999px;
-            box-shadow: 0 2px 10px rgba(91, 45, 142, 0.14);
-            z-index: 350;
+            padding: 8px 8px 8px 5px;
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-radius: 0 16px 16px 0;
+            box-shadow: 2px 3px 12px rgba(91, 45, 142, 0.32);
+            cursor: pointer;
+            z-index: 380;
             user-select: none;
             -webkit-user-select: none;
-            max-width: calc(100vw - 12px);
-            box-sizing: border-box;
-            touch-action: none;
-            white-space: nowrap;
+            touch-action: manipulation;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease;
+        }
+
+        #side-toolbox-tab:hover {
+            background: #7C3AED;
+            transform: translateY(-50%) scale(1.05);
+        }
+
+        #side-toolbox-tab:active {
+            transform: translateY(-50%) scale(0.95);
+        }
+
+        .tab-icon {
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .tab-label {
+            font-size: 9.5px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+        }
+
+        .tab-arrow {
+            font-size: 9px;
+            font-weight: 800;
+            opacity: 0.8;
+            margin-left: -1px;
+        }
+
+        /* ─── Backdrop Tint Overlay ─── */
+        .side-toolbox-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 7, 28, 0.35);
+            z-index: 550;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.22s ease;
+        }
+
+        .side-toolbox-backdrop.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* ─── Side Music Toolbox Drawer ("where everything is there") ─── */
+        .side-toolbox-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 225px;
+            max-width: 82vw;
+            background: #FFFFFF;
+            border-right: 1.5px solid #E4D8F0;
+            box-shadow: 4px 0 24px rgba(91, 45, 142, 0.18);
+            z-index: 600;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(-100%);
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .side-toolbox-panel.open {
+            transform: translateX(0);
+        }
+
+        .toolbox-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-bottom: 1px solid #EDE5F4;
+            background: #F9F6FC;
+        }
+
+        .toolbox-header-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 800;
+            color: #5B2D8E;
+        }
+
+        .toolbox-close-btn {
+            background: #EDE5F4;
+            color: #5B2D8E;
+            border: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .toolbox-close-btn:hover {
+            background: #E0D4ED;
+            color: #3E1A63;
+        }
+
+        .toolbox-body {
+            padding: 10px 12px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .toolbox-section {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .toolbox-section-label {
+            font-size: 10px;
+            font-weight: 800;
+            color: #8A7A9E;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .toolbox-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
         }
 
         .palette-chip {
             display: flex;
             align-items: center;
-            gap: 3px;
-            padding: 4px 6px;
+            gap: 4px;
+            padding: 6px 8px;
             background: #F7F3FB;
             border: 1px solid #E4D8F0;
-            border-radius: 14px;
+            border-radius: 10px;
             font-size: 11px;
             font-weight: 700;
             color: #554A66;
             cursor: pointer;
             transition: all 0.15s ease;
-            flex-shrink: 0;
             touch-action: none;
         }
 
-        /* ─── Low-End & Narrow Screen Responsive Optimizations ─── */
+        .palette-chip:hover {
+            background: #EDE5F4;
+            color: #5B2D8E;
+            border-color: #5B2D8E;
+            transform: translateY(-1px);
+        }
+
+        .palette-chip.active {
+            background: #5B2D8E;
+            border-color: #5B2D8E;
+            color: #FFFFFF;
+            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.3);
+        }
+
+        .palette-chip:active {
+            transform: scale(0.94);
+        }
+
+        .chip-glyph {
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .chip-name {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+        }
+
+        .toolbox-action-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 9px;
+            background: #F7F3FB;
+            border: 1px solid #E4D8F0;
+            border-radius: 10px;
+            color: #3E1A63;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-align: left;
+        }
+
+        .toolbox-action-btn:hover {
+            background: #EDE5F4;
+            border-color: #5B2D8E;
+            transform: translateY(-1px);
+        }
+
+        .toolbox-action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .tool-icon {
+            font-size: 15px;
+            line-height: 1;
+            color: #5B2D8E;
+            font-weight: 800;
+        }
+
+        .toolbox-voice-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+        }
+
+        .toolbox-voice-chip {
+            padding: 6px 0;
+            text-align: center;
+            background: #F7F3FB;
+            border: 1px solid #E4D8F0;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 800;
+            color: #5B2D8E;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .toolbox-voice-chip:hover {
+            background: #5B2D8E;
+            color: #FFFFFF;
+        }
+
+        .toolbox-actions-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .toolbox-wide-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 7px 6px;
+            background: #F7F3FB;
+            border: 1px solid #E4D8F0;
+            border-radius: 10px;
+            color: #5B2D8E;
+            font-size: 10.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .toolbox-wide-btn:hover {
+            background: #EDE5F4;
+        }
+
+        .toolbox-delete-btn {
+            background: #FEE2E2;
+            border-color: #FECACA;
+            color: #DC2626;
+        }
+
+        .toolbox-delete-btn:hover {
+            background: #DC2626;
+            color: #FFFFFF;
+        }
+
+        /* ─── Low-End Mobile Responsiveness ─── */
         @media (max-width: 480px) {
-            .editor-palette-dock {
-                bottom: max(8px, env(safe-area-inset-bottom, 8px));
-                gap: 3px;
-                padding: 2px 5px;
-                max-width: calc(100vw - 10px);
-            }
-
-            .palette-chip {
-                padding: 3px 5px;
-                gap: 2px;
-                border-radius: 12px;
-            }
-
-            .chip-glyph {
-                font-size: 13px;
-            }
-
-            .chip-name {
-                font-size: 9.5px;
-            }
-
-            /* On mobile screens, hide redundant Undo / Redo in bottom dock (they exist in TopAppBar) */
-            .palette-divider, #btn-undo, #btn-redo {
-                display: none !important;
-            }
-
             .note-micro-hud {
                 gap: 2px;
                 padding: 2px 4px;
@@ -350,97 +588,7 @@
                 padding: 1px 5px;
             }
         }
-
-        @media (max-width: 360px) {
-            .editor-palette-dock {
-                padding: 2px 4px;
-                gap: 2px;
-                max-width: calc(100vw - 6px);
-            }
-
-            .palette-chip {
-                padding: 2px 4px;
-                gap: 1.5px;
-            }
-
-            .chip-glyph {
-                font-size: 12px;
-            }
-
-            .chip-name {
-                font-size: 8.5px;
-                letter-spacing: 0;
-            }
-        }
-
-        .palette-chip:hover {
-            background: #EDE5F4;
-            color: #5B2D8E;
-            transform: translateY(-1px);
-        }
-
-        .palette-chip.active {
-            background: #5B2D8E;
-            border-color: #5B2D8E;
-            color: #FFFFFF;
-            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.3);
-        }
-
-        .palette-chip:active {
-            transform: scale(0.92);
-        }
-
-        .chip-glyph {
-            font-size: 14px;
-            line-height: 1;
-        }
-
-        .chip-name {
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.2px;
-        }
-
-        .palette-divider {
-            width: 1px;
-            height: 16px;
-            background: #E0D4ED;
-            margin: 0 2px;
-            flex-shrink: 0;
-        }
-
-        .palette-tool-btn {
-            background: #F7F3FB;
-            color: #5B2D8E;
-            border: 1px solid #E4D8F0;
-            width: 26px;
-            height: 26px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            outline: none;
-            transition: all 0.15s ease;
-            flex-shrink: 0;
-            padding: 0;
-        }
-
-        .palette-tool-btn:hover:not(:disabled) {
-            background: #EDE5F4;
-            transform: scale(1.08);
-        }
-
-        .palette-tool-btn:active:not(:disabled) {
-            transform: scale(0.92);
-        }
-
-        .palette-tool-btn:disabled {
-            opacity: 0.38;
-            cursor: not-allowed;
-            color: #A38EC3;
-        }
-
+        
         /* ─── Floating Drag Ghost for Palette Drag-and-Drop Stamping ─── */
         .palette-drag-ghost {
             position: fixed;
@@ -865,41 +1013,115 @@
         <span id="palette-ghost-type">Quarter</span>
     </div>
 
-    <!-- Floating Bottom Palette Dock -->
-    <div id="editor-palette-dock" class="editor-palette-dock">
-        <div class="palette-chip" data-type="whole" title="Whole Note">
-            <span class="chip-glyph">𝅝</span>
-            <span class="chip-name">Whole</span>
+    <!-- Sleek Floating Edge Tab (Docked on Left Side) -->
+    <div id="side-toolbox-tab" onclick="toggleSideToolbox()" title="Open Music Toolbox">
+        <span class="tab-icon">🛠️</span>
+        <span class="tab-label">Tools</span>
+        <span class="tab-arrow">❯</span>
+    </div>
+
+    <!-- Dark Dim Backdrop Overlay -->
+    <div id="side-toolbox-backdrop" class="side-toolbox-backdrop" onclick="closeSideToolbox()"></div>
+
+    <!-- Side Music Toolbox Drawer ("where everything is there") -->
+    <div id="side-toolbox-panel" class="side-toolbox-panel">
+        <div class="toolbox-header">
+            <div class="toolbox-header-title">
+                <span class="header-icon">🎵</span>
+                <span>Music Tools</span>
+            </div>
+            <button class="toolbox-close-btn" onclick="closeSideToolbox()" title="Close Drawer">✕</button>
         </div>
-        <div class="palette-chip" data-type="half" title="Half Note">
-            <span class="chip-glyph">𝅗</span>
-            <span class="chip-name">Half</span>
+
+        <div class="toolbox-body">
+            <!-- Section 1: Note Values & Rests -->
+            <div class="toolbox-section">
+                <div class="toolbox-section-label">Notes & Rests</div>
+                <div class="toolbox-grid">
+                    <div class="palette-chip" data-type="whole" title="Whole Note (1)">
+                        <span class="chip-glyph">𝅝</span>
+                        <span class="chip-name">Whole</span>
+                    </div>
+                    <div class="palette-chip" data-type="half" title="Half Note (1/2)">
+                        <span class="chip-glyph">𝅗</span>
+                        <span class="chip-name">Half</span>
+                    </div>
+                    <div class="palette-chip active" data-type="quarter" title="Quarter Note (1/4)">
+                        <span class="chip-glyph">𝅘</span>
+                        <span class="chip-name">Quarter</span>
+                    </div>
+                    <div class="palette-chip" data-type="eighth" title="8th Note (1/8)">
+                        <span class="chip-glyph">𝅙</span>
+                        <span class="chip-name">8th</span>
+                    </div>
+                    <div class="palette-chip" data-type="16th" title="16th Note (1/16)">
+                        <span class="chip-glyph">𝅚</span>
+                        <span class="chip-name">16th</span>
+                    </div>
+                    <div class="palette-chip" data-type="rest" title="Rest">
+                        <span class="chip-glyph">𝄽</span>
+                        <span class="chip-name">Rest</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Curves & Phrasing ("the curve thingy") -->
+            <div class="toolbox-section">
+                <div class="toolbox-section-label">Curves & Phrasing</div>
+                <div class="toolbox-grid">
+                    <button id="tool-btn-slur" class="toolbox-action-btn" onclick="applySlurTool()" title="Add / Remove Slur Curve">
+                        <span class="tool-icon">⁀</span>
+                        <span class="tool-label">Slur Curve</span>
+                    </button>
+                    <button id="tool-btn-tie" class="toolbox-action-btn" onclick="applyTieTool()" title="Add / Remove Tie Curve">
+                        <span class="tool-icon">𝆢</span>
+                        <span class="tool-label">Tie Curve</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section 3: Accidentals & Modifiers -->
+            <div class="toolbox-section">
+                <div class="toolbox-section-label">Accidentals & Dots</div>
+                <div class="toolbox-grid">
+                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">
+                        <span class="tool-icon">♯</span>
+                        <span class="tool-label">Sharp</span>
+                    </button>
+                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">
+                        <span class="tool-icon">♭</span>
+                        <span class="tool-label">Flat</span>
+                    </button>
+                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">
+                        <span class="tool-icon">♮</span>
+                        <span class="tool-label">Natural</span>
+                    </button>
+                    <button class="toolbox-action-btn" onclick="applyDotTool()" title="Toggle Dotted Note">
+                        <span class="tool-icon">·</span>
+                        <span class="tool-label">Dot</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section 4: Voice & Details -->
+            <div class="toolbox-section">
+                <div class="toolbox-section-label">Voice & Details</div>
+                <div class="toolbox-voice-row">
+                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                </div>
+                <div class="toolbox-actions-row">
+                    <button class="toolbox-wide-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">
+                        <span>✏️ Lyrics</span>
+                    </button>
+                    <button class="toolbox-wide-btn toolbox-delete-btn" onclick="deleteSelectedNote()" title="Delete Element">
+                        <span>🗑️ Delete</span>
+                    </button>
+                </div>
+            </div>
         </div>
-        <div class="palette-chip active" data-type="quarter" title="Quarter Note">
-            <span class="chip-glyph">𝅘</span>
-            <span class="chip-name">Quarter</span>
-        </div>
-        <div class="palette-chip" data-type="eighth" title="8th Note">
-            <span class="chip-glyph">𝅙</span>
-            <span class="chip-name">8th</span>
-        </div>
-        <div class="palette-chip" data-type="rest" title="Rest">
-            <span class="chip-glyph">𝄽</span>
-            <span class="chip-name">Rest</span>
-        </div>
-        <div class="palette-divider"></div>
-        <button id="btn-undo" class="palette-tool-btn" onclick="undo()" title="Undo (Ctrl+Z)" disabled>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
-                <polyline points="1 4 1 10 7 10"></polyline>
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-            </svg>
-        </button>
-        <button id="btn-redo" class="palette-tool-btn" onclick="redo()" title="Redo (Ctrl+Y)" disabled>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-            </svg>
-        </button>
     </div>
 
     <!-- Multimeasure Rest Stepper (Versatile Floating Capsule) -->
@@ -3466,7 +3688,7 @@
                     // Ignore clicks on micro-HUD, palette dock, or floating stepper
                     if (targetEl && targetEl.closest && (
                         targetEl.closest('#note-micro-hud') ||
-                        targetEl.closest('#editor-palette-dock') ||
+                        targetEl.closest('#side-toolbox-panel') || targetEl.closest('#side-toolbox-tab') || targetEl.closest('#side-toolbox-backdrop') ||
                         targetEl.closest('#multirest-stepper-panel') ||
                         targetEl.closest('#zoom-controls') ||
                         targetEl.closest('#palette-drag-ghost')
@@ -6508,7 +6730,7 @@
                 var target = e.target;
                 if (target && target.closest && (
                     target.closest('#note-micro-hud') ||
-                    target.closest('#editor-palette-dock') ||
+                    target.closest('#side-toolbox-panel') || target.closest('#side-toolbox-tab') || target.closest('#side-toolbox-backdrop') ||
                     target.closest('#multirest-stepper-panel') ||
                     target.closest('#zoom-controls') ||
                     target.closest('#palette-drag-ghost')
@@ -6585,9 +6807,243 @@
         let isPaletteDragging = false;
         let paletteDragGhost = null;
 
+                // ─── Side Toolbox Drawer Controller ─────────────────────────────
+        function openSideToolbox() {
+            var panel = document.getElementById('side-toolbox-panel');
+            var backdrop = document.getElementById('side-toolbox-backdrop');
+            var tab = document.getElementById('side-toolbox-tab');
+            if (panel) panel.classList.add('open');
+            if (backdrop) backdrop.classList.add('visible');
+            if (tab) tab.style.display = 'none';
+        }
+        window.openSideToolbox = openSideToolbox;
+
+        function closeSideToolbox() {
+            var panel = document.getElementById('side-toolbox-panel');
+            var backdrop = document.getElementById('side-toolbox-backdrop');
+            var tab = document.getElementById('side-toolbox-tab');
+            if (panel) panel.classList.remove('open');
+            if (backdrop) backdrop.classList.remove('visible');
+            if (tab) tab.style.display = 'flex';
+        }
+        window.closeSideToolbox = closeSideToolbox;
+
+        function toggleSideToolbox() {
+            var panel = document.getElementById('side-toolbox-panel');
+            if (panel && panel.classList.contains('open')) {
+                closeSideToolbox();
+            } else {
+                openSideToolbox();
+            }
+        }
+        window.toggleSideToolbox = toggleSideToolbox;
+
+        // ─── "The Curve Thingy" (Slurs and Ties) ────────────────────────
+        function findNextPitchedNote(noteEl) {
+            if (!noteEl) return null;
+            var vEl = noteEl.getElementsByTagName('voice')[0];
+            var voiceNum = vEl ? vEl.textContent.trim() : '1';
+
+            var cur = noteEl.nextElementSibling;
+            while (cur) {
+                if (cur.tagName === 'note') {
+                    var isR = (cur.getElementsByTagName('rest').length > 0);
+                    var cv = cur.getElementsByTagName('voice')[0] ? cur.getElementsByTagName('voice')[0].textContent.trim() : '1';
+                    if (!isR && cv === voiceNum && cur.getElementsByTagName('pitch').length > 0) {
+                        return cur;
+                    }
+                }
+                cur = cur.nextElementSibling;
+            }
+
+            var meas = noteEl.parentNode;
+            while (meas && meas.tagName !== 'measure') meas = meas.parentNode;
+            if (meas) {
+                var nextM = meas.nextElementSibling;
+                while (nextM && nextM.tagName === 'measure') {
+                    var notes = nextM.getElementsByTagName('note');
+                    for (var i = 0; i < notes.length; i++) {
+                        var n = notes[i];
+                        var isR2 = (n.getElementsByTagName('rest').length > 0);
+                        var nv = n.getElementsByTagName('voice')[0] ? n.getElementsByTagName('voice')[0].textContent.trim() : '1';
+                        if (!isR2 && nv === voiceNum && n.getElementsByTagName('pitch').length > 0) {
+                            return n;
+                        }
+                    }
+                    nextM = nextM.nextElementSibling;
+                }
+            }
+            return null;
+        }
+        window.findNextPitchedNote = findNextPitchedNote;
+
+        function toggleSlur(noteId) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            if (!notatEl) {
+                notatEl = xmlDoc.createElement('notations');
+                noteEl.appendChild(notatEl);
+            }
+
+            var existingSlur = notatEl.getElementsByTagName('slur')[0];
+            if (existingSlur) {
+                var sNum = existingSlur.getAttribute('number') || '1';
+                notatEl.removeChild(existingSlur);
+
+                var parentMeas = noteEl.parentNode;
+                while (parentMeas && parentMeas.tagName !== 'measure') parentMeas = parentMeas.parentNode;
+                if (parentMeas) {
+                    var matches = parentMeas.querySelectorAll('slur[number="' + sNum + '"]');
+                    matches.forEach(function(s) {
+                        if (s.parentNode) s.parentNode.removeChild(s);
+                    });
+                }
+                updateStatus('Slur curve removed');
+            } else {
+                var slurStart = xmlDoc.createElement('slur');
+                slurStart.setAttribute('type', 'start');
+                slurStart.setAttribute('number', '1');
+                slurStart.setAttribute('placement', 'above');
+                notatEl.appendChild(slurStart);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nextNotat = nextNote.getElementsByTagName('notations')[0];
+                    if (!nextNotat) {
+                        nextNotat = xmlDoc.createElement('notations');
+                        nextNote.appendChild(nextNotat);
+                    }
+                    var slurStop = xmlDoc.createElement('slur');
+                    slurStop.setAttribute('type', 'stop');
+                    slurStop.setAttribute('number', '1');
+                    nextNotat.appendChild(slurStop);
+                }
+                updateStatus('Slur curve added');
+            }
+
+            renderCurrentPage();
+            selectNote(noteId);
+        }
+        window.toggleSlur = toggleSlur;
+
+        function toggleTie(noteId) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            var existingTie = noteEl.getElementsByTagName('tie')[0];
+            var existingTied = notatEl ? notatEl.getElementsByTagName('tied')[0] : null;
+
+            if (existingTie || existingTied) {
+                if (existingTie && existingTie.parentNode) existingTie.parentNode.removeChild(existingTie);
+                if (existingTied && existingTied.parentNode) existingTied.parentNode.removeChild(existingTied);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nTie = nextNote.getElementsByTagName('tie')[0];
+                    var nNotat = nextNote.getElementsByTagName('notations')[0];
+                    var nTied = nNotat ? nNotat.getElementsByTagName('tied')[0] : null;
+                    if (nTie && nTie.parentNode) nTie.parentNode.removeChild(nTie);
+                    if (nTied && nTied.parentNode) nTied.parentNode.removeChild(nTied);
+                }
+                updateStatus('Tie curve removed');
+            } else {
+                var tieEl = xmlDoc.createElement('tie');
+                tieEl.setAttribute('type', 'start');
+                noteEl.appendChild(tieEl);
+
+                if (!notatEl) {
+                    notatEl = xmlDoc.createElement('notations');
+                    noteEl.appendChild(notatEl);
+                }
+                var tiedEl = xmlDoc.createElement('tied');
+                tiedEl.setAttribute('type', 'start');
+                notatEl.appendChild(tiedEl);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nTie2 = xmlDoc.createElement('tie');
+                    nTie2.setAttribute('type', 'stop');
+                    nextNote.appendChild(nTie2);
+
+                    var nNotat2 = nextNote.getElementsByTagName('notations')[0];
+                    if (!nNotat2) {
+                        nNotat2 = xmlDoc.createElement('notations');
+                        nextNote.appendChild(nNotat2);
+                    }
+                    var nTied2 = xmlDoc.createElement('tied');
+                    nTied2.setAttribute('type', 'stop');
+                    nNotat2.appendChild(nTied2);
+                }
+                updateStatus('Tie curve added');
+            }
+
+            renderCurrentPage();
+            selectNote(noteId);
+        }
+        window.toggleTie = toggleTie;
+
+        function applySlurTool() {
+            if (selectedNoteId !== null) {
+                toggleSlur(selectedNoteId);
+            } else {
+                updateStatus('Select a note first to add a Slur curve');
+            }
+        }
+        window.applySlurTool = applySlurTool;
+
+        function applyTieTool() {
+            if (selectedNoteId !== null) {
+                toggleTie(selectedNoteId);
+            } else {
+                updateStatus('Select a note first to add a Tie curve');
+            }
+        }
+        window.applyTieTool = applyTieTool;
+
+        function applyAccidentalTool(altVal) {
+            if (selectedNoteId !== null) {
+                var noteEl = getXmlNoteElement(selectedNoteId);
+                if (!noteEl) return;
+                var pEl = noteEl.getElementsByTagName('pitch')[0];
+                if (pEl) {
+                    var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                    var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                    updateNotePitch(selectedNoteId, step, altVal, oct);
+                    var sign = altVal === 1 ? '♯' : (altVal === -1 ? '♭' : '♮');
+                    updateStatus('Applied ' + sign + ' to ' + step + oct);
+                }
+            } else {
+                updateStatus('Select a note first to apply accidental');
+            }
+        }
+        window.applyAccidentalTool = applyAccidentalTool;
+
+        function applyDotTool() {
+            if (selectedNoteId !== null) {
+                toggleSelectedNoteDot();
+            } else {
+                updateStatus('Select a note first to toggle dot');
+            }
+        }
+        window.applyDotTool = applyDotTool;
+
+        function applyVoiceTool(voiceCode) {
+            if (selectedNoteId !== null) {
+                updateNoteVoice(selectedNoteId, voiceCode);
+                updateStatus('Voice set to ' + voiceCode);
+            } else {
+                updateStatus('Select a note first to assign voice');
+            }
+        }
+        window.applyVoiceTool = applyVoiceTool;
+
         function initPaletteInteractions() {
-            var dock = document.getElementById('editor-palette-dock');
-            var chips = dock ? dock.querySelectorAll('.palette-chip') : [];
+            var chips = document.querySelectorAll('.palette-chip');
             paletteDragGhost = document.getElementById('palette-drag-ghost');
 
             chips.forEach(function(chip) {

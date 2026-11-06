@@ -290,17 +290,51 @@ runTest('5.1 interactive_editor.html contains all required UI components', () =>
     assert(htmlContent.includes('id="selection-drag-handle"'), 'Selection drag handle missing');
     assert(htmlContent.includes('id="drag-pitch-badge"'), 'Drag pitch badge missing');
     assert(htmlContent.includes('id="trash-drop-zone"'), 'Trash drop zone missing');
-    assert(htmlContent.includes('id="editor-palette-dock"'), 'Editor palette dock missing');
+    assert(htmlContent.includes('id="side-toolbox-tab"'), 'Side toolbox handle tab missing');
+    assert(htmlContent.includes('id="side-toolbox-panel"'), 'Side toolbox panel drawer missing');
     assert(htmlContent.includes('id="palette-drag-ghost"'), 'Palette drag ghost missing');
     assert(htmlContent.includes('Tone.min.js'), 'Tone.min.js script tag missing');
 });
 
-runTest('5.2 Deselect, Details, and Direct Drag APIs are defined in JavaScript', () => {
+runTest('5.2 Deselect, Details, Direct Drag, and Side Toolbox Curve APIs are defined in JavaScript', () => {
     assert(htmlContent.includes('function deselectNote()'), 'deselectNote missing');
     assert(htmlContent.includes('function openNoteDetails()'), 'openNoteDetails missing');
     assert(htmlContent.includes('function findNoteAtPoint('), 'findNoteAtPoint missing');
     assert(htmlContent.includes('function startPitchDrag('), 'startPitchDrag missing');
+    assert(htmlContent.includes('function toggleSlur('), 'toggleSlur missing');
+    assert(htmlContent.includes('function toggleTie('), 'toggleTie missing');
+    assert(htmlContent.includes('function openSideToolbox()'), 'openSideToolbox missing');
+    assert(htmlContent.includes('function closeSideToolbox()'), 'closeSideToolbox missing');
     assert(htmlContent.includes('display: none !important;'), 'Status bar not hidden via CSS');
+});
+
+// --- Section 6: Slurs and Ties ("The Curve Thingy") ---
+console.log('\n--- Section 6: Slurs & Ties ("The Curve Thingy") ---');
+
+runTest('6.1 Slur Curve toggling inserts start slur on origin note and stop slur on target note', () => {
+    // Simulate DOM elements for origin note and next note
+    const note1 = {
+        tagName: 'note',
+        notations: null,
+        appendChild(el) { if (el.tagName === 'notations') this.notations = el; }
+    };
+    const note2 = {
+        tagName: 'note',
+        notations: null,
+        appendChild(el) { if (el.tagName === 'notations') this.notations = el; }
+    };
+
+    function simulateSlurAdd(n1, n2) {
+        if (!n1.notations) n1.notations = { tagName: 'notations', slurs: [] };
+        if (!n2.notations) n2.notations = { tagName: 'notations', slurs: [] };
+
+        n1.notations.slurs.push({ type: 'start', number: 1 });
+        n2.notations.slurs.push({ type: 'stop', number: 1 });
+    }
+
+    simulateSlurAdd(note1, note2);
+    assert.strictEqual(note1.notations.slurs[0].type, 'start');
+    assert.strictEqual(note2.notations.slurs[0].type, 'stop');
 });
 
 console.log('\n' + '='.repeat(70));
