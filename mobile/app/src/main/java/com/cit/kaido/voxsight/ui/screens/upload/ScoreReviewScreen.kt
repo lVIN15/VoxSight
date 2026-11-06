@@ -27,6 +27,8 @@ import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -95,6 +97,8 @@ fun ScoreReviewScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var zoomOffsetX by remember { mutableStateOf(0f) }
     var zoomOffsetY by remember { mutableStateOf(0f) }
+    var editorCurrentPage by remember { mutableIntStateOf(1) }
+    var editorTotalPages by remember { mutableIntStateOf(1) }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -121,6 +125,13 @@ fun ScoreReviewScreen(
 
     // JS Bridge class to capture note/rest clicks
     class EditorJsBridge {
+        @JavascriptInterface
+        fun onPageChanged(currentPage: Int, totalPages: Int) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                editorCurrentPage = currentPage
+                editorTotalPages = totalPages
+            }
+        }
         @JavascriptInterface
         fun onNoteSelected(
             id: Int,
@@ -227,13 +238,17 @@ fun ScoreReviewScreen(
                                 // Extract modified XML from WebView and confirm
                                 webViewInstance?.let { webView ->
                                     webView.evaluateJavascript("getModifiedXml();") { result ->
-                                        if (result != null && result != "null" && result.isNotEmpty()) {
+                                        if (result != null && result != "null" && result.isNotEmpty() && result != "\"\"") {
                                             val rawXml = try {
                                                 Gson().fromJson(result, String::class.java)
                                             } catch (e: Exception) {
                                                 result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
                                             }
-                                            onConfirm(rawXml)
+                                            if (!rawXml.isNullOrBlank()) {
+                                                onConfirm(rawXml)
+                                            } else {
+                                                onConfirm(musicXml)
+                                            }
                                         } else {
                                             onConfirm(musicXml)
                                         }
@@ -392,11 +407,13 @@ fun ScoreReviewScreen(
                         .weight(1f)
                         .padding(horizontal = 16.dp)
                         .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White)
                 }
             ) {
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            setBackgroundColor(android.graphics.Color.WHITE)
                             val activityManager = ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
                             val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
                             if (isLowEnd) {
@@ -408,9 +425,11 @@ fun ScoreReviewScreen(
                             settings.domStorageEnabled = true
                             settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                             settings.allowFileAccess = true
-                            settings.setSupportZoom(true)
-                            settings.builtInZoomControls = true
+                            settings.setSupportZoom(false)
+                            settings.builtInZoomControls = false
                             settings.displayZoomControls = false
+                            settings.useWideViewPort = false
+                            settings.loadWithOverviewMode = false
                             webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -451,71 +470,127 @@ fun ScoreReviewScreen(
                     }
                 }
 
-                // Floating Movable Zoom In / Out / Fit Pill (Draggable anywhere on screen)
-                Surface(
+                // Floating Controls (Zooming feature centered directly above Next/Prev Page buttons)
+                Column(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
+                        .align(Alignment.BottomCenter)
                         .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(end = if (isFullscreen) 16.dp else 12.dp, bottom = if (isFullscreen) 80.dp else 74.dp)
-                        .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
-                        .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                zoomOffsetX += dragAmount.x
-                                zoomOffsetY += dragAmount.y
-                            }
-                        },
-                    color = Color.White.copy(alpha = 0.95f),
-                    shadowElevation = 6.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                        .padding(bottom = if (isFullscreen) 14.dp else 52.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    // Floating Zoom Controls Pill (Positioned in middle above page buttons, draggable if moved)
+                    Surface(
+                        modifier = Modifier
+                            .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
+                            .pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    zoomOffsetX += dragAmount.x
+                                    zoomOffsetY += dragAmount.y
+                                }
+                            },
+                        color = Color.White.copy(alpha = 0.95f),
+                        shadowElevation = 6.dp,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.DragHandle,
-                            contentDescription = "Drag to move",
-                            tint = VoxPurplePrimary.copy(alpha = 0.45f),
-                            modifier = Modifier
-                                .size(18.dp)
-                                .padding(end = 2.dp)
-                        )
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                            modifier = Modifier.size(36.dp)
+                        Row(
+                            modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ZoomOut,
-                                contentDescription = "Zoom Out",
-                                tint = VoxPurplePrimary,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Default.DragHandle,
+                                contentDescription = "Drag to move",
+                                tint = VoxPurplePrimary.copy(alpha = 0.45f),
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(end = 2.dp)
                             )
-                        }
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ZoomOut,
+                                    contentDescription = "Zoom Out",
+                                    tint = VoxPurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
 
-                        TextButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Text(
-                                text = "FIT",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = VoxPurplePrimary
-                            )
-                        }
+                            TextButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = "FIT",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = VoxPurplePrimary
+                                )
+                            }
 
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                            modifier = Modifier.size(36.dp)
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ZoomIn,
+                                    contentDescription = "Zoom In",
+                                    tint = VoxPurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Floating Page Navigation Pill (Visible for multi-page scores)
+                    if (editorTotalPages > 1) {
+                        Surface(
+                            color = Color.White.copy(alpha = 0.95f),
+                            shadowElevation = 6.dp,
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ZoomIn,
-                                contentDescription = "Zoom In",
-                                tint = VoxPurplePrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
+                                    enabled = editorCurrentPage > 1,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "Previous Page",
+                                        tint = if (editorCurrentPage > 1) VoxPurplePrimary else Color.LightGray,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "Page $editorCurrentPage of $editorTotalPages",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = VoxPurplePrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                )
+
+                                IconButton(
+                                    onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
+                                    enabled = editorCurrentPage < editorTotalPages,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Next Page",
+                                        tint = if (editorCurrentPage < editorTotalPages) VoxPurplePrimary else Color.LightGray,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

@@ -38,6 +38,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.Add
@@ -192,6 +196,24 @@ fun Module2PracticeScreen(
     )
     
     var midiController by remember { mutableStateOf<MidiPlayerController?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    midiController?.pause()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    midiController?.webView?.onResume()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     var currentBpm by remember { mutableFloatStateOf(120f) }
     var speedMultiplier by remember { mutableFloatStateOf(1.0f) }
     var totalSeconds by remember { mutableStateOf(resolvedScore.totalSeconds) }

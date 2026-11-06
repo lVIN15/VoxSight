@@ -49,9 +49,13 @@ class NativePlaybackEngine(private val context: Context? = null) {
         private const val MIDI_ALL_NOTES_OFF = 0x7B
         private const val MIDI_CONTROL_CHANGE = 0xB0
 
+        private const val MIDI_CHANNEL_VOLUME = 0x07
+        private const val MIDI_EXPRESSION = 0x0B
+        private const val MIDI_REVERB_LEVEL = 0x5B
+
         // GM Piano patch
         private const val DEFAULT_PROGRAM = 0    // Acoustic Grand Piano
-        private const val DEFAULT_VELOCITY = 80
+        private const val DEFAULT_VELOCITY = 100 // Balanced forte velocity with polyphonic headroom
 
         // Coalescing window (Fix #30)
         private const val COALESCE_WINDOW_MS = 8L
@@ -189,9 +193,15 @@ class NativePlaybackEngine(private val context: Context? = null) {
                 midiInputPort = device.openInputPort(0)
                 Log.i(TAG, "MIDI device opened: ${device.info.properties}")
 
-                // Set default program (piano) on channels 0-3
-                for (ch in 0..3) {
-                    sendMidiMessage(byteArrayOf((MIDI_PROGRAM_CHANGE + ch).toByte(), DEFAULT_PROGRAM.toByte()))
+                // Set default program (piano), balanced channel volume (CC 7 = 110),
+                // expression headroom (CC 11 = 118), and natural room reverb (CC 91 = 48) across all channels
+                for (ch in 0..15) {
+                    if (ch != 9) {
+                        sendMidiMessage(byteArrayOf((MIDI_PROGRAM_CHANGE + ch).toByte(), DEFAULT_PROGRAM.toByte()))
+                    }
+                    sendMidiMessage(byteArrayOf((MIDI_CONTROL_CHANGE + ch).toByte(), MIDI_CHANNEL_VOLUME.toByte(), 110.toByte()))
+                    sendMidiMessage(byteArrayOf((MIDI_CONTROL_CHANGE + ch).toByte(), MIDI_EXPRESSION.toByte(), 118.toByte()))
+                    sendMidiMessage(byteArrayOf((MIDI_CONTROL_CHANGE + ch).toByte(), MIDI_REVERB_LEVEL.toByte(), 48.toByte()))
                 }
             } else {
                 Log.e(TAG, "Failed to open MIDI device input port")
@@ -265,6 +275,19 @@ class NativePlaybackEngine(private val context: Context? = null) {
         }
         // NOTE: We no longer gate on midiInputPort. Tone.js fallback in WebView
         // provides audio even without a hardware MIDI synth.
+
+        // Ensure system media volume is at an audible level if too low
+        try {
+            val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (audioManager != null) {
+                val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                val curVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                val minAudibleVol = (maxVol * 0.75f).toInt()
+                if (curVol < minAudibleVol) {
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, minAudibleVol, 0)
+                }
+            }
+        } catch (_: Throwable) {}
 
         isPlaying.set(true)
         state = PlaybackState.PLAYING
@@ -690,7 +713,8 @@ class NativePlaybackEngine(private val context: Context? = null) {
             return // Muted by volume scaling -> Suppress NOTE_ON
         }
 
-        val effectiveVelocity = (DEFAULT_VELOCITY * scale).toInt().coerceIn(1, 127)
+        val minAudible = if (isAccompaniment) 35 else 60
+        val effectiveVelocity = (DEFAULT_VELOCITY * scale).toInt().coerceIn(minAudible, 120)
 
         // 5. Sound Note Attack
         if (event.tieType == "start") {

@@ -15,6 +15,8 @@ suites = [
     ('MXL Round-Trip Stamping Test', [sys.executable, str(TEST_DIR / 'test_mxl_stamping.py')]),
     ('Remediation Regression Suite (Findings 1-4)', [sys.executable, str(TEST_DIR / 'test_remediation_suite.py')]),
     ('Vocal-Part Detection Accuracy Suite', [sys.executable, str(TEST_DIR / 'test_vocal_part_detection_accuracy.py')]),
+    ('Lead Me Lord & Awit Remediation Suite', [sys.executable, str(TEST_DIR / 'test_lead_me_lord_and_awit_remediation.py')]),
+    ('Score Fidelity & Non-Corruption Suite', [sys.executable, str(TEST_DIR / 'test_score_fidelity_regression.py')]),
 ]
 
 all_ok = True

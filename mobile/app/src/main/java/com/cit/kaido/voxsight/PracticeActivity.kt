@@ -100,6 +100,7 @@ class PracticeActivity : AppCompatActivity(),
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         setContentView(R.layout.activity_practice)
 
         // Initialize playback engine
@@ -644,10 +645,21 @@ class PracticeActivity : AppCompatActivity(),
     override fun onPause() {
         super.onPause()
         playbackEngine.onPause()
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("if (typeof window.pauseAudio === 'function') window.pauseAudio();", null)
+            webView.onPause()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         playbackEngine.release()
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("if (typeof window.stopAudioAndRelease === 'function') window.stopAudioAndRelease();", null)
+            webView.onPause()
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+            webView.destroy()
+        }
     }
 }

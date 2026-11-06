@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,12 +65,15 @@ fun NoteEditorBottomSheet(
         containerColor = Color.White,
         dragHandle = { BottomSheetDefaults.DragHandle(color = VoxCardStroke) }
     ) {
+        val sheetScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(sheetScrollState)
+                .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 8.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header Section
@@ -696,7 +700,7 @@ fun NoteEditorBottomSheet(
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = "Add Note", modifier = Modifier.size(16.dp), tint = VoxPurplePrimary)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("+ Note", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = VoxPurplePrimary)
+                    Text("Add Note", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = VoxPurplePrimary)
                 }
 
                 OutlinedButton(
@@ -707,7 +711,7 @@ fun NoteEditorBottomSheet(
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = "Add Rest", modifier = Modifier.size(16.dp), tint = Color(0xFF673AB7))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("+ Rest", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF673AB7))
+                    Text("Add Rest", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF673AB7))
                 }
             }
 

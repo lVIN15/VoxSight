@@ -30,8 +30,26 @@ import java.io.FileOutputStream
 
 enum class UploadStatus { IDLE, PROCESSING, READY }
 
+/**
+ * Fine-grained centralized state machine for all file-import and photo-capture operations.
+ * Prevents duplicate file-picker dialogs, concurrent camera/picker launches, and inconsistent UI states.
+ */
+enum class ImportOperationState {
+    IDLE,
+    PICKER_OPENING,
+    PICKER_OPEN,
+    CAPTURING,
+    IMPORTING,
+    PROCESSING,
+    READY,
+    ERROR
+}
+
 object UploadManager {
+    private val stateLock = Any()
+
     val uploadStatus = MutableStateFlow(UploadStatus.IDLE)
+    val operationState = MutableStateFlow(ImportOperationState.IDLE)
     val uploadProgress = MutableStateFlow(0f)
     val uploadPhaseText = MutableStateFlow("Import in progress...")
     var pendingMusicXml: String? = null
@@ -41,11 +59,226 @@ object UploadManager {
     val activeErrorFlow = MutableStateFlow<String?>(null)
     val navigateToReview = MutableStateFlow(false)
 
+    private var pickerOpenedAtMs: Long = 0L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeProgressJob: Job? = null
 
-    fun clearReadyState() {
+    /**
+     * Returns true if an import, picker launch, photo capture, or OMR processing operation is currently active.
+     */
+    fun isBusy(): Boolean = synchronized(stateLock) {
+        when (operationState.value) {
+            ImportOperationState.PICKER_OPENING,
+            ImportOperationState.PICKER_OPEN,
+            ImportOperationState.CAPTURING,
+            ImportOperationState.IMPORTING,
+            ImportOperationState.PROCESSING -> true
+            ImportOperationState.IDLE,
+            ImportOperationState.READY,
+            ImportOperationState.ERROR -> uploadStatus.value == UploadStatus.PROCESSING
+        }
+    }
+
+    /**
+     * Atomically attempts to transition into [ImportOperationState.PICKER_OPENING].
+     * Immediately rejects duplicate taps on Import File or taps while Take Photo / Processing is active.
+     */
+    fun tryBeginPickerOpening(): Boolean = synchronized(stateLock) {
+        val current = operationState.value
+        if (current != ImportOperationState.IDLE && current != ImportOperationState.ERROR) {
+            return false
+        }
+        if (uploadStatus.value == UploadStatus.PROCESSING) {
+            return false
+        }
+        activeError = null
+        activeErrorFlow.value = null
+        operationState.value = ImportOperationState.PICKER_OPENING
+        uploadPhaseText.value = "Opening file manager..."
+        return true
+    }
+
+    /**
+     * Transitions from [ImportOperationState.PICKER_OPENING] to [ImportOperationState.PICKER_OPEN]
+     * right before launching the native system file picker Intent.
+     */
+    fun markPickerOpen(): Boolean = synchronized(stateLock) {
+        if (operationState.value != ImportOperationState.PICKER_OPENING) {
+            return false
+        }
+        pickerOpenedAtMs = System.currentTimeMillis()
+        operationState.value = ImportOperationState.PICKER_OPEN
+        uploadPhaseText.value = "Waiting for file selection..."
+        return true
+    }
+
+    /**
+     * Resets state when the file picker is cancelled by the user or fails to launch.
+     * Never overrides an active [ImportOperationState.IMPORTING] or [ImportOperationState.PROCESSING] state.
+     */
+    fun onPickerCancelledOrFailed(errorMessage: String? = null) = synchronized(stateLock) {
+        val current = operationState.value
+        if (current == ImportOperationState.IMPORTING || current == ImportOperationState.PROCESSING) {
+            return
+        }
+        pickerOpenedAtMs = 0L
+        uploadProgress.value = 0f
+        if (!errorMessage.isNullOrBlank()) {
+            activeError = errorMessage
+            activeErrorFlow.value = errorMessage
+            uploadPhaseText.value = ""
+            uploadStatus.value = UploadStatus.IDLE
+            operationState.value = ImportOperationState.ERROR
+        } else {
+            uploadPhaseText.value = "Import in progress..."
+            uploadStatus.value = UploadStatus.IDLE
+            operationState.value = ImportOperationState.IDLE
+        }
+    }
+
+    /**
+     * Defensive recovery if the activity resumes while still in [ImportOperationState.PICKER_OPEN]
+     * and the system picker dismissed without delivering a callback.
+     */
+    fun releaseStalePickerIfStillOpen(
+        minElapsedMs: Long = 500L,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean = synchronized(stateLock) {
+        if (operationState.value == ImportOperationState.PICKER_OPEN &&
+            pickerOpenedAtMs > 0L &&
+            (nowMs - pickerOpenedAtMs) >= minElapsedMs
+        ) {
+            pickerOpenedAtMs = 0L
+            uploadStatus.value = UploadStatus.IDLE
+            operationState.value = ImportOperationState.IDLE
+            uploadPhaseText.value = "Import in progress..."
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Atomically attempts to transition into [ImportOperationState.CAPTURING] when Take Photo is pressed.
+     * Immediately rejects duplicate taps or taps while Import File / Processing is active.
+     */
+    fun tryBeginCapturing(): Boolean = synchronized(stateLock) {
+        val current = operationState.value
+        if (current != ImportOperationState.IDLE && current != ImportOperationState.ERROR) {
+            return false
+        }
+        if (uploadStatus.value == UploadStatus.PROCESSING) {
+            return false
+        }
+        activeError = null
+        activeErrorFlow.value = null
+        operationState.value = ImportOperationState.CAPTURING
+        uploadPhaseText.value = "Capturing sheet music..."
+        return true
+    }
+
+    /**
+     * Resets state when photo capture or camera permission is cancelled or fails.
+     */
+    fun onCaptureCancelledOrFailed(errorMessage: String? = null) = synchronized(stateLock) {
+        val current = operationState.value
+        if (current == ImportOperationState.IMPORTING || current == ImportOperationState.PROCESSING) {
+            return
+        }
+        uploadProgress.value = 0f
+        if (!errorMessage.isNullOrBlank()) {
+            activeError = errorMessage
+            activeErrorFlow.value = errorMessage
+            uploadPhaseText.value = ""
+            uploadStatus.value = UploadStatus.IDLE
+            operationState.value = ImportOperationState.ERROR
+        } else {
+            uploadPhaseText.value = "Import in progress..."
+            uploadStatus.value = UploadStatus.IDLE
+            operationState.value = ImportOperationState.IDLE
+        }
+    }
+
+    /**
+     * Atomically transitions into [ImportOperationState.IMPORTING] once a file URI or captured image URI is received.
+     * Rejects duplicate submissions if an import or processing job is already running.
+     */
+    fun tryBeginImporting(fileName: String? = null): Boolean = synchronized(stateLock) {
+        val current = operationState.value
+        if (current == ImportOperationState.IMPORTING ||
+            current == ImportOperationState.PROCESSING ||
+            uploadStatus.value == UploadStatus.PROCESSING
+        ) {
+            return false
+        }
+        pickerOpenedAtMs = 0L
+        if (!fileName.isNullOrBlank()) {
+            pendingFileName = fileName
+        }
+        activeError = null
+        activeErrorFlow.value = null
+        pendingMusicXml = null
+        pendingScoreTitle = null
+        navigateToReview.value = false
+        uploadProgress.value = 0f
+        uploadPhaseText.value = "Reading selected file..."
+        uploadStatus.value = UploadStatus.PROCESSING
+        operationState.value = ImportOperationState.IMPORTING
+        return true
+    }
+
+    /**
+     * Transitions from [ImportOperationState.IMPORTING] to [ImportOperationState.PROCESSING]
+     * once the local file stream is validated and OMR/backend analysis begins.
+     */
+    fun markProcessing(phaseText: String = "Uploading score...") = synchronized(stateLock) {
+        uploadStatus.value = UploadStatus.PROCESSING
+        operationState.value = ImportOperationState.PROCESSING
+        uploadPhaseText.value = phaseText
+    }
+
+    /**
+     * Transitions to [ImportOperationState.READY] upon successful score analysis.
+     */
+    fun markReady(musicXml: String, scoreTitle: String) = synchronized(stateLock) {
+        pendingMusicXml = musicXml
+        pendingScoreTitle = scoreTitle
+        uploadProgress.value = 1f
+        uploadPhaseText.value = "Score ready!"
+        uploadStatus.value = UploadStatus.READY
+        operationState.value = ImportOperationState.READY
+    }
+
+    /**
+     * Transitions to [ImportOperationState.ERROR] and resets [uploadStatus] to [UploadStatus.IDLE]
+     * so the user can retry immediately.
+     */
+    fun markFailed(errorMessage: String) = synchronized(stateLock) {
+        pickerOpenedAtMs = 0L
+        activeError = errorMessage
+        activeErrorFlow.value = errorMessage
+        uploadProgress.value = 0f
+        uploadPhaseText.value = ""
         uploadStatus.value = UploadStatus.IDLE
+        operationState.value = ImportOperationState.ERROR
+    }
+
+    /**
+     * Clears the active error and returns the state machine to [ImportOperationState.IDLE].
+     */
+    fun acknowledgeError() = synchronized(stateLock) {
+        activeError = null
+        activeErrorFlow.value = null
+        if (operationState.value == ImportOperationState.ERROR) {
+            operationState.value = ImportOperationState.IDLE
+            uploadPhaseText.value = "Import in progress..."
+        }
+    }
+
+    fun clearReadyState() = synchronized(stateLock) {
+        pickerOpenedAtMs = 0L
+        uploadStatus.value = UploadStatus.IDLE
+        operationState.value = ImportOperationState.IDLE
         uploadProgress.value = 0f
         uploadPhaseText.value = "Import in progress..."
         pendingMusicXml = null
@@ -91,18 +324,9 @@ object UploadManager {
         onSuccess: (String, String) -> Unit,
         onError: (String) -> Unit
     ) {
-        if (uploadStatus.value == UploadStatus.PROCESSING) return // Block multiple uploads
-
-        uploadStatus.value = UploadStatus.PROCESSING
-        uploadProgress.value = 0f
-        uploadPhaseText.value = "Uploading score..."
+        if (!tryBeginImporting()) return // Atomic gate: block duplicate/concurrent uploads
 
         android.widget.Toast.makeText(context, "Import in progress", android.widget.Toast.LENGTH_SHORT).show()
-        activeError = null
-        activeErrorFlow.value = null
-        pendingMusicXml = null
-        pendingScoreTitle = null
-        navigateToReview.value = false
 
         val appContext = context.applicationContext
 
@@ -115,7 +339,7 @@ object UploadManager {
             var progressJob: Job? = null
 
             try {
-                // Extract actual file name and MIME type
+                // Extract actual file name and MIME type while in IMPORTING stage
                 val originalFileName = getFileName(appContext, imageUri)
                 pendingFileName = originalFileName
                 val mimeType = appContext.contentResolver.getType(imageUri) ?: run {
@@ -132,13 +356,19 @@ object UploadManager {
 
                 // Copy URI content to a temp file immediately while URI grant is active
                 val tempFile = File(appContext.cacheDir, "upload_$originalFileName")
-                withContext(Dispatchers.IO) {
+                val copiedBytes = withContext(Dispatchers.IO) {
                     appContext.contentResolver.openInputStream(imageUri)?.use { input ->
                         FileOutputStream(tempFile).use { output ->
                             input.copyTo(output)
                         }
-                    }
+                    } ?: -1L
                 }
+                if (copiedBytes <= 0L || !tempFile.exists() || tempFile.length() <= 0L) {
+                    throw IllegalArgumentException("The selected file could not be read or is empty.")
+                }
+
+                // Transition from IMPORTING -> PROCESSING now that file ingestion is complete
+                markProcessing("Uploading score...")
 
                 val requestFile = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("musicFile", originalFileName, requestFile)
@@ -259,9 +489,6 @@ object UploadManager {
                     uploadProgress.value = 1f
                     withContext(Dispatchers.Main) { onProgress(1f) }
 
-                    pendingMusicXml = response.musicXml
-                    pendingScoreTitle = scoreTitle
-
                     // Stop ongoing foreground progress service & notification
                     ScoreUploadService.stop(appContext)
 
@@ -284,7 +511,7 @@ object UploadManager {
                         contentIntent = pendingIntent
                     )
 
-                    uploadStatus.value = UploadStatus.READY
+                    markReady(response.musicXml, scoreTitle)
                     navigateToReview.value = true
                     withContext(Dispatchers.Main) {
                         onSuccess(response.musicXml, scoreTitle)
@@ -292,12 +519,7 @@ object UploadManager {
                 } else {
                     val err = response.error ?: "Conversion/Analysis failed."
                     ScoreUploadService.stop(appContext)
-
-                    activeError = err
-                    activeErrorFlow.value = err
-                    uploadProgress.value = 0f
-                    uploadPhaseText.value = ""
-                    uploadStatus.value = UploadStatus.IDLE
+                    markFailed(err)
 
                     postResultNotification(
                         appContext = appContext,
@@ -325,11 +547,7 @@ object UploadManager {
                         // ignore
                     }
                 }
-                activeError = errorMessage
-                activeErrorFlow.value = errorMessage
-                uploadProgress.value = 0f
-                uploadPhaseText.value = ""
-                uploadStatus.value = UploadStatus.IDLE
+                markFailed(errorMessage)
 
                 postResultNotification(
                     appContext = appContext,
@@ -357,11 +575,7 @@ object UploadManager {
                         "Upload Error: ${e.message ?: "An unexpected error occurred."}"
                     }
                 }
-                activeError = err
-                activeErrorFlow.value = err
-                uploadProgress.value = 0f
-                uploadPhaseText.value = ""
-                uploadStatus.value = UploadStatus.IDLE
+                markFailed(err)
 
                 postResultNotification(
                     appContext = appContext,

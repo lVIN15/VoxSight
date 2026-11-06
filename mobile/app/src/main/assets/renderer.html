@@ -12,10 +12,12 @@
             box-sizing: border-box;
         }
 
-        body {
+        html, body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            background: #ffffff;
+            color: #1e293b;
+            width: 100%;
+            min-height: 100%;
             overflow-x: auto;
             -webkit-user-select: none;
             user-select: none;
@@ -23,23 +25,31 @@
 
         #score-container {
             position: relative;
-            width: max(100%, 600px);
+            width: 100%;
+            max-width: 100vw;
             min-height: 100vh;
             background: #ffffff;
-            padding: 12px 16px;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            overflow-x: auto;
         }
 
         /* OSMD renders into this div */
         #osmd-render {
-            width: max(100%, 600px);
+            position: relative;
+            width: 100%;
+            margin: 0;
+            padding: 0;
             min-height: 200px;
+            box-sizing: border-box;
         }
 
         /* Canvas overlay for playback highlighting */
         #highlight-canvas {
             position: absolute;
-            top: 12px;
-            left: 16px;
+            top: 0;
+            left: 0;
             pointer-events: none;
             z-index: 10;
         }
@@ -209,6 +219,18 @@
         let xmlDoc = null;          // Global MusicXML DOM for H-bar and structure inspection
         let colorMappingList = [];
         let currentVisualFocus = null;
+
+        function calculateFitToWidthZoom() {
+            var container = document.getElementById('score-container') || document.getElementById('osmd-render');
+            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || document.documentElement.clientWidth || 360);
+            var targetWidth = Math.max(240, vpWidth - 16);
+            // 50% zoomed-out full-system mobile view (~0.32 on 360px portrait mobile)
+            var optimalZoom = (targetWidth / 360.0) * 0.33;
+            return Math.max(0.28, Math.min(0.65, Math.round(optimalZoom * 100) / 100));
+        }
+
+        var currentScoreZoom = calculateFitToWidthZoom();
+        let zoomDebounceTimer = null;
 
         // ─── Staff Index & Measure Number Helpers for OSMD GraphicalNotes ──────
         function getStaffIndex(gNote) {
@@ -1044,11 +1066,6 @@
                         if (pn) partName = pn.textContent.toLowerCase();
                     }
 
-                    const isTenor = partName.indexOf('tenor') !== -1 || partName === 't' || partName === 't.' || (parts.length === 6 && partIdx === 4);
-                    const isBass = partName.indexOf('bass') !== -1 || partName === 'b' || partName === 'b.' || (parts.length === 6 && partIdx === 5);
-                    const isSoprano1 = partName.indexOf('soprano 1') !== -1 || partName === 's1' || partName === 'sop1' || (parts.length === 6 && partIdx === 0);
-                    const isSoprano2 = partName.indexOf('soprano 2') !== -1 || partName === 's2' || partName === 'sop2' || (parts.length === 6 && partIdx === 1);
-
                     let prevDivisions = '4';
                     let prevBeats = 4;
                     let prevBeatType = 4;
@@ -1074,397 +1091,7 @@
                         const allNotes = Array.from(m.querySelectorAll('note'));
                         const pitchedNotes = allNotes.filter(n => !n.querySelector('rest'));
 
-                        // 1. Tenor System 1 Restorations (M1 contour without phantom slur, M2 C#4, M4 A3 natural)
-                        if (isTenor && mNum === '1') {
-                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
-                            if (pNotes.length >= 3 && (pNotes.length !== 4 || (pNotes[0].querySelector('type') && pNotes[0].querySelector('type').textContent !== 'eighth'))) {
-                                const qDur = Math.max(1, Math.floor(fullDur / 4));
-                                const eDur = Math.max(1, Math.floor(qDur / 2));
-                                const rNotes = allNotes.filter(n => n.querySelector('rest'));
-                                allNotes.forEach(n => n.remove());
-                                if (rNotes.length > 0) {
-                                    const rNote = rNotes[0];
-                                    const durEl = rNote.querySelector('duration');
-                                    if (durEl) durEl.textContent = String(qDur);
-                                    m.appendChild(rNote);
-                                } else {
-                                    const rNote = doc.createElement('note');
-                                    const rest = doc.createElement('rest');
-                                    rNote.appendChild(rest);
-                                    const dur = doc.createElement('duration'); dur.textContent = String(qDur); rNote.appendChild(dur);
-                                    const voice = doc.createElement('voice'); voice.textContent = '1'; rNote.appendChild(voice);
-                                    const type = doc.createElement('type'); type.textContent = 'quarter'; rNote.appendChild(type);
-                                    m.appendChild(rNote);
-                                }
-
-                                const tNotesData = [
-                                    { step: 'E', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'begin', slur: null, acc: null },
-                                    { step: 'D', alter: '1', oct: '4', dur: eDur, type: 'eighth', stem: 'down', beam: 'end', slur: null, acc: null },
-                                    { step: 'C', alter: '1', oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: null },
-                                    { step: 'C', alter: null, oct: '4', dur: qDur, type: 'quarter', stem: 'down', beam: null, slur: null, acc: 'natural' }
-                                ];
-                                tNotesData.forEach(d => {
-                                    const n = doc.createElement('note');
-                                    const pitch = doc.createElement('pitch');
-                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
-                                    if (d.alter !== null) {
-                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
-                                    }
-                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
-                                    n.appendChild(pitch);
-                                    const dur = doc.createElement('duration'); dur.textContent = String(d.dur); n.appendChild(dur);
-                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
-                                    const type = doc.createElement('type'); type.textContent = d.type; n.appendChild(type);
-                                    if (d.acc) {
-                                        const ac = doc.createElement('accidental'); ac.textContent = d.acc; n.appendChild(ac);
-                                    }
-                                    const stem = doc.createElement('stem'); stem.textContent = d.stem; n.appendChild(stem);
-                                    if (d.beam) {
-                                        const bm = doc.createElement('beam'); bm.setAttribute('number', '1'); bm.textContent = d.beam; n.appendChild(bm);
-                                    }
-                                    if (d.slur) {
-                                        const notat = doc.createElement('notations');
-                                        const sl = doc.createElement('slur'); sl.setAttribute('type', d.slur); sl.setAttribute('number', '1');
-                                        notat.appendChild(sl);
-                                        n.appendChild(notat);
-                                    }
-                                    m.appendChild(n);
-                                });
-                                return;
-                            } else if (pNotes.length === 4) {
-                                const fifthsEl = m.querySelector('key > fifths');
-                                const stepsStr = pNotes.map(n => (n.querySelector('step') ? n.querySelector('step').textContent.trim() : '')).join('');
-                                if (fifthsEl && fifthsEl.textContent.trim() === '6' && stepsStr === 'EDCC') {
-                                    pNotes.forEach(pn => {
-                                        const notat = pn.querySelector('notations');
-                                        if (notat) {
-                                            Array.from(notat.querySelectorAll('slur')).forEach(s => s.remove());
-                                            if (notat.children.length === 0) notat.remove();
-                                        }
-                                    });
-                                }
-                            }
-                        }
-
-                        const isMisplacedTenorM2 = (pitchedNotes.length === 1 && pitchedNotes[0].querySelector('type') && pitchedNotes[0].querySelector('type').textContent === 'whole' && pitchedNotes[0].querySelector('step') && pitchedNotes[0].querySelector('step').textContent === 'G');
-                        if (isTenor && mNum === '2' && (pitchedNotes.length === 0 || isMisplacedTenorM2)) {
-                            allNotes.forEach(n => n.remove());
-                            const note = doc.createElement('note');
-                            const pitch = doc.createElement('pitch');
-                            const step = doc.createElement('step'); step.textContent = 'C'; pitch.appendChild(step);
-                            const alter = doc.createElement('alter'); alter.textContent = '1'; pitch.appendChild(alter);
-                            const octave = doc.createElement('octave'); octave.textContent = '4'; pitch.appendChild(octave);
-                            note.appendChild(pitch);
-                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
-                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
-                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
-                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
-                            m.appendChild(note);
-                            return;
-                        }
-                        const isMisplacedTenorM4 = (pitchedNotes.length === 1 && pitchedNotes[0].querySelector('type') && pitchedNotes[0].querySelector('type').textContent === 'whole' && pitchedNotes[0].querySelector('step') && pitchedNotes[0].querySelector('step').textContent === 'C');
-                        if (isTenor && mNum === '4' && (pitchedNotes.length === 0 || isMisplacedTenorM4)) {
-                            allNotes.forEach(n => n.remove());
-                            const note = doc.createElement('note');
-                            const pitch = doc.createElement('pitch');
-                            const step = doc.createElement('step'); step.textContent = 'A'; pitch.appendChild(step);
-                            const octave = doc.createElement('octave'); octave.textContent = '3'; pitch.appendChild(octave);
-                            note.appendChild(pitch);
-                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
-                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
-                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
-                            const acc = doc.createElement('accidental'); acc.textContent = 'natural'; note.appendChild(acc);
-                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
-                            m.appendChild(note);
-                            return;
-                        }
-
-                        // 2. Soprano 1 & 2 System 1 Restorations (M3 eighths cadence with slur, M4 cadences)
-                        if ((isSoprano1 || isSoprano2) && mNum === '3') {
-                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
-                            if (pNotes.length === 4 && pNotes.every(n => n.querySelector('type') && n.querySelector('type').textContent === 'quarter')) {
-                                allNotes.forEach(n => n.remove());
-                                const qDur = Math.max(1, Math.floor(fullDur / 4));
-                                const eDur = Math.max(1, Math.floor(qDur / 2));
-                                const eData = [
-                                    { step: 'C', alter: '1', oct: '5', beam: 'begin', slur: isSoprano1 ? 'start' : null },
-                                    { step: 'B', alter: null, oct: '4', beam: 'continue', slur: null },
-                                    { step: 'B', alter: null, oct: '4', beam: 'continue', slur: null },
-                                    { step: 'A', alter: '1', oct: '4', beam: 'end', slur: isSoprano1 ? 'stop' : null }
-                                ];
-                                eData.forEach(d => {
-                                    const n = doc.createElement('note');
-                                    const pitch = doc.createElement('pitch');
-                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
-                                    if (d.alter !== null) {
-                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
-                                    }
-                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
-                                    n.appendChild(pitch);
-                                    const dur = doc.createElement('duration'); dur.textContent = String(eDur); n.appendChild(dur);
-                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
-                                    const type = doc.createElement('type'); type.textContent = 'eighth'; n.appendChild(type);
-                                    const stem = doc.createElement('stem'); stem.textContent = 'down'; n.appendChild(stem);
-                                    const beam = doc.createElement('beam'); beam.setAttribute('number', '1'); beam.textContent = d.beam; n.appendChild(beam);
-                                    if (d.slur) {
-                                        const notat = doc.createElement('notations');
-                                        const sl = doc.createElement('slur'); sl.setAttribute('type', d.slur); sl.setAttribute('number', '1');
-                                        notat.appendChild(sl);
-                                        n.appendChild(notat);
-                                    }
-                                    m.appendChild(n);
-                                });
-                                const qData = [
-                                    { step: 'G', alter: '1', oct: '4', stem: 'up' },
-                                    { step: 'D', alter: '1', oct: '5', stem: 'down' }
-                                ];
-                                qData.forEach(d => {
-                                    const n = doc.createElement('note');
-                                    const pitch = doc.createElement('pitch');
-                                    const st = doc.createElement('step'); st.textContent = d.step; pitch.appendChild(st);
-                                    if (d.alter !== null) {
-                                        const al = doc.createElement('alter'); al.textContent = d.alter; pitch.appendChild(al);
-                                    }
-                                    const oc = doc.createElement('octave'); oc.textContent = d.oct; pitch.appendChild(oc);
-                                    n.appendChild(pitch);
-                                    const dur = doc.createElement('duration'); dur.textContent = String(qDur); n.appendChild(dur);
-                                    const voice = doc.createElement('voice'); voice.textContent = '1'; n.appendChild(voice);
-                                    const type = doc.createElement('type'); type.textContent = 'quarter'; n.appendChild(type);
-                                    const stem = doc.createElement('stem'); stem.textContent = d.stem; n.appendChild(stem);
-                                    m.appendChild(n);
-                                });
-                                return;
-                            }
-                        }
-                        if (isSoprano1 && mNum === '4') {
-                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
-                            if (pNotes.length === 2) {
-                                const n1 = pNotes[0];
-                                const p1 = n1.querySelector('pitch');
-                                if (p1) {
-                                    const s = p1.querySelector('step'); if (s) s.textContent = 'E';
-                                    const o = p1.querySelector('octave'); if (o) o.textContent = '5';
-                                    Array.from(p1.querySelectorAll('alter')).forEach(a => a.remove());
-                                }
-                                let stem1 = n1.querySelector('stem');
-                                if (!stem1) { stem1 = doc.createElement('stem'); n1.appendChild(stem1); }
-                                stem1.textContent = 'down';
-                                let acc = n1.querySelector('accidental');
-                                if (!acc) {
-                                    acc = doc.createElement('accidental');
-                                    acc.textContent = 'natural';
-                                    n1.insertBefore(acc, stem1);
-                                } else {
-                                    acc.textContent = 'natural';
-                                }
-                                const n2 = pNotes[1];
-                                let stem2 = n2.querySelector('stem');
-                                if (!stem2) { stem2 = doc.createElement('stem'); n2.appendChild(stem2); }
-                                stem2.textContent = 'down';
-                            }
-                        }
-                        if (isSoprano2 && mNum === '4') {
-                            const pNotes = allNotes.filter(n => !n.querySelector('rest'));
-                            if (pNotes.length === 2) {
-                                const n1 = pNotes[0];
-                                const p1 = n1.querySelector('pitch');
-                                if (p1) {
-                                    const s = p1.querySelector('step'); if (s) s.textContent = 'C';
-                                    let al = p1.querySelector('alter');
-                                    if (!al) { al = doc.createElement('alter'); p1.appendChild(al); }
-                                    al.textContent = '1';
-                                    const o = p1.querySelector('octave'); if (o) o.textContent = '5';
-                                }
-                                Array.from(n1.querySelectorAll('accidental')).forEach(a => a.remove());
-                                let stem1 = n1.querySelector('stem');
-                                if (!stem1) { stem1 = doc.createElement('stem'); n1.appendChild(stem1); }
-                                stem1.textContent = 'down';
-
-                                const n2 = pNotes[1];
-                                const p2 = n2.querySelector('pitch');
-                                if (p2) {
-                                    const s = p2.querySelector('step'); if (s) s.textContent = 'C';
-                                    let al = p2.querySelector('alter');
-                                    if (!al) { al = doc.createElement('alter'); p2.appendChild(al); }
-                                    al.textContent = '1';
-                                    const o = p2.querySelector('octave'); if (o) o.textContent = '5';
-                                }
-                                Array.from(n2.querySelectorAll('accidental')).forEach(a => a.remove());
-                                let stem2 = n2.querySelector('stem');
-                                if (!stem2) { stem2 = doc.createElement('stem'); n2.appendChild(stem2); }
-                                stem2.textContent = 'down';
-                            }
-                        }
-
-                        // 3. Restore Bass Cadence Whole Note (C#3 in M3 slurred from M2)
-                        if (isBass && mNum === '1') {
-                            const r = m.querySelector('rest[measure="yes"]') || m.querySelector('rest');
-                            if (r) {
-                                r.setAttribute('measure', 'yes');
-                                const ds = r.querySelector('display-step'); if (ds) ds.remove();
-                                const doEl = r.querySelector('display-octave'); if (doEl) doEl.remove();
-                            }
-                        }
-
-                        if (isBass && mNum === '3' && pitchedNotes.length === 0) {
-                            allNotes.forEach(n => n.remove());
-                            const note = doc.createElement('note');
-                            const pitch = doc.createElement('pitch');
-                            const step = doc.createElement('step'); step.textContent = 'C'; pitch.appendChild(step);
-                            const alter = doc.createElement('alter'); alter.textContent = '1'; pitch.appendChild(alter);
-                            const octave = doc.createElement('octave'); octave.textContent = '3'; pitch.appendChild(octave);
-                            note.appendChild(pitch);
-                            const dur = doc.createElement('duration'); dur.textContent = String(fullDur); note.appendChild(dur);
-                            const voice = doc.createElement('voice'); voice.textContent = '1'; note.appendChild(voice);
-                            const type = doc.createElement('type'); type.textContent = 'whole'; note.appendChild(type);
-                            const stem = doc.createElement('stem'); stem.textContent = 'none'; note.appendChild(stem);
-                            const notat = doc.createElement('notations');
-                            const slur = doc.createElement('slur'); slur.setAttribute('type', 'stop'); slur.setAttribute('number', '1');
-                            notat.appendChild(slur);
-                            note.appendChild(notat);
-                            m.appendChild(note);
-                            return;
-                        }
-
-                        // 3. Connect Cadence Eighth Notes in Bass (M2 & M4) under unified beam with stems down
-                        if (isBass && (mNum === '2' || mNum === '4')) {
-                            const pNotes = Array.from(m.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
-                            const rests = Array.from(m.querySelectorAll('note')).filter(n => n.querySelector('rest'));
-
-                            // Align half and eighth rests to middle staff line (Line 3)
-                            rests.forEach(rNote => {
-                                const rElem = rNote.querySelector('rest');
-                                if (rElem) {
-                                    let ds = rElem.querySelector('display-step');
-                                    let doEl = rElem.querySelector('display-octave');
-                                    if (!ds) {
-                                        ds = doc.createElement('display-step');
-                                        rElem.appendChild(ds);
-                                    }
-                                    if (!doEl) {
-                                        doEl = doc.createElement('display-octave');
-                                        rElem.appendChild(doEl);
-                                    }
-                                    ds.textContent = 'B';
-                                    doEl.textContent = '2';
-                                }
-                            });
-
-                            const divVal = parseInt(prevDivisions, 10);
-                            const eighthDur = Math.max(1, Math.floor(divVal / 2));
-                            const halfDur = divVal * 2;
-                            if (rests.length === 2 && pNotes.length === 2) {
-                                const r1 = parseInt(rests[0].querySelector('duration') ? rests[0].querySelector('duration').textContent.trim() : '0', 10);
-                                const r2 = parseInt(rests[1].querySelector('duration') ? rests[1].querySelector('duration').textContent.trim() : '0', 10);
-                                if (r1 === halfDur && r2 === eighthDur) {
-                                    const n1 = pNotes[0];
-                                    const n2 = pNotes[1];
-
-                                    const d1 = n1.querySelector('duration'); if (d1) d1.textContent = String(eighthDur);
-                                    const t1 = n1.querySelector('type'); if (t1) t1.textContent = 'eighth';
-                                    let s1 = n1.querySelector('stem'); if (!s1) { s1 = doc.createElement('stem'); n1.appendChild(s1); } s1.textContent = 'down';
-                                    let v1 = n1.querySelector('voice'); if (v1) v1.textContent = '1';
-                                    Array.from(n1.querySelectorAll('beam')).forEach(b => b.remove());
-                                    const b1 = doc.createElement('beam'); b1.setAttribute('number', '1'); b1.textContent = 'begin';
-                                    const notat1 = n1.querySelector('notations');
-                                    if (notat1) n1.insertBefore(b1, notat1); else n1.appendChild(b1);
-
-                                    const d2 = n2.querySelector('duration'); if (d2) d2.textContent = String(eighthDur);
-                                    const t2 = n2.querySelector('type'); if (t2) t2.textContent = 'eighth';
-                                    let s2 = n2.querySelector('stem'); if (!s2) { s2 = doc.createElement('stem'); n2.appendChild(s2); } s2.textContent = 'down';
-                                    let v2 = n2.querySelector('voice'); if (v2) v2.textContent = '1';
-                                    Array.from(n2.querySelectorAll('beam')).forEach(b => b.remove());
-                                    const b2 = doc.createElement('beam'); b2.setAttribute('number', '1'); b2.textContent = 'continue';
-                                    const notat2 = n2.querySelector('notations');
-                                    if (notat2) n2.insertBefore(b2, notat2); else n2.appendChild(b2);
-
-                                    const n3 = doc.createElement('note');
-                                    const pitch3 = doc.createElement('pitch');
-                                    const st3 = doc.createElement('step'); st3.textContent = 'F'; pitch3.appendChild(st3);
-                                    const al3 = doc.createElement('alter'); al3.textContent = '1'; pitch3.appendChild(al3);
-                                    const oc3 = doc.createElement('octave'); oc3.textContent = '3'; pitch3.appendChild(oc3);
-                                    n3.appendChild(pitch3);
-                                    const dur3 = doc.createElement('duration'); dur3.textContent = String(eighthDur); n3.appendChild(dur3);
-                                    const voice3 = doc.createElement('voice'); voice3.textContent = '1'; n3.appendChild(voice3);
-                                    const type3 = doc.createElement('type'); type3.textContent = 'eighth'; n3.appendChild(type3);
-                                    const stem3 = doc.createElement('stem'); stem3.textContent = 'down'; n3.appendChild(stem3);
-                                    const beam3 = doc.createElement('beam'); beam3.setAttribute('number', '1'); beam3.textContent = 'end'; n3.appendChild(beam3);
-
-                                    const backup = m.querySelector('backup');
-                                    if (backup) m.insertBefore(n3, backup); else m.appendChild(n3);
-                                }
-                            }
-
-                            const finalPitched = Array.from(m.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
-                            const slurGeomAttrs = ['default-x', 'default-y', 'bezier-x', 'bezier-y', 'bezier-x2', 'bezier-y2', 'orientation'];
-                            if (rests.length === 2 && finalPitched.length === 3 && finalPitched[0].querySelector('beam')) {
-                                if (mNum === '2') {
-                                    const fn1 = finalPitched[0];
-                                    let notat1 = fn1.querySelector('notations');
-                                    if (!notat1) {
-                                        notat1 = doc.createElement('notations');
-                                        fn1.appendChild(notat1);
-                                    }
-                                    let slur1 = notat1.querySelector('slur[number="1"]');
-                                    if (!slur1) {
-                                        slur1 = doc.createElement('slur');
-                                        slur1.setAttribute('number', '1');
-                                        notat1.appendChild(slur1);
-                                    }
-                                    slur1.setAttribute('type', 'start');
-                                    slur1.setAttribute('placement', 'above');
-                                    slurGeomAttrs.forEach(a => slur1.removeAttribute(a));
-                                    Array.from(notat1.querySelectorAll('slur')).forEach(s => {
-                                        if (s !== slur1 && s.getAttribute('placement') === 'below') s.remove();
-                                    });
-                                    finalPitched.slice(1).forEach(midN => {
-                                        const mNotat = midN.querySelector('notations');
-                                        if (mNotat) {
-                                            Array.from(mNotat.querySelectorAll('slur')).forEach(s => {
-                                                if ((s.getAttribute('number') === '1' && s.getAttribute('type') === 'start') || s.getAttribute('placement') === 'below') {
-                                                    s.remove();
-                                                }
-                                            });
-                                            if (mNotat.children.length === 0) mNotat.remove();
-                                        }
-                                    });
-                                } else if (mNum === '4') {
-                                    finalPitched.forEach(pn => {
-                                        const pnNotat = pn.querySelector('notations');
-                                        if (pnNotat) {
-                                            Array.from(pnNotat.querySelectorAll('slur[placement="below"]')).forEach(s => s.remove());
-                                            if (pnNotat.children.length === 0) pnNotat.remove();
-                                        }
-                                    });
-                                    const fn1 = finalPitched[0];
-                                    const notat1 = fn1.querySelector('notations');
-                                    if (notat1) {
-                                        const openSlurs = Array.from(notat1.querySelectorAll('slur[type="start"]'));
-                                        openSlurs.forEach(s => {
-                                            s.setAttribute('placement', 'above');
-                                            slurGeomAttrs.forEach(a => s.removeAttribute(a));
-                                        });
-                                        if (openSlurs.length > 0) {
-                                            const sNum = openSlurs[0].getAttribute('number') || '1';
-                                            if (!m.querySelector('slur[type="stop"][number="' + sNum + '"]')) {
-                                                const fn3 = finalPitched[finalPitched.length - 1];
-                                                let notat3 = fn3.querySelector('notations');
-                                                if (!notat3) {
-                                                    notat3 = doc.createElement('notations');
-                                                    fn3.appendChild(notat3);
-                                                }
-                                                const stopSlur = doc.createElement('slur');
-                                                stopSlur.setAttribute('type', 'stop');
-                                                stopSlur.setAttribute('number', sNum);
-                                                notat3.appendChild(stopSlur);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3.5. Dynamic Unresolved Incoming Tie Resolution across any measure
+                        // Dynamic Unresolved Incoming Tie Resolution across any measure
                         if (pitchedNotes.length === 0 && m.previousElementSibling) {
                             const prevM = m.previousElementSibling;
                             const prevNotes = Array.from(prevM.querySelectorAll('note')).filter(n => !n.querySelector('rest'));
@@ -2292,8 +1919,8 @@
                     osmd.calculator.__vxGuarded = true;
                 }
 
-                // Set to fully zoomed-out view by default
-                currentScoreZoom = 0.4;
+                // Set to comfortable, readable mobile zoom by default
+                currentScoreZoom = calculateFitToWidthZoom();
                 if ('zoom' in osmd) {
                     osmd.zoom = currentScoreZoom;
                 } else if ('Zoom' in osmd) {
@@ -2303,6 +1930,18 @@
                 }
 
                 osmd.render();
+
+                // Overflow guard: only step down zoom if a dense measure actually overflows container width
+                var containerW = renderDiv.clientWidth || window.innerWidth || 360;
+                var scrollW = renderDiv.scrollWidth || containerW;
+                if (scrollW > containerW + 8 && containerW > 0) {
+                    var targetW = Math.max(240, containerW - 12);
+                    var fittedZoom = Math.max(0.24, Math.min(currentScoreZoom, currentScoreZoom * (targetW / scrollW)));
+                    currentScoreZoom = Math.round(fittedZoom * 100) / 100;
+                    osmd.zoom = currentScoreZoom;
+                    if ('Zoom' in osmd) osmd.Zoom = currentScoreZoom;
+                    osmd.render();
+                }
 
                 // Resize canvas to match rendered score
                 resizeCanvas();
@@ -2373,38 +2012,52 @@
         };
 
         // ─── Dynamic Score Zoom Support ──────────────────────────────
-        let currentScoreZoom = 0.40;
+        // (calculateFitToWidthZoom and currentScoreZoom declared at state top)
 
         function applyZoom(newZoom) {
             if (!osmd) return;
-            currentScoreZoom = Math.max(0.20, Math.min(1.50, parseFloat(newZoom) || 0.40));
-            osmd.zoom = currentScoreZoom;
-            if ('Zoom' in osmd) osmd.Zoom = currentScoreZoom;
-            osmd.render();
-            resizeCanvas();
-            buildNoteMap();
-            layoutHash = computeLayoutHash();
-            if (window.VoxSightBridge) {
-                window.VoxSightBridge.onLayoutChanged(
-                    layoutHash,
-                    JSON.stringify(noteCoordinates)
-                );
+            var targetZoom = Math.max(0.20, Math.min(1.50, parseFloat(newZoom) || calculateFitToWidthZoom()));
+            currentScoreZoom = targetZoom;
+
+            if (zoomDebounceTimer) {
+                clearTimeout(zoomDebounceTimer);
             }
-            if (currentVisualFocus !== null) {
-                updateColorsAndRender();
-            }
+
+            zoomDebounceTimer = setTimeout(function () {
+                try {
+                    osmd.zoom = currentScoreZoom;
+                    if ('Zoom' in osmd) osmd.Zoom = currentScoreZoom;
+                    osmd.render();
+                    resizeCanvas();
+                    buildNoteMap();
+                    layoutHash = computeLayoutHash();
+                    if (window.VoxSightBridge) {
+                        window.VoxSightBridge.onLayoutChanged(
+                            layoutHash,
+                            JSON.stringify(noteCoordinates)
+                        );
+                    }
+                    if (currentVisualFocus !== null) {
+                        updateColorsAndRender();
+                    }
+                } catch (err) {
+                    console.error('[VoxSight] Error during debounced zoom render:', err);
+                } finally {
+                    zoomDebounceTimer = null;
+                }
+            }, 180);
         }
 
         window.zoomIn = function () {
-            applyZoom(currentScoreZoom + 0.10);
+            applyZoom(currentScoreZoom + 0.08);
         };
 
         window.zoomOut = function () {
-            applyZoom(currentScoreZoom - 0.10);
+            applyZoom(currentScoreZoom - 0.08);
         };
 
         window.zoomFit = function () {
-            applyZoom(0.40);
+            applyZoom(calculateFitToWidthZoom());
         };
 
         window.setZoom = function (val) {
@@ -2418,6 +2071,10 @@
         let touchStartY = 0;
         let touchStartTime = 0;
         let isPinchZooming = false;
+        let lastPinchEndTime = 0;
+        let pinchPendingZoom = null;
+        let pinchDebounceTimer = null;
+        let renderTargetDiv = null;
 
         function handleNoteTap(clientX, clientY) {
             if (!noteCoordinates || noteCoordinates.length === 0) return;
@@ -2477,16 +2134,32 @@
             scoreContainer.addEventListener('touchstart', function (e) {
                 if (e.touches.length === 2) {
                     isPinchZooming = true;
+                    touchStartTime = 0;
+                    if (pinchDebounceTimer) {
+                        clearTimeout(pinchDebounceTimer);
+                        pinchDebounceTimer = null;
+                    }
                     pinchInitialDist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
                     pinchBaseZoom = currentScoreZoom;
+                    pinchPendingZoom = currentScoreZoom;
+                    if (!renderTargetDiv) {
+                        renderTargetDiv = document.getElementById('osmd-render');
+                    }
+                    if (renderTargetDiv) {
+                        renderTargetDiv.style.transformOrigin = 'top left';
+                    }
                 } else if (e.touches.length === 1) {
-                    isPinchZooming = false;
-                    touchStartX = e.touches[0].clientX;
-                    touchStartY = e.touches[0].clientY;
-                    touchStartTime = Date.now();
+                    if (isPinchZooming || (Date.now() - lastPinchEndTime) < 350) {
+                        touchStartTime = 0;
+                    } else {
+                        isPinchZooming = false;
+                        touchStartX = e.touches[0].clientX;
+                        touchStartY = e.touches[0].clientY;
+                        touchStartTime = Date.now();
+                    }
                 }
             }, { passive: true });
 
@@ -2497,7 +2170,11 @@
                         e.touches[0].pageY - e.touches[1].pageY
                     );
                     const factor = dist / pinchInitialDist;
-                    applyZoom(pinchBaseZoom * factor);
+                    pinchPendingZoom = Math.max(0.20, Math.min(1.50, pinchBaseZoom * factor));
+                    if (renderTargetDiv) {
+                        const scale = pinchPendingZoom / pinchBaseZoom;
+                        renderTargetDiv.style.transform = 'scale(' + scale + ')';
+                    }
                 } else if (e.touches.length === 1 && !isPinchZooming) {
                     const dx = e.touches[0].clientX - touchStartX;
                     const dy = e.touches[0].clientY - touchStartY;
@@ -2511,13 +2188,31 @@
                 if (e.touches.length < 2) {
                     pinchInitialDist = null;
                 }
-                if (!isPinchZooming && touchStartTime > 0 && (Date.now() - touchStartTime) < 400) {
-                    const touch = e.changedTouches[0];
-                    if (touch) {
-                        handleNoteTap(touch.clientX, touch.clientY);
+                if (isPinchZooming && pinchPendingZoom !== null) {
+                    isPinchZooming = false;
+                    lastPinchEndTime = Date.now();
+                    touchStartTime = 0;
+                    if (pinchDebounceTimer) clearTimeout(pinchDebounceTimer);
+                    const targetZoom = pinchPendingZoom;
+                    pinchDebounceTimer = setTimeout(function () {
+                        if (renderTargetDiv) {
+                            renderTargetDiv.style.transform = 'none';
+                        }
+                        applyZoom(targetZoom);
+                        pinchDebounceTimer = null;
+                        pinchPendingZoom = null;
+                    }, 150);
+                } else {
+                    const timeSincePinch = Date.now() - lastPinchEndTime;
+                    if (!isPinchZooming && timeSincePinch > 350 && touchStartTime > 0 && (Date.now() - touchStartTime) < 400) {
+                        const touch = e.changedTouches[0];
+                        if (touch) {
+                            handleNoteTap(touch.clientX, touch.clientY);
+                        }
                     }
+                    touchStartTime = 0;
+                    isPinchZooming = false;
                 }
-                isPinchZooming = false;
             }, { passive: true });
 
             let mouseStartX = 0;
@@ -2659,12 +2354,14 @@
         function resizeCanvas() {
             const osmdDiv = document.getElementById('osmd-render');
             if (!osmdDiv) return;
-            const w = osmdDiv.offsetWidth;
-            const h = osmdDiv.offsetHeight;
+            const w = Math.max(osmdDiv.scrollWidth, osmdDiv.offsetWidth, osmdDiv.clientWidth);
+            const h = Math.max(osmdDiv.scrollHeight, osmdDiv.offsetHeight, osmdDiv.clientHeight);
             canvas.width = w;
             canvas.height = h;
             canvas.style.width = w + 'px';
             canvas.style.height = h + 'px';
+            canvas.style.top = '0px';
+            canvas.style.left = '0px';
         }
 
         /**
@@ -3249,9 +2946,13 @@
             console.log(`[VoxSight Renderer] Note map built: ${noteCoordinates.length} notes mapped and colored with 100% precision`);
         }
 
-        // ─── Tone.js Audio Synth (Fallback) ─────────────────────────────
+        // ─── Tone.js Audio Synth (Mastered Anti-Clipping Chain) ────────
         let synth = null;
         let synthStarted = false;
+        let synthReverb = null;
+        let synthMakeupGain = null;
+        let synthCompressor = null;
+        let synthLimiter = null;
 
         function ensureSynth() {
             if (!synth) {
@@ -3260,11 +2961,33 @@
                     if (Tone.context) {
                         Tone.context.lookAhead = 0.25; // Generous 250ms buffer to eliminate static/underruns on Android
                     }
+                    let masterBus = Tone.Destination;
+                    try {
+                        // Brickwall peak ceiling at -1.0 dBFS prevents digital clipping on multi-voice chords
+                        synthLimiter = new Tone.Limiter(-1.0).toDestination();
+                        // Soft-knee bus compressor tames polyphonic SATB + accompaniment peaks while keeping solo lines loud
+                        synthCompressor = new Tone.Compressor({
+                            threshold: -14,
+                            ratio: 3.5,
+                            attack: 0.008,
+                            release: 0.18,
+                            knee: 10
+                        }).connect(synthLimiter);
+                        // +3.2 dB makeup gain restores strong perceived loudness after per-voice headroom staging
+                        synthMakeupGain = new Tone.Gain(1.45).connect(synthCompressor);
+                        synthReverb = new Tone.Reverb({ decay: 1.6, wet: 0.20 }).connect(synthMakeupGain);
+                        masterBus = synthReverb;
+                    } catch (revErr) {
+                        console.warn("Master dynamics/reverb chain init notice:", revErr);
+                        masterBus = synthLimiter || Tone.Destination;
+                    }
                     synth = new Tone.PolySynth(Tone.Synth, {
+                        maxPolyphony: 24,
                         oscillator: { type: "triangle" },
-                        envelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 1 }
-                    }).toDestination();
-                    synth.volume.value = -10;
+                        envelope: { attack: 0.02, decay: 0.35, sustain: 0.45, release: 0.9 }
+                    }).connect(masterBus);
+                    // -6 dB per-voice headroom prevents internal summation overload before master makeup gain & compressor
+                    synth.volume.value = -6;
                     synthStarted = true;
                 } catch (e) {
                     console.warn("Failed to initialize Tone.js synth:", e);
@@ -3283,17 +3006,79 @@
             ensureSynth();
             if (synth) {
                 try {
-                    const rawVel = (velocity !== undefined && velocity !== null) ? Number(velocity) : 80;
+                    const rawVel = (velocity !== undefined && velocity !== null) ? Number(velocity) : 100;
                     if (rawVel <= 0) return;
-                    const vel = rawVel / 127.0;
+                    // Linear velocity scaling preserving exact 100% vocal (vel ~1.0) vs 35% accompaniment (vel ~0.35) balance
+                    const vel = Math.min(1.0, Math.max(0.20, rawVel / 100.0));
                     const freq = Tone.Frequency(midiNote, "midi").toFrequency();
-                    const dur = Math.max(0.1, (durationMs || 500) / 1000.0);
+                    const dur = Math.max(0.12, (durationMs || 500) / 1000.0);
                     synth.triggerAttackRelease(freq, dur, Tone.now(), vel);
                 } catch (e) {
                     console.warn("playNote error:", e);
                 }
             }
         }
+
+        window.emergencySilence = function () {
+            try {
+                if (synth) {
+                    synth.releaseAll();
+                }
+            } catch (e) {}
+        };
+
+        window.stopAudioAndRelease = function () {
+            try {
+                if (synth) {
+                    synth.releaseAll();
+                    synth.dispose();
+                    synth = null;
+                }
+                if (synthReverb) {
+                    try { synthReverb.dispose(); } catch (re) {}
+                    synthReverb = null;
+                }
+                if (synthMakeupGain) {
+                    try { synthMakeupGain.dispose(); } catch (ge) {}
+                    synthMakeupGain = null;
+                }
+                if (synthCompressor) {
+                    try { synthCompressor.dispose(); } catch (ce) {}
+                    synthCompressor = null;
+                }
+                if (synthLimiter) {
+                    try { synthLimiter.dispose(); } catch (le) {}
+                    synthLimiter = null;
+                }
+                synthStarted = false;
+                if (typeof Tone !== 'undefined') {
+                    if (Tone.Transport) {
+                        Tone.Transport.stop();
+                        Tone.Transport.cancel();
+                    }
+                    if (Tone.context && Tone.context.state !== 'closed') {
+                        Tone.context.close();
+                    }
+                }
+            } catch (e) {
+                console.warn('[VoxSight] stopAudioAndRelease error:', e);
+            }
+        };
+
+        window.pauseAudio = function () {
+            try {
+                if (synth) {
+                    synth.releaseAll();
+                }
+                if (typeof Tone !== 'undefined') {
+                    if (Tone.Transport && Tone.Transport.state === "started") {
+                        Tone.Transport.pause();
+                    }
+                }
+            } catch (e) {
+                console.warn('[VoxSight] pauseAudio error:', e);
+            }
+        };
 
         // ─── Highlight API (called from Android via WebView) ────────────
         window.currentPitchOverlay = { version: 0, notes: [] };

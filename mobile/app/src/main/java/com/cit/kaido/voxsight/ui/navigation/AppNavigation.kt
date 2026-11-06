@@ -78,7 +78,7 @@ fun AppNavigation() {
                     navController.navigate("review")
                 }
             }
-            com.cit.kaido.voxsight.ui.screens.upload.UploadManager.navigateToReview.value = false
+            com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
         }
     }
 
@@ -307,6 +307,7 @@ fun AppNavigation() {
                 onNavigateToReview = { musicXml, title ->
                     practiceViewModel.pendingMusicXml = musicXml
                     practiceViewModel.pendingScoreTitle = title
+                    com.cit.kaido.voxsight.ui.screens.upload.UploadManager.clearReadyState()
                     if (navController.currentDestination?.route != "review") {
                         uploadCoroutineScope.launch {
                             com.cit.kaido.voxsight.util.PremiumManager.consumeUploadCredit(context)

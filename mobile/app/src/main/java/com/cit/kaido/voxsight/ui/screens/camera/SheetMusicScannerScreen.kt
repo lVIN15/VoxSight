@@ -559,8 +559,9 @@ fun SheetMusicScannerScreen(
                                 )
                             } else {
                                 Button(
+                                    enabled = !isFinalizingPdf && !isProcessingCapture,
                                     onClick = {
-                                        if (capturedPages.isEmpty()) return@Button
+                                        if (capturedPages.isEmpty() || isFinalizingPdf || isProcessingCapture) return@Button
                                         isTorchOn = false
                                         try {
                                             currentCamera?.cameraControl?.enableTorch(false)

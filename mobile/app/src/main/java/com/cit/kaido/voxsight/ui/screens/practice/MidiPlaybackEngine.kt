@@ -151,6 +151,7 @@ open class MidiPlayerController(
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        webView.setBackgroundColor(android.graphics.Color.WHITE)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -158,10 +159,12 @@ open class MidiPlayerController(
             cacheMode = WebSettings.LOAD_NO_CACHE
             mediaPlaybackRequiresUserGesture = false
             
-            // Enable pinch-to-zoom
-            setSupportZoom(true)
-            builtInZoomControls = true
+            // Disable Android WebView built-in viewport zoom controls & desktop overview scaling to prevent conflict with OSMD / JS pinch zoom
+            setSupportZoom(false)
+            builtInZoomControls = false
             displayZoomControls = false
+            useWideViewPort = false
+            loadWithOverviewMode = false
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -299,11 +302,13 @@ open class MidiPlayerController(
     fun pause() {
         playbackState = "PAUSED"
         playbackEngine.pause()
+        webView.post { webView.evaluateJavascript("if (window.pauseAudio) window.pauseAudio();", null) }
     }
 
     fun stop() {
         playbackState = "STOPPED"
         playbackEngine.stop()
+        webView.post { webView.evaluateJavascript("if (window.stopAudioAndRelease) window.stopAudioAndRelease();", null) }
     }
 
 
@@ -527,7 +532,7 @@ open class MidiPlayerController(
     }
 
     override fun onNoteOn(event: MusicalEvent) {
-        onNoteOn(event, 80)
+        onNoteOn(event, 115)
     }
 
     override fun onNoteOff(event: MusicalEvent) {

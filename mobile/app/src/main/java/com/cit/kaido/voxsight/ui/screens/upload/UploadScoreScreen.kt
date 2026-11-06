@@ -162,13 +162,24 @@ fun UploadScoreScreen(
     val scrollState = rememberScrollState()
     val prefs = remember { context.getSharedPreferences("voxsight_prefs", Context.MODE_PRIVATE) }
 
-    // ── Processing state ────────────────────────────────────────
+    // ── Processing & Centralized Import Operation State ─────────
     val uploadStatus by UploadManager.uploadStatus.collectAsState()
+    val operationState by UploadManager.operationState.collectAsState()
     val uploadProgress by UploadManager.uploadProgress.collectAsState()
     val uploadPhaseText by UploadManager.uploadPhaseText.collectAsState()
     val processingFileName = UploadManager.pendingFileName ?: ""
-    val isProcessing = uploadStatus == UploadStatus.PROCESSING
-    val isReady = uploadStatus == UploadStatus.READY
+    val isProcessing = uploadStatus == UploadStatus.PROCESSING ||
+        operationState == ImportOperationState.IMPORTING ||
+        operationState == ImportOperationState.PROCESSING
+    val isReady = uploadStatus == UploadStatus.READY ||
+        operationState == ImportOperationState.READY
+    val isOperationBusy = operationState in setOf(
+        ImportOperationState.PICKER_OPENING,
+        ImportOperationState.PICKER_OPEN,
+        ImportOperationState.CAPTURING,
+        ImportOperationState.IMPORTING,
+        ImportOperationState.PROCESSING
+    ) || isProcessing
 
     var uploadCredits by remember {
         mutableIntStateOf(PremiumManager.getUploadCredits(context))
@@ -269,6 +280,12 @@ fun UploadScoreScreen(
                     PremiumManager.syncFromSupabase(context)
                     uploadCredits = PremiumManager.getUploadCredits(context)
                     profilePictureBase64 = prefs.getString("logged_in_profile_picture", null)
+                    // Defensive recovery: if the activity resumed while the file picker was marked open
+                    // and no ActivityResult callback arrived within 600ms, release the stale picker lock.
+                    if (UploadManager.operationState.value == ImportOperationState.PICKER_OPEN) {
+                        delay(600L)
+                        UploadManager.releaseStalePickerIfStillOpen(minElapsedMs = 500L)
+                    }
                 }
             }
         }
@@ -306,6 +323,8 @@ fun UploadScoreScreen(
                     activeErrorDialog = resolveErrorDialogData(error)
                 }
             )
+        } else {
+            UploadManager.onCaptureCancelledOrFailed()
         }
     }
 
@@ -313,7 +332,12 @@ fun UploadScoreScreen(
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
+        if (uri == null) {
+            // User cancelled or closed the system file manager without choosing a file
+            UploadManager.onPickerCancelledOrFailed()
+            return@rememberLauncherForActivityResult
+        }
+        uri.let {
             val fileName = getFileName(context, it)
             allowMusicXmlBypass = false
             selectedScore = null
@@ -390,6 +414,7 @@ fun UploadScoreScreen(
         if (granted) {
             showCustomScanner = true
         } else {
+            UploadManager.onCaptureCancelledOrFailed("Camera permission is required to scan sheet music.")
             activeErrorDialog = resolveErrorDialogData("Camera permission is required to scan sheet music.")
         }
     }
@@ -399,7 +424,10 @@ fun UploadScoreScreen(
     activeErrorDialog?.let { dialogData ->
         VoxErrorDialog(
             data = dialogData,
-            onDismiss = { activeErrorDialog = null }
+            onDismiss = {
+                activeErrorDialog = null
+                UploadManager.acknowledgeError()
+            }
         )
     }
 
@@ -479,6 +507,7 @@ fun UploadScoreScreen(
             },
             onClose = {
                 showCustomScanner = false
+                UploadManager.onCaptureCancelledOrFailed()
             }
         )
         return
@@ -621,26 +650,51 @@ fun UploadScoreScreen(
                 )
             }
 
-            val runIfUpToDate: (() -> Unit) -> Unit = { action ->
-                if (PremiumManager.getUploadCredits(context) <= 0) {
-                    showOutOfCreditsDialog = true
-                } else {
-                    coroutineScope.launch {
-                        val isOutdated = AppUpdateManager.checkIsUpdateRequired(context)
-                        if (!isOutdated) {
-                            action()
-                        }
-                    }
-                }
+            val takePhotoStatusText = when (operationState) {
+                ImportOperationState.CAPTURING -> "Opening camera..."
+                ImportOperationState.PICKER_OPENING,
+                ImportOperationState.PICKER_OPEN -> "File import in progress..."
+                ImportOperationState.IMPORTING -> "Importing score..."
+                ImportOperationState.PROCESSING -> "Digitizing score..."
+                else -> null
+            }
+
+            val importFileStatusText = when (operationState) {
+                ImportOperationState.PICKER_OPENING -> "Opening file manager..."
+                ImportOperationState.PICKER_OPEN -> "Waiting for file selection..."
+                ImportOperationState.CAPTURING -> "Camera scan in progress..."
+                ImportOperationState.IMPORTING -> "Importing selected file..."
+                ImportOperationState.PROCESSING -> "Digitizing score..."
+                else -> null
             }
 
             // ===== Take Photo Card =====
             ActionCard(
                 icon = Icons.Outlined.CameraAlt,
                 title = stringResource(R.string.take_photo_title),
-                subtitle = stringResource(R.string.take_photo_subtitle),
+                subtitle = takePhotoStatusText ?: stringResource(R.string.take_photo_subtitle),
+                enabled = !isOperationBusy,
+                isLoading = operationState == ImportOperationState.CAPTURING,
                 onClick = {
-                    runIfUpToDate {
+                    // Synchronous atomic state-manager lock — blocks duplicate taps & concurrent operations immediately
+                    if (!UploadManager.tryBeginCapturing()) return@ActionCard
+
+                    if (PremiumManager.getUploadCredits(context) <= 0) {
+                        UploadManager.onCaptureCancelledOrFailed()
+                        showOutOfCreditsDialog = true
+                        return@ActionCard
+                    }
+
+                    coroutineScope.launch {
+                        val isOutdated = kotlinx.coroutines.withTimeoutOrNull(1500L) {
+                            AppUpdateManager.checkIsUpdateRequired(context)
+                        } ?: AppUpdateManager.isUpdateRequired.value
+
+                        if (isOutdated) {
+                            UploadManager.onCaptureCancelledOrFailed()
+                            return@launch
+                        }
+
                         val hasPermission = ContextCompat.checkSelfPermission(
                             context, Manifest.permission.CAMERA
                         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -648,7 +702,11 @@ fun UploadScoreScreen(
                         if (hasPermission) {
                             showCustomScanner = true
                         } else {
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            try {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            } catch (e: Exception) {
+                                UploadManager.onCaptureCancelledOrFailed("Unable to request camera permission.")
+                            }
                         }
                     }
                 },
@@ -661,24 +719,84 @@ fun UploadScoreScreen(
             ActionCard(
                 icon = Icons.Outlined.FileUpload,
                 title = stringResource(R.string.import_file_title),
-                subtitle = stringResource(R.string.import_file_subtitle),
+                subtitle = importFileStatusText ?: stringResource(R.string.import_file_subtitle),
+                enabled = !isOperationBusy,
+                isLoading = operationState == ImportOperationState.PICKER_OPENING ||
+                    operationState == ImportOperationState.PICKER_OPEN ||
+                    operationState == ImportOperationState.IMPORTING,
                 onClick = {
-                    runIfUpToDate {
-                        // openGallery() — launch file picker for MusicXML, images, and PDFs
-                        filePickerLauncher.launch(
-                            arrayOf(
-                                "application/vnd.recordare.musicxml",
-                                "application/vnd.recordare.musicxml+xml",
-                                "application/xml",
-                                "text/xml",
-                                "image/*",
-                                "application/pdf"
+                    // Synchronous atomic state-manager lock — blocks repeated Import File presses immediately
+                    if (!UploadManager.tryBeginPickerOpening()) return@ActionCard
+
+                    if (PremiumManager.getUploadCredits(context) <= 0) {
+                        UploadManager.onPickerCancelledOrFailed()
+                        showOutOfCreditsDialog = true
+                        return@ActionCard
+                    }
+
+                    coroutineScope.launch {
+                        val isOutdated = kotlinx.coroutines.withTimeoutOrNull(1500L) {
+                            AppUpdateManager.checkIsUpdateRequired(context)
+                        } ?: AppUpdateManager.isUpdateRequired.value
+
+                        if (isOutdated) {
+                            UploadManager.onPickerCancelledOrFailed()
+                            return@launch
+                        }
+
+                        try {
+                            if (UploadManager.markPickerOpen()) {
+                                // openGallery() — launch file picker for MusicXML, images, and PDFs
+                                filePickerLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.recordare.musicxml",
+                                        "application/vnd.recordare.musicxml+xml",
+                                        "application/xml",
+                                        "text/xml",
+                                        "image/*",
+                                        "application/pdf"
+                                    )
+                                )
+                            }
+                        } catch (e: Exception) {
+                            UploadManager.onPickerCancelledOrFailed(
+                                "Unable to open the device file manager. Please try again."
                             )
-                        )
+                            activeErrorDialog = resolveErrorDialogData(
+                                "Unable to open the device file manager. Please try again."
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.spotlightTarget(uploadTourState, "import_file")
             )
+
+            // ===== Processing/Ready Status Card (prominently positioned right below action buttons) =====
+            AnimatedVisibility(
+                visible = isProcessing || isReady,
+                enter = fadeIn() + slideInVertically { it / 2 }
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    ProcessingCard(
+                        fileName = processingFileName.ifBlank { "Selected Score" },
+                        progress = uploadProgress,
+                        phaseText = uploadPhaseText,
+                        isReady = isReady,
+                        bypassEnabled = allowMusicXmlBypass,
+                        onBypass = {
+                            selectedScore = lastParsedScore
+                            selectedScore?.let { onNavigateToPractice(it) }
+                        },
+                        onReadyClick = {
+                            UploadManager.pendingMusicXml?.let { xml ->
+                                val title = UploadManager.pendingScoreTitle ?: deriveTitleFromFileName(processingFileName)
+                                onNavigateToReview(xml, title)
+                            }
+                        }
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -888,32 +1006,6 @@ fun UploadScoreScreen(
                     },
                     containerColor = Color.White,
                     shape = RoundedCornerShape(16.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ===== Processing/Ready Status Card (animated entry) =====
-            AnimatedVisibility(
-                visible = isProcessing || isReady,
-                enter = fadeIn() + slideInVertically { it / 2 }
-            ) {
-                ProcessingCard(
-                    fileName = processingFileName,
-                    progress = uploadProgress,
-                    phaseText = uploadPhaseText,
-                    isReady = isReady,
-                    bypassEnabled = allowMusicXmlBypass,
-                    onBypass = {
-                        selectedScore = lastParsedScore
-                        selectedScore?.let { onNavigateToPractice(it) }
-                    },
-                    onReadyClick = {
-                        UploadManager.pendingMusicXml?.let { xml ->
-                            val title = UploadManager.pendingScoreTitle ?: deriveTitleFromFileName(processingFileName)
-                            onNavigateToReview(xml, title)
-                        }
-                    }
                 )
             }
 
@@ -1168,7 +1260,7 @@ private fun TopBar(
 
 /**
  * Reusable action card for "Take Photo" and "Import File".
- * Center-aligned icon circle + title + subtitle.
+ * Center-aligned icon circle + title + subtitle, with disabled and loading visual states.
  */
 @Composable
 private fun ActionCard(
@@ -1176,35 +1268,53 @@ private fun ActionCard(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isLoading: Boolean = false
 ) {
+    val cardAlpha = if (enabled) 1f else 0.55f
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(VoxCardBackground)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(color = VoxPurplePrimary),
-                onClick = onClick
+            .background(VoxCardBackground.copy(alpha = cardAlpha))
+            .then(
+                if (enabled) {
+                    Modifier.clickable(
+                        enabled = true,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(color = VoxPurplePrimary),
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
             )
             .padding(vertical = 18.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Icon circle
+        // Icon circle or active progress spinner
         Box(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(VoxPurpleIconBg),
+                .background(VoxPurpleIconBg.copy(alpha = cardAlpha)),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.material3.Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = VoxPurplePrimary,
-                modifier = Modifier.size(24.dp)
-            )
+            if (isLoading) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = VoxPurplePrimary,
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(22.dp)
+                )
+            } else {
+                androidx.compose.material3.Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = VoxPurplePrimary.copy(alpha = cardAlpha),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -1212,7 +1322,7 @@ private fun ActionCard(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = VoxTextPrimary
+            color = VoxTextPrimary.copy(alpha = cardAlpha)
         )
 
         Spacer(modifier = Modifier.height(2.dp))
@@ -1220,7 +1330,7 @@ private fun ActionCard(
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodyMedium,
-            color = VoxTextSubtitle
+            color = if (isLoading) VoxPurplePrimary else VoxTextSubtitle.copy(alpha = cardAlpha)
         )
     }
 }
@@ -1617,7 +1727,9 @@ private fun onImageCaptured(
     onError: (String) -> Unit
 ) {
     if (!validateImageQuality(imageUri)) {
-        onError("Image quality is too low. Please capture a clearer photo.")
+        val msg = "Image quality is too low. Please capture a clearer photo."
+        UploadManager.markFailed(msg)
+        onError(msg)
         return
     }
 

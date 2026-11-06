@@ -1835,7 +1835,12 @@ def analyze(xml_path: str) -> dict:
                 if element.isNote:
                     notes_to_process = [element]
                 elif element.isChord:
-                    notes_to_process = list(element)
+                    chord_notes = list(element)
+                    notes_with_lyrics = []
+                    if notes_with_lyrics:
+                        notes_to_process = notes_with_lyrics
+                    else:
+                        notes_to_process = chord_notes
 
                 for note_obj in notes_to_process:
                     pitch_midi = note_obj.pitch.midi
