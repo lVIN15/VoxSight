@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.automirrored.outlined.Redo
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
@@ -87,6 +89,7 @@ data class SelectedMultiRestInfo(
 @Composable
 fun ScoreReviewScreen(
     musicXml: String,
+    originalScoreUri: String? = null,
     onConfirm: (String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -94,6 +97,7 @@ fun ScoreReviewScreen(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var selectedNote by remember { mutableStateOf<SelectedNoteInfo?>(null) }
     var showNoteBottomSheet by remember { mutableStateOf(false) }
+    var showOriginalScoreSheet by remember { mutableStateOf(false) }
     var selectedMultiRest by remember { mutableStateOf<SelectedMultiRestInfo?>(null) }
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
@@ -246,6 +250,15 @@ fun ScoreReviewScreen(
                                 contentDescription = "Redo",
                                 tint = if (canRedo) VoxPurplePrimary else Color.LightGray
                             )
+                        }
+                        if (!originalScoreUri.isNullOrBlank()) {
+                            IconButton(onClick = { showOriginalScoreSheet = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Visibility,
+                                    contentDescription = "Compare with Original Scan",
+                                    tint = VoxPurplePrimary
+                                )
+                            }
                         }
                         if (selectedNote != null) {
                             IconButton(onClick = { showNoteBottomSheet = true }) {
@@ -507,6 +520,33 @@ fun ScoreReviewScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                // Floating Original Score Button
+                if (!originalScoreUri.isNullOrBlank()) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(if (isFullscreen) 16.dp else 10.dp)
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                showOriginalScoreSheet = true
+                            },
+                        color = Color.White.copy(alpha = 0.94f),
+                        shadowElevation = 6.dp,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Visibility,
+                                contentDescription = "Compare with Original Scan",
+                                tint = VoxPurplePrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
                 // Floating Fullscreen / Exit Fullscreen Button
                 Surface(
                     modifier = Modifier
@@ -676,7 +716,20 @@ fun ScoreReviewScreen(
         }
 
         // Show Edit sheet only if user explicitly requested note details & lyrics
-        if (showNoteBottomSheet) {
+        if (showOriginalScoreSheet && !originalScoreUri.isNullOrBlank()) {
+        ModalBottomSheet(
+            onDismissRequest = { showOriginalScoreSheet = false },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+        ) {
+            OriginalScoreViewer(
+                uriString = originalScoreUri,
+                onClose = { showOriginalScoreSheet = false }
+            )
+        }
+    }
+
+    if (showNoteBottomSheet) {
             selectedNote?.let { note ->
                 NoteEditorBottomSheet(
                     noteId = note.id,
@@ -1235,4 +1288,119 @@ fun extractScorePartLegendItems(
         ScorePartLegendItem("T", "Tenor", Color(0xFF2563EB)),
         ScorePartLegendItem("B", "Bass", Color(0xFF16A34A))
     )
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OriginalScoreViewer(
+    uriString: String,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentPage by remember { mutableIntStateOf(0) }
+    var totalPages by remember { mutableIntStateOf(1) }
+    var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(uriString, currentPage) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val uri = android.net.Uri.parse(uriString)
+                val isPdf = uriString.endsWith(".pdf", ignoreCase = true) ||
+                        context.contentResolver.getType(uri)?.contains("pdf") == true
+                if (isPdf) {
+                    val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                    if (pfd != null) {
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        totalPages = renderer.pageCount
+                        val safePage = currentPage.coerceIn(0, totalPages - 1)
+                        val page = renderer.openPage(safePage)
+                        val bmp = android.graphics.Bitmap.createBitmap(page.width, page.height, android.graphics.Bitmap.Config.ARGB_8888)
+                        page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        renderer.close()
+                        pfd.close()
+                        bitmap = bmp
+                    } else {
+                        errorMessage = "Could not open document"
+                    }
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        bitmap = android.graphics.BitmapFactory.decodeStream(stream)
+                    }
+                }
+            } catch (e: Exception) {
+                errorMessage = "Could not load preview: ${e.message}"
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.88f)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Original Uploaded Score",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    color = VoxTextPrimary
+                )
+                Text(
+                    text = "Reference document for verification",
+                    fontSize = androidx.compose.ui.unit.TextUnit(12f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    color = VoxTextSubtitle
+                )
+            }
+            if (totalPages > 1) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { if (currentPage > 0) currentPage-- },
+                        enabled = currentPage > 0
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Page")
+                    }
+                    Text("${currentPage + 1} / $totalPages", fontWeight = FontWeight.Bold)
+                    IconButton(
+                        onClick = { if (currentPage < totalPages - 1) currentPage++ },
+                        enabled = currentPage < totalPages - 1
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Page")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = "Original Score Page",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                )
+            } else if (errorMessage != null) {
+                Text(errorMessage!!, color = Color.Gray)
+            } else {
+                CircularProgressIndicator(color = VoxPurplePrimary)
+            }
+        }
+    }
 }

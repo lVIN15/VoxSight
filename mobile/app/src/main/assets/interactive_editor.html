@@ -266,326 +266,416 @@
             transform: translateX(-50%) scale(1.08);
         }
 
-        /* ─── Sleek Floating Edge Tab (Docked on Left Side) ─── */
-        #side-toolbox-tab {
+        /* ─── Soundslice-Inspired Music Editing Deck (Docked at Bottom) ─── */
+        .soundslice-deck {
             position: fixed;
-            left: 0;
-            top: 42%;
-            transform: translateY(-50%);
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding: 8px 8px 8px 5px;
-            background: #5B2D8E;
-            color: #FFFFFF;
-            border-radius: 0 16px 16px 0;
-            box-shadow: 2px 3px 12px rgba(91, 45, 142, 0.32);
-            cursor: pointer;
-            z-index: 380;
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: manipulation;
-            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease;
-        }
-
-        #side-toolbox-tab:hover {
-            background: #7C3AED;
-            transform: translateY(-50%) scale(1.05);
-        }
-
-        #side-toolbox-tab:active {
-            transform: translateY(-50%) scale(0.95);
-        }
-
-        .tab-icon {
-            font-size: 14px;
-            line-height: 1;
-        }
-
-        .tab-label {
-            font-size: 9.5px;
-            font-weight: 800;
-            letter-spacing: 0.3px;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-            transform: rotate(180deg);
-        }
-
-        .tab-arrow {
-            font-size: 9px;
-            font-weight: 800;
-            opacity: 0.8;
-            margin-left: -1px;
-        }
-
-        /* ─── Backdrop Tint Overlay ─── */
-        .side-toolbox-backdrop {
-            position: fixed;
-            top: 0;
+            bottom: 0;
             left: 0;
             right: 0;
-            bottom: 0;
-            background: rgba(15, 7, 28, 0.35);
-            z-index: 550;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.22s ease;
-        }
-
-        .side-toolbox-backdrop.visible {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        /* ─── Side Music Toolbox Drawer ("where everything is there") ─── */
-        .side-toolbox-panel {
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: 225px;
-            max-width: 82vw;
             background: #FFFFFF;
-            border-right: 1.5px solid #E4D8F0;
-            box-shadow: 4px 0 24px rgba(91, 45, 142, 0.18);
-            z-index: 600;
+            border-top: 1.5px solid #DED4E8;
+            box-shadow: 0 -4px 18px rgba(45, 20, 80, 0.12);
+            z-index: 500;
             display: flex;
             flex-direction: column;
-            transform: translateX(-100%);
-            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            transform: translateY(110%);
+            transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
             user-select: none;
             -webkit-user-select: none;
+            padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
         }
 
-        .side-toolbox-panel.open {
-            transform: translateX(0);
+        .soundslice-deck.visible {
+            transform: translateY(0);
         }
 
-        .toolbox-header {
+        /* Row 1: Note Context & Sequential Navigation Bar */
+        .deck-nav-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 14px;
-            border-bottom: 1px solid #EDE5F4;
+            padding: 6px 10px;
             background: #F9F6FC;
+            border-bottom: 1px solid #ECE3F5;
+            gap: 6px;
         }
 
-        .toolbox-header-title {
+        .deck-nav-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 32px;
+            padding: 0 10px;
+            background: #EDE5F4;
+            color: #4C2278;
+            border: 1px solid #D6C8E6;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .deck-nav-btn:hover {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-color: #5B2D8E;
+        }
+
+        .deck-nav-btn:active {
+            transform: scale(0.94);
+        }
+
+        .deck-note-info {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 13px;
-            font-weight: 800;
-            color: #5B2D8E;
+            flex-shrink: 0;
         }
 
-        .toolbox-close-btn {
+        .deck-pitch-badge {
+            font-size: 14px;
+            font-weight: 800;
+            color: #FFFFFF;
+            background: #5B2D8E;
+            padding: 3px 9px;
+            border-radius: 6px;
+            letter-spacing: 0.3px;
+            min-width: 32px;
+            text-align: center;
+            box-shadow: 0 1px 4px rgba(91, 45, 142, 0.25);
+            cursor: pointer;
+        }
+
+        .deck-meas-badge {
+            font-size: 11px;
+            font-weight: 700;
+            color: #605273;
+            background: #EFE9F5;
+            padding: 3px 6px;
+            border-radius: 4px;
+        }
+
+        .deck-voice-badge {
+            font-size: 11px;
+            font-weight: 800;
+            padding: 3px 7px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .deck-voice-badge.voice-s { background: #FFE4E6; color: #BE123C; }
+        .deck-voice-badge.voice-a { background: #F3E8FF; color: #7E22CE; }
+        .deck-voice-badge.voice-t { background: #DBEAFE; color: #1D4ED8; }
+        .deck-voice-badge.voice-b { background: #DCFCE7; color: #15803D; }
+        .deck-voice-badge.voice-other { background: #F1F5F9; color: #475569; }
+
+        .deck-oct-controls {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            flex-shrink: 0;
+        }
+
+        .deck-oct-btn {
+            height: 30px;
+            padding: 0 7px;
             background: #EDE5F4;
             color: #5B2D8E;
+            border: 1px solid #D6C8E6;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .deck-oct-btn:hover {
+            background: #5B2D8E;
+            color: #FFFFFF;
+        }
+
+        .deck-piano-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            height: 30px;
+            padding: 0 8px;
+            background: #EDE5F4;
+            color: #5B2D8E;
+            border: 1px solid #D6C8E6;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .deck-piano-toggle.active {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-color: #5B2D8E;
+        }
+
+        .deck-close-btn {
+            background: transparent;
+            color: #8A7A9E;
             border: none;
-            width: 26px;
-            height: 26px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 11px;
-            font-weight: 800;
+            font-size: 13px;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.15s ease;
+            transition: all 0.12s ease;
         }
 
-        .toolbox-close-btn:hover {
-            background: #E0D4ED;
+        .deck-close-btn:hover {
+            background: #EAE1F2;
             color: #3E1A63;
         }
 
-        .toolbox-body {
-            padding: 10px 12px;
-            overflow-y: auto;
+        /* Row 1b: Expandable Mini Piano Strip (Soundslice Style) */
+        .soundslice-piano-strip {
+            display: none;
+            overflow-x: auto;
             -webkit-overflow-scrolling: touch;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            flex: 1;
+            padding: 6px 10px;
+            background: #25232A;
+            border-bottom: 1px solid #3E3B46;
         }
 
-        .toolbox-section {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
+        .soundslice-piano-strip.open {
+            display: block;
         }
 
-        .toolbox-section-label {
-            font-size: 10px;
+        .piano-keys-track {
+            display: inline-flex;
+            position: relative;
+            height: 64px;
+            padding: 0;
+            margin: 0 auto;
+        }
+
+        .piano-white-key {
+            width: 25px;
+            height: 64px;
+            background: #FFFFFF;
+            border: 1px solid #CBD5E1;
+            border-radius: 0 0 3px 3px;
+            position: relative;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 4px;
+            font-size: 9px;
             font-weight: 800;
-            color: #8A7A9E;
+            color: #64748B;
+            cursor: pointer;
+            box-shadow: inset 0 -2px 0 #E2E8F0;
+        }
+
+        .piano-white-key:active, .piano-white-key.active-press {
+            background: #D8B4FE;
+            color: #581C87;
+        }
+
+        .piano-black-key {
+            width: 17px;
+            height: 40px;
+            background: #1E293B;
+            border-radius: 0 0 2px 2px;
+            position: absolute;
+            top: 0;
+            z-index: 10;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        }
+
+        .piano-black-key:active, .piano-black-key.active-press {
+            background: #7C3AED;
+        }
+
+        /* Row 2: Musical Glyph Editing Toolbar */
+        .deck-toolbar-scroll {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+
+        .deck-toolbar-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .deck-tool-group {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            background: #F7F4FA;
+            padding: 2px 4px;
+            border-radius: 6px;
+            border: 1px solid #ECE3F5;
+            flex-shrink: 0;
+        }
+
+        .deck-group-label {
+            font-size: 8.5px;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.4px;
+            color: #9283A4;
+            padding: 0 3px;
         }
 
-        .toolbox-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 6px;
-        }
-
-        .palette-chip {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding: 6px 8px;
-            background: #F7F3FB;
-            border: 1px solid #E4D8F0;
-            border-radius: 10px;
-            font-size: 11px;
+        .deck-glyph-btn {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 4px;
+            background: #FFFFFF;
+            color: #2D1A45;
+            border: 1px solid #DED4E8;
+            border-radius: 5px;
+            font-size: 17px;
             font-weight: 700;
-            color: #554A66;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            touch-action: none;
-        }
-
-        .palette-chip:hover {
-            background: #EDE5F4;
-            color: #5B2D8E;
-            border-color: #5B2D8E;
-            transform: translateY(-1px);
-        }
-
-        .palette-chip.active {
-            background: #5B2D8E;
-            border-color: #5B2D8E;
-            color: #FFFFFF;
-            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.3);
-        }
-
-        .palette-chip:active {
-            transform: scale(0.94);
-        }
-
-        .chip-glyph {
-            font-size: 14px;
             line-height: 1;
-        }
-
-        .chip-name {
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.2px;
-        }
-
-        .toolbox-action-btn {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 7px 9px;
-            background: #F7F3FB;
-            border: 1px solid #E4D8F0;
-            border-radius: 10px;
-            color: #3E1A63;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            text-align: left;
-        }
-
-        .toolbox-action-btn:hover {
-            background: #EDE5F4;
-            border-color: #5B2D8E;
-            transform: translateY(-1px);
-        }
-
-        .toolbox-action-btn:active {
-            transform: scale(0.95);
-        }
-
-        .tool-icon {
-            font-size: 15px;
-            line-height: 1;
-            color: #5B2D8E;
-            font-weight: 800;
-        }
-
-        .toolbox-voice-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 4px;
-        }
-
-        .toolbox-voice-chip {
-            padding: 6px 0;
-            text-align: center;
-            background: #F7F3FB;
-            border: 1px solid #E4D8F0;
-            border-radius: 8px;
-            font-size: 11px;
-            font-weight: 800;
-            color: #5B2D8E;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .toolbox-voice-chip:hover {
-            background: #5B2D8E;
-            color: #FFFFFF;
-        }
-
-        .toolbox-actions-row {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 6px;
-            margin-top: 4px;
-        }
-
-        .toolbox-wide-btn {
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 5px;
-            padding: 7px 6px;
-            background: #F7F3FB;
-            border: 1px solid #E4D8F0;
-            border-radius: 10px;
-            color: #5B2D8E;
-            font-size: 10.5px;
-            font-weight: 700;
             cursor: pointer;
-            transition: all 0.15s ease;
+            transition: all 0.12s ease;
+            touch-action: manipulation;
         }
 
-        .toolbox-wide-btn:hover {
+        .deck-glyph-btn:hover {
             background: #EDE5F4;
+            border-color: #5B2D8E;
+            color: #5B2D8E;
         }
 
-        .toolbox-delete-btn {
-            background: #FEE2E2;
-            border-color: #FECACA;
-            color: #DC2626;
-        }
-
-        .toolbox-delete-btn:hover {
-            background: #DC2626;
+        .deck-glyph-btn.active {
+            background: #5B2D8E;
+            border-color: #5B2D8E;
             color: #FFFFFF;
         }
 
-        /* ─── Low-End Mobile Responsiveness ─── */
+        .deck-glyph-btn:active {
+            transform: scale(0.92);
+        }
+
+        .deck-voice-chip {
+            width: 28px;
+            height: 32px;
+            background: #FFFFFF;
+            border: 1px solid #DED4E8;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 800;
+            color: #5B2D8E;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .deck-voice-chip:hover {
+            background: #5B2D8E;
+            color: #FFFFFF;
+        }
+
+        .deck-voice-chip.v-s { color: #BE123C; }
+        .deck-voice-chip.v-a { color: #7E22CE; }
+        .deck-voice-chip.v-t { color: #1D4ED8; }
+        .deck-voice-chip.v-b { color: #15803D; }
+
+        .deck-action-btn {
+            height: 34px;
+            padding: 0 7px;
+            background: #FFFFFF;
+            border: 1px solid #DED4E8;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #4A3B5E;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .deck-action-btn:hover {
+            background: #EDE5F4;
+            color: #5B2D8E;
+        }
+
+        .deck-action-btn.btn-delete {
+            background: #FFF1F2;
+            border-color: #FECDD3;
+            color: #E11D48;
+        }
+
+        .deck-action-btn.btn-delete:hover {
+            background: #E11D48;
+            color: #FFFFFF;
+        }
+
+        .deck-divider {
+            width: 1px;
+            height: 20px;
+            background: #E2D9EE;
+            flex-shrink: 0;
+            margin: 0 1px;
+        }
+
+        /* ─── Desktop Optimization (@media min-width: 768px) ─── */
+        @media (min-width: 768px) {
+            .soundslice-deck {
+                max-width: 820px;
+                left: 50%;
+                right: auto;
+                transform: translate(-50%, 110%);
+                border-radius: 12px 12px 0 0;
+                border: 1.5px solid #DED4E8;
+                border-bottom: none;
+            }
+
+            .soundslice-deck.visible {
+                transform: translate(-50%, 0);
+            }
+
+            .deck-toolbar-scroll {
+                justify-content: center;
+                overflow-x: visible;
+            }
+        }
+
+        /* Narrow Screen Support */
         @media (max-width: 480px) {
-            .note-micro-hud {
-                gap: 2px;
-                padding: 2px 4px;
+            .deck-nav-btn .nav-label {
+                display: none;
             }
 
-            .hud-btn {
-                width: 24px;
-                height: 24px;
-                font-size: 11px;
+            .deck-glyph-btn {
+                min-width: 31px;
+                height: 31px;
+                font-size: 15px;
             }
 
-            .hud-note-badge {
-                font-size: 10px;
-                padding: 1px 5px;
+            .deck-pitch-badge {
+                font-size: 13px;
+                padding: 2px 7px;
             }
         }
         
@@ -1013,113 +1103,114 @@
         <span id="palette-ghost-type">Quarter</span>
     </div>
 
-    <!-- Sleek Floating Edge Tab (Docked on Left Side) -->
-    <div id="side-toolbox-tab" onclick="toggleSideToolbox()" title="Open Music Toolbox">
-        <span class="tab-icon">🛠️</span>
-        <span class="tab-label">Tools</span>
-        <span class="tab-arrow">❯</span>
-    </div>
+    <!-- Soundslice-Inspired Music Editing Deck (Docked at Bottom) -->
+    <div id="soundslice-deck" class="soundslice-deck">
+        <!-- Row 1: Note Selection & Sequential Navigation Bar -->
+        <div class="deck-nav-row">
+            <button id="deck-btn-prev" class="deck-nav-btn" onclick="stepNote(-1)" title="Previous Note (◀)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span class="nav-label">Prev</span>
+            </button>
 
-    <!-- Dark Dim Backdrop Overlay -->
-    <div id="side-toolbox-backdrop" class="side-toolbox-backdrop" onclick="closeSideToolbox()"></div>
-
-    <!-- Side Music Toolbox Drawer ("where everything is there") -->
-    <div id="side-toolbox-panel" class="side-toolbox-panel">
-        <div class="toolbox-header">
-            <div class="toolbox-header-title">
-                <span class="header-icon">🎵</span>
-                <span>Music Tools</span>
+            <div class="deck-note-info">
+                <span id="deck-note-pitch" class="deck-pitch-badge" onclick="cycleSelectedNoteAccidental()" title="Selected Pitch (Tap to cycle accidental)">--</span>
+                <span id="deck-note-meas" class="deck-meas-badge">M.1</span>
+                <span id="deck-note-voice" class="deck-voice-badge voice-s">S</span>
             </div>
-            <button class="toolbox-close-btn" onclick="closeSideToolbox()" title="Close Drawer">✕</button>
+
+            <button id="deck-btn-next" class="deck-nav-btn" onclick="stepNote(1)" title="Next Note (▶)">
+                <span class="nav-label">Next</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </button>
+
+            <div class="deck-divider"></div>
+
+            <div class="deck-oct-controls">
+                <button id="deck-btn-oct-down" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(-1)" title="Lower Octave (-8va)">8va ▼</button>
+                <button id="deck-btn-oct-up" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(1)" title="Higher Octave (+8va)">8va ▲</button>
+            </div>
+
+            <button id="deck-btn-piano" class="deck-piano-toggle" onclick="togglePianoStrip()" title="Toggle Visual Piano Strip">
+                <span>🎹</span>
+                <span>Piano</span>
+            </button>
+
+            <button id="deck-btn-close" class="deck-close-btn" onclick="deselectNote()" title="Deselect Note (Esc)">✕</button>
         </div>
 
-        <div class="toolbox-body">
-            <!-- Section 1: Note Values & Rests -->
-            <div class="toolbox-section">
-                <div class="toolbox-section-label">Notes & Rests</div>
-                <div class="toolbox-grid">
-                    <div class="palette-chip" data-type="whole" title="Whole Note (1)">
-                        <span class="chip-glyph">𝅝</span>
-                        <span class="chip-name">Whole</span>
-                    </div>
-                    <div class="palette-chip" data-type="half" title="Half Note (1/2)">
-                        <span class="chip-glyph">𝅗</span>
-                        <span class="chip-name">Half</span>
-                    </div>
-                    <div class="palette-chip active" data-type="quarter" title="Quarter Note (1/4)">
-                        <span class="chip-glyph">𝅘</span>
-                        <span class="chip-name">Quarter</span>
-                    </div>
-                    <div class="palette-chip" data-type="eighth" title="8th Note (1/8)">
-                        <span class="chip-glyph">𝅙</span>
-                        <span class="chip-name">8th</span>
-                    </div>
-                    <div class="palette-chip" data-type="16th" title="16th Note (1/16)">
-                        <span class="chip-glyph">𝅚</span>
-                        <span class="chip-name">16th</span>
-                    </div>
-                    <div class="palette-chip" data-type="rest" title="Rest">
-                        <span class="chip-glyph">𝄽</span>
-                        <span class="chip-name">Rest</span>
-                    </div>
-                </div>
+        <!-- Row 1b: Expandable Visual Mini-Piano Strip (Soundslice Style) -->
+        <div id="soundslice-piano-strip" class="soundslice-piano-strip">
+            <div id="piano-keys-track" class="piano-keys-track">
+                <!-- Dynamically generated 2-octave piano keys -->
+            </div>
+        </div>
+
+        <!-- Row 2: Musical Glyph Editing Toolbar -->
+        <div class="deck-toolbar-scroll">
+            <!-- Group 1: Note Values -->
+            <div class="deck-tool-group">
+                <span class="deck-group-label">Notes</span>
+                <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">𝅝</button>
+                <button class="deck-glyph-btn" data-type="half" onclick="applyDurationTool('half', false)" title="Half Note">𝅗</button>
+                <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">𝅘</button>
+                <button class="deck-glyph-btn" data-type="eighth" onclick="applyDurationTool('eighth', false)" title="8th Note">𝅙</button>
+                <button class="deck-glyph-btn" data-type="16th" onclick="applyDurationTool('16th', false)" title="16th Note">𝅚</button>
             </div>
 
-            <!-- Section 2: Curves & Phrasing ("the curve thingy") -->
-            <div class="toolbox-section">
-                <div class="toolbox-section-label">Curves & Phrasing</div>
-                <div class="toolbox-grid">
-                    <button id="tool-btn-slur" class="toolbox-action-btn" onclick="applySlurTool()" title="Add / Remove Slur Curve">
-                        <span class="tool-icon">⁀</span>
-                        <span class="tool-label">Slur Curve</span>
-                    </button>
-                    <button id="tool-btn-tie" class="toolbox-action-btn" onclick="applyTieTool()" title="Add / Remove Tie Curve">
-                        <span class="tool-icon">𝆢</span>
-                        <span class="tool-label">Tie Curve</span>
-                    </button>
-                </div>
+            <div class="deck-divider"></div>
+
+            <!-- Group 2: Rests (Including Whole-Measure Rest) -->
+            <div class="deck-tool-group">
+                <span class="deck-group-label">Rests</span>
+                <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">𝄻</button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">𝄼</button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">𝄽</button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">𝄾</button>
             </div>
 
-            <!-- Section 3: Accidentals & Modifiers -->
-            <div class="toolbox-section">
-                <div class="toolbox-section-label">Accidentals & Dots</div>
-                <div class="toolbox-grid">
-                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">
-                        <span class="tool-icon">♯</span>
-                        <span class="tool-label">Sharp</span>
-                    </button>
-                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">
-                        <span class="tool-icon">♭</span>
-                        <span class="tool-label">Flat</span>
-                    </button>
-                    <button class="toolbox-action-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">
-                        <span class="tool-icon">♮</span>
-                        <span class="tool-label">Natural</span>
-                    </button>
-                    <button class="toolbox-action-btn" onclick="applyDotTool()" title="Toggle Dotted Note">
-                        <span class="tool-icon">·</span>
-                        <span class="tool-label">Dot</span>
-                    </button>
-                </div>
+            <div class="deck-divider"></div>
+
+            <!-- Group 3: Accidentals & Dot -->
+            <div class="deck-tool-group">
+                <span class="deck-group-label">Mod</span>
+                <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">♯</button>
+                <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">♭</button>
+                <button id="deck-btn-natural" class="deck-glyph-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">♮</button>
+                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">·</button>
             </div>
 
-            <!-- Section 4: Voice & Details -->
-            <div class="toolbox-section">
-                <div class="toolbox-section-label">Voice & Details</div>
-                <div class="toolbox-voice-row">
-                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('S')" title="Soprano">S</button>
-                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('A')" title="Alto">A</button>
-                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('T')" title="Tenor">T</button>
-                    <button class="toolbox-voice-chip" onclick="applyVoiceTool('B')" title="Bass">B</button>
-                </div>
-                <div class="toolbox-actions-row">
-                    <button class="toolbox-wide-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">
-                        <span>✏️ Lyrics</span>
-                    </button>
-                    <button class="toolbox-wide-btn toolbox-delete-btn" onclick="deleteSelectedNote()" title="Delete Element">
-                        <span>🗑️ Delete</span>
-                    </button>
-                </div>
+            <div class="deck-divider"></div>
+
+            <!-- Group 4: Curves & Phrasing ("the curve thingy") -->
+            <div class="deck-tool-group">
+                <span class="deck-group-label">Curve</span>
+                <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">⁀</button>
+                <button id="deck-btn-tie" class="deck-glyph-btn" onclick="applyTieTool()" title="Tie Curve (Hold Pitch)">𝆢</button>
+            </div>
+
+            <div class="deck-divider"></div>
+
+            <!-- Group 5: Voice Assignment -->
+            <div class="deck-tool-group">
+                <span class="deck-group-label">Voice</span>
+                <button class="deck-voice-chip v-s" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                <button class="deck-voice-chip v-a" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                <button class="deck-voice-chip v-t" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                <button class="deck-voice-chip v-b" onclick="applyVoiceTool('B')" title="Bass">B</button>
+            </div>
+
+            <div class="deck-divider"></div>
+
+            <!-- Group 6: Actions -->
+            <div class="deck-tool-group">
+                <button class="deck-action-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">✏️ Lyrics</button>
+                <button class="deck-action-btn btn-delete" onclick="deleteSelectedNote()" title="Delete Element">🗑️</button>
+                <button class="deck-action-btn" onclick="undo()" id="deck-btn-undo" title="Undo (Ctrl+Z)">↩</button>
+                <button class="deck-action-btn" onclick="redo()" id="deck-btn-redo" title="Redo (Ctrl+Y)">↪</button>
             </div>
         </div>
     </div>
@@ -3603,6 +3694,7 @@
         function deselectNote() {
             clearHighlights();
             selectedNoteId = null;
+            updateDeckUI(null);
             if (window.VoxSightBridge && typeof window.VoxSightBridge.onNoteDeselected === 'function') {
                 window.VoxSightBridge.onNoteDeselected();
             }
@@ -3688,7 +3780,7 @@
                     // Ignore clicks on micro-HUD, palette dock, or floating stepper
                     if (targetEl && targetEl.closest && (
                         targetEl.closest('#note-micro-hud') ||
-                        targetEl.closest('#side-toolbox-panel') || targetEl.closest('#side-toolbox-tab') || targetEl.closest('#side-toolbox-backdrop') ||
+                        targetEl.closest('#soundslice-deck') ||
                         targetEl.closest('#multirest-stepper-panel') ||
                         targetEl.closest('#zoom-controls') ||
                         targetEl.closest('#palette-drag-ghost')
@@ -3875,6 +3967,7 @@
 
             // Draw direct SVG highlight locked to the exact notehead
             drawHighlight(vxId);
+            updateDeckUI(vxId);
 
             // Extract note properties directly from XML DOM (100% ground truth)
             var xmlNoteEl = getXmlNoteElement(vxId);
@@ -6730,7 +6823,7 @@
                 var target = e.target;
                 if (target && target.closest && (
                     target.closest('#note-micro-hud') ||
-                    target.closest('#side-toolbox-panel') || target.closest('#side-toolbox-tab') || target.closest('#side-toolbox-backdrop') ||
+                    target.closest('#soundslice-deck') ||
                     target.closest('#multirest-stepper-panel') ||
                     target.closest('#zoom-controls') ||
                     target.closest('#palette-drag-ghost')
@@ -6807,36 +6900,344 @@
         let isPaletteDragging = false;
         let paletteDragGhost = null;
 
-                // ─── Side Toolbox Drawer Controller ─────────────────────────────
-        function openSideToolbox() {
-            var panel = document.getElementById('side-toolbox-panel');
-            var backdrop = document.getElementById('side-toolbox-backdrop');
-            var tab = document.getElementById('side-toolbox-tab');
-            if (panel) panel.classList.add('open');
-            if (backdrop) backdrop.classList.add('visible');
-            if (tab) tab.style.display = 'none';
-        }
-        window.openSideToolbox = openSideToolbox;
+                // ─── Soundslice Deck Controller & Navigation ────────────────────────
+        let isPianoOpen = false;
 
-        function closeSideToolbox() {
-            var panel = document.getElementById('side-toolbox-panel');
-            var backdrop = document.getElementById('side-toolbox-backdrop');
-            var tab = document.getElementById('side-toolbox-tab');
-            if (panel) panel.classList.remove('open');
-            if (backdrop) backdrop.classList.remove('visible');
-            if (tab) tab.style.display = 'flex';
-        }
-        window.closeSideToolbox = closeSideToolbox;
+        function updateDeckUI(noteId) {
+            var deck = document.getElementById('soundslice-deck');
+            if (!deck) return;
+            if (noteId === null || noteId === undefined) {
+                deck.classList.remove('visible');
+                return;
+            }
+            deck.classList.add('visible');
 
-        function toggleSideToolbox() {
-            var panel = document.getElementById('side-toolbox-panel');
-            if (panel && panel.classList.contains('open')) {
-                closeSideToolbox();
+            var noteEl = getXmlNoteElement(noteId);
+            var pitchBadge = document.getElementById('deck-note-pitch');
+            var measBadge = document.getElementById('deck-note-meas');
+            var voiceBadge = document.getElementById('deck-note-voice');
+
+            if (!noteEl) {
+                if (pitchBadge) pitchBadge.textContent = '--';
+                return;
+            }
+
+            var isR = (noteEl.getElementsByTagName('rest').length > 0);
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            var step = 'C', oct = 4, alt = 0;
+            if (pEl) {
+                step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                alt = parseInt(pEl.getElementsByTagName('alter')[0] ? pEl.getElementsByTagName('alter')[0].textContent.trim() : '0', 10) || 0;
+            }
+
+            if (pitchBadge) {
+                if (isR) {
+                    var rEl = noteEl.getElementsByTagName('rest')[0];
+                    var isWholeMeas = (rEl && rEl.getAttribute('measure') === 'yes');
+                    pitchBadge.textContent = isWholeMeas ? 'Rest (Bar)' : 'Rest';
+                    pitchBadge.style.background = '#64748B';
+                } else {
+                    var altSym = alt === 1 ? '♯' : (alt === -1 ? '♭' : '');
+                    pitchBadge.textContent = step + altSym + oct;
+                    pitchBadge.style.background = '#5B2D8E';
+                }
+            }
+
+            var meas = noteEl.parentNode;
+            while (meas && meas.tagName !== 'measure') meas = meas.parentNode;
+            var mNum = meas ? (meas.getAttribute('number') || '1') : '1';
+            if (measBadge) measBadge.textContent = 'M.' + mNum;
+
+            var vEl = noteEl.getElementsByTagName('voice')[0];
+            var vNum = vEl ? vEl.textContent.trim() : '1';
+            var customVoice = noteEl.getAttribute('data-vx-voice');
+            var voiceLabel = customVoice ? customVoice : (vNum === '1' ? 'S' : (vNum === '2' ? 'A' : (vNum === '3' ? 'T' : (vNum === '4' ? 'B' : 'V' + vNum))));
+            if (voiceBadge) {
+                voiceBadge.textContent = voiceLabel;
+                voiceBadge.className = 'deck-voice-badge';
+                if (voiceLabel.startsWith('S')) voiceBadge.classList.add('voice-s');
+                else if (voiceLabel.startsWith('A')) voiceBadge.classList.add('voice-a');
+                else if (voiceLabel.startsWith('T')) voiceBadge.classList.add('voice-t');
+                else if (voiceLabel.startsWith('B')) voiceBadge.classList.add('voice-b');
+                else voiceBadge.classList.add('voice-other');
+            }
+
+            // Update duration buttons active state
+            var tEl = noteEl.getElementsByTagName('type')[0];
+            var curType = tEl ? tEl.textContent.trim().toLowerCase() : '';
+            var glyphBtns = deck.querySelectorAll('.deck-glyph-btn[data-type]');
+            glyphBtns.forEach(function(btn) {
+                if (btn.getAttribute('data-type') === curType && !isR) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Update accidental buttons active state
+            var bSharp = document.getElementById('deck-btn-sharp');
+            var bFlat = document.getElementById('deck-btn-flat');
+            var bNat = document.getElementById('deck-btn-natural');
+            var bDot = document.getElementById('deck-btn-dot');
+
+            if (bSharp) bSharp.classList.toggle('active', alt === 1);
+            if (bFlat) bFlat.classList.toggle('active', alt === -1);
+            if (bNat) bNat.classList.toggle('active', alt === 0 && !isR);
+            if (bDot) bDot.classList.toggle('active', noteEl.getElementsByTagName('dot').length > 0);
+
+            // Update Slur & Tie buttons active state
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            var hasSlur = notatEl && notatEl.getElementsByTagName('slur').length > 0;
+            var hasTie = (noteEl.getElementsByTagName('tie').length > 0) || (notatEl && notatEl.getElementsByTagName('tied').length > 0);
+            var bSlur = document.getElementById('deck-btn-slur');
+            var bTie = document.getElementById('deck-btn-tie');
+            if (bSlur) bSlur.classList.toggle('active', !!hasSlur);
+            if (bTie) bTie.classList.toggle('active', !!hasTie);
+        }
+        window.updateDeckUI = updateDeckUI;
+
+        // ─── Soundslice Sequential Note Stepper (◀ Prev / Next ▶) ─────────
+        function getOrderedNoteIds() {
+            var ids = [];
+            if (!xmlDoc) return ids;
+            var parts = xmlDoc.getElementsByTagName('part');
+            for (var p = 0; p < parts.length; p++) {
+                var measures = parts[p].getElementsByTagName('measure');
+                for (var m = 0; m < measures.length; m++) {
+                    var notes = measures[m].getElementsByTagName('note');
+                    for (var n = 0; n < notes.length; n++) {
+                        var idStr = notes[n].getAttribute('data-vx-id');
+                        if (idStr) {
+                            var id = parseInt(idStr, 10);
+                            if (!isNaN(id) && ids.indexOf(id) === -1) {
+                                ids.push(id);
+                            }
+                        }
+                    }
+                }
+            }
+            return ids;
+        }
+
+        function stepNote(direction) {
+            var list = getOrderedNoteIds();
+            if (list.length === 0) return;
+
+            var curIdx = (selectedNoteId !== null) ? list.indexOf(selectedNoteId) : -1;
+            var nextIdx = 0;
+            if (curIdx === -1) {
+                nextIdx = (direction > 0) ? 0 : (list.length - 1);
             } else {
-                openSideToolbox();
+                nextIdx = curIdx + direction;
+                if (nextIdx < 0) nextIdx = 0;
+                if (nextIdx >= list.length) nextIdx = list.length - 1;
+            }
+
+            var targetId = list[nextIdx];
+            selectNote(targetId);
+
+            // Smooth scroll into view if offscreen
+            var targetCoord = null;
+            for (var i = 0; i < noteCoordinates.length; i++) {
+                if (noteCoordinates[i].id === targetId) {
+                    targetCoord = noteCoordinates[i];
+                    break;
+                }
+            }
+            if (targetCoord && scoreContainer) {
+                var cTop = scoreContainer.scrollTop;
+                var cHeight = scoreContainer.clientHeight;
+                if (targetCoord.cy < cTop + 60 || targetCoord.cy > cTop + cHeight - 120) {
+                    scoreContainer.scrollTo({
+                        top: Math.max(0, targetCoord.cy - cHeight / 2),
+                        behavior: 'smooth'
+                    });
+                }
             }
         }
-        window.toggleSideToolbox = toggleSideToolbox;
+        window.stepNote = stepNote;
+
+        // ─── Visual Mini-Piano Strip Controller ────────────────────────
+        function togglePianoStrip() {
+            var strip = document.getElementById('soundslice-piano-strip');
+            var btn = document.getElementById('deck-btn-piano');
+            isPianoOpen = !isPianoOpen;
+            if (strip) strip.classList.toggle('open', isPianoOpen);
+            if (btn) btn.classList.toggle('active', isPianoOpen);
+            if (isPianoOpen) buildPianoKeys();
+        }
+        window.togglePianoStrip = togglePianoStrip;
+
+        function buildPianoKeys() {
+            var track = document.getElementById('piano-keys-track');
+            if (!track || track.children.length > 0) return;
+
+            // 2 Octaves: C3 to B4
+            var whiteNotes = [
+                { step: 'C', oct: 3 }, { step: 'D', oct: 3 }, { step: 'E', oct: 3 }, { step: 'F', oct: 3 }, { step: 'G', oct: 3 }, { step: 'A', oct: 3 }, { step: 'B', oct: 3 },
+                { step: 'C', oct: 4 }, { step: 'D', oct: 4 }, { step: 'E', oct: 4 }, { step: 'F', oct: 4 }, { step: 'G', oct: 4 }, { step: 'A', oct: 4 }, { step: 'B', oct: 4 },
+                { step: 'C', oct: 5 }
+            ];
+
+            var blackKeysData = [
+                { step: 'C', alt: 1, oct: 3, wIdx: 0 },
+                { step: 'D', alt: 1, oct: 3, wIdx: 1 },
+                { step: 'F', alt: 1, oct: 3, wIdx: 3 },
+                { step: 'G', alt: 1, oct: 3, wIdx: 4 },
+                { step: 'A', alt: 1, oct: 3, wIdx: 5 },
+                { step: 'C', alt: 1, oct: 4, wIdx: 7 },
+                { step: 'D', alt: 1, oct: 4, wIdx: 8 },
+                { step: 'F', alt: 1, oct: 4, wIdx: 10 },
+                { step: 'G', alt: 1, oct: 4, wIdx: 11 },
+                { step: 'A', alt: 1, oct: 4, wIdx: 12 }
+            ];
+
+            var whiteKeyWidth = 25;
+            whiteNotes.forEach(function(wn, idx) {
+                var wKey = document.createElement('div');
+                wKey.className = 'piano-white-key';
+                wKey.textContent = (wn.step === 'C') ? ('C' + wn.oct) : wn.step;
+                wKey.onclick = function() {
+                    onPianoKeyClick(wn.step, 0, wn.oct);
+                };
+                track.appendChild(wKey);
+            });
+
+            blackKeysData.forEach(function(bn) {
+                var bKey = document.createElement('div');
+                bKey.className = 'piano-black-key';
+                bKey.style.left = (bn.wIdx * whiteKeyWidth + whiteKeyWidth - 9) + 'px';
+                bKey.onclick = function(e) {
+                    e.stopPropagation();
+                    onPianoKeyClick(bn.step, bn.alt, bn.oct);
+                };
+                track.appendChild(bKey);
+            });
+        }
+
+        function onPianoKeyClick(step, alt, oct) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                convertToNote(selectedNoteId, step, alt, oct);
+            } else {
+                updateNotePitch(selectedNoteId, step, alt, oct);
+            }
+            var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+            var midi = (oct + 1) * 12 + (stepOffsets[step] || 0) + alt;
+            playNotePreview(midi, 180);
+            updateStatus('Pitch set to ' + step + (alt === 1 ? '♯' : '') + oct);
+        }
+
+        function shiftSelectedNoteOctave(delta) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var curOct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            var curAlt = parseInt(pEl.getElementsByTagName('alter')[0] ? pEl.getElementsByTagName('alter')[0].textContent.trim() : '0', 10) || 0;
+            var newOct = Math.max(1, Math.min(7, curOct + delta));
+            updateNotePitch(selectedNoteId, step, curAlt, newOct);
+            updateStatus('Octave changed to ' + newOct);
+        }
+        window.shiftSelectedNoteOctave = shiftSelectedNoteOctave;
+
+        // ─── Musical Editing Operations ──────────────────────────────
+        function applyDurationTool(typeName, isDotted) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                convertToNote(selectedNoteId, 'C', 0, 4);
+            }
+            updateNoteDuration(selectedNoteId, typeName, isDotted);
+            updateStatus('Duration set to ' + typeName);
+        }
+        window.applyDurationTool = applyDurationTool;
+
+        function applyRestDurationTool(typeName) {
+            if (selectedNoteId === null) return;
+            convertToRest(selectedNoteId);
+            updateNoteDuration(selectedNoteId, typeName, false);
+            updateStatus('Converted to ' + typeName + ' rest');
+        }
+        window.applyRestDurationTool = applyRestDurationTool;
+
+        function applyWholeMeasureRestTool() {
+            if (selectedNoteId === null) return;
+            pushUndoSnapshot();
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl || !xmlDoc) return;
+
+            var fullDivs = getMeasureDivisions(noteEl) * 4;
+            var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+            if (pitchEl) noteEl.removeChild(pitchEl);
+            var dotEl = noteEl.getElementsByTagName('dot')[0];
+            if (dotEl) noteEl.removeChild(dotEl);
+            var lyricEl = noteEl.getElementsByTagName('lyric')[0];
+            if (lyricEl) noteEl.removeChild(lyricEl);
+
+            var restEl = noteEl.getElementsByTagName('rest')[0];
+            if (!restEl) {
+                restEl = xmlDoc.createElement('rest');
+                noteEl.insertBefore(restEl, noteEl.firstChild);
+            }
+            restEl.setAttribute('measure', 'yes');
+
+            var durEl = noteEl.getElementsByTagName('duration')[0];
+            if (!durEl) {
+                durEl = xmlDoc.createElement('duration');
+                noteEl.appendChild(durEl);
+            }
+            durEl.textContent = String(fullDivs);
+
+            var typeEl = noteEl.getElementsByTagName('type')[0];
+            if (typeEl) noteEl.removeChild(typeEl);
+
+            reloadScore();
+            selectNote(selectedNoteId);
+            updateStatus('Set to Whole-Measure Rest');
+        }
+        window.applyWholeMeasureRestTool = applyWholeMeasureRestTool;
+
+        function applyAccidentalTool(altVal) {
+            if (selectedNoteId === null) {
+                updateStatus('Select a note first to apply accidental');
+                return;
+            }
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (pEl) {
+                var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                updateNotePitch(selectedNoteId, step, altVal, oct);
+                var sign = altVal === 1 ? '♯' : (altVal === -1 ? '♭' : '♮');
+                updateStatus('Applied ' + sign + ' to ' + step + oct);
+            }
+        }
+        window.applyAccidentalTool = applyAccidentalTool;
+
+        function applyDotTool() {
+            if (selectedNoteId !== null) {
+                toggleSelectedNoteDot();
+            } else {
+                updateStatus('Select a note first to toggle dot');
+            }
+        }
+        window.applyDotTool = applyDotTool;
+
+        function applyVoiceTool(voiceCode) {
+            if (selectedNoteId !== null) {
+                updateNoteVoice(selectedNoteId, voiceCode);
+                updateStatus('Voice set to ' + voiceCode);
+            } else {
+                updateStatus('Select a note first to assign voice');
+            }
+        }
+        window.applyVoiceTool = applyVoiceTool;
 
         // ─── "The Curve Thingy" (Slurs and Ties) ────────────────────────
         function findNextPitchedNote(noteEl) {
@@ -6924,7 +7325,7 @@
                 updateStatus('Slur curve added');
             }
 
-            renderCurrentPage();
+            reloadScore();
             selectNote(noteId);
         }
         window.toggleSlur = toggleSlur;
@@ -6982,65 +7383,23 @@
                 updateStatus('Tie curve added');
             }
 
-            renderCurrentPage();
+            reloadScore();
             selectNote(noteId);
         }
         window.toggleTie = toggleTie;
 
         function applySlurTool() {
-            if (selectedNoteId !== null) {
-                toggleSlur(selectedNoteId);
-            } else {
-                updateStatus('Select a note first to add a Slur curve');
-            }
+            if (selectedNoteId !== null) toggleSlur(selectedNoteId);
+            else updateStatus('Select a note first to add a Slur');
         }
         window.applySlurTool = applySlurTool;
 
         function applyTieTool() {
-            if (selectedNoteId !== null) {
-                toggleTie(selectedNoteId);
-            } else {
-                updateStatus('Select a note first to add a Tie curve');
-            }
+            if (selectedNoteId !== null) toggleTie(selectedNoteId);
+            else updateStatus('Select a note first to add a Tie');
         }
         window.applyTieTool = applyTieTool;
 
-        function applyAccidentalTool(altVal) {
-            if (selectedNoteId !== null) {
-                var noteEl = getXmlNoteElement(selectedNoteId);
-                if (!noteEl) return;
-                var pEl = noteEl.getElementsByTagName('pitch')[0];
-                if (pEl) {
-                    var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
-                    var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
-                    updateNotePitch(selectedNoteId, step, altVal, oct);
-                    var sign = altVal === 1 ? '♯' : (altVal === -1 ? '♭' : '♮');
-                    updateStatus('Applied ' + sign + ' to ' + step + oct);
-                }
-            } else {
-                updateStatus('Select a note first to apply accidental');
-            }
-        }
-        window.applyAccidentalTool = applyAccidentalTool;
-
-        function applyDotTool() {
-            if (selectedNoteId !== null) {
-                toggleSelectedNoteDot();
-            } else {
-                updateStatus('Select a note first to toggle dot');
-            }
-        }
-        window.applyDotTool = applyDotTool;
-
-        function applyVoiceTool(voiceCode) {
-            if (selectedNoteId !== null) {
-                updateNoteVoice(selectedNoteId, voiceCode);
-                updateStatus('Voice set to ' + voiceCode);
-            } else {
-                updateStatus('Select a note first to assign voice');
-            }
-        }
-        window.applyVoiceTool = applyVoiceTool;
 
         function initPaletteInteractions() {
             var chips = document.querySelectorAll('.palette-chip');

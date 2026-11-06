@@ -505,9 +505,11 @@ fun AppNavigation() {
         composable("review") {
             val context = androidx.compose.ui.platform.LocalContext.current
             val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            val originalUri = com.cit.kaido.voxsight.ui.screens.upload.UploadManager.pendingOriginalUri
             
             ScoreReviewScreen(
                 musicXml = practiceViewModel.pendingMusicXml,
+                originalScoreUri = originalUri,
                 onConfirm = { modifiedXml ->
                     coroutineScope.launch {
                         // Save XML to a temporary file

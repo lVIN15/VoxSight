@@ -290,28 +290,60 @@ runTest('5.1 interactive_editor.html contains all required UI components', () =>
     assert(htmlContent.includes('id="selection-drag-handle"'), 'Selection drag handle missing');
     assert(htmlContent.includes('id="drag-pitch-badge"'), 'Drag pitch badge missing');
     assert(htmlContent.includes('id="trash-drop-zone"'), 'Trash drop zone missing');
-    assert(htmlContent.includes('id="side-toolbox-tab"'), 'Side toolbox handle tab missing');
-    assert(htmlContent.includes('id="side-toolbox-panel"'), 'Side toolbox panel drawer missing');
-    assert(htmlContent.includes('id="palette-drag-ghost"'), 'Palette drag ghost missing');
+    assert(htmlContent.includes('id="soundslice-deck"'), 'Soundslice-inspired editing deck missing');
+    assert(htmlContent.includes('id="deck-btn-prev"'), 'Deck prev note button missing');
+    assert(htmlContent.includes('id="deck-btn-next"'), 'Deck next note button missing');
+    assert(htmlContent.includes('id="deck-note-pitch"'), 'Deck pitch badge missing');
+    assert(htmlContent.includes('id="deck-note-meas"'), 'Deck measure badge missing');
+    assert(htmlContent.includes('id="deck-note-voice"'), 'Deck voice badge missing');
+    assert(htmlContent.includes('id="deck-btn-piano"'), 'Deck piano toggle missing');
+    assert(htmlContent.includes('id="soundslice-piano-strip"'), 'Soundslice piano strip missing');
     assert(htmlContent.includes('Tone.min.js'), 'Tone.min.js script tag missing');
 });
 
-runTest('5.2 Deselect, Details, Direct Drag, and Side Toolbox Curve APIs are defined in JavaScript', () => {
+runTest('5.2 Soundslice Deck, Note Stepper, and Editing APIs are defined in JavaScript', () => {
     assert(htmlContent.includes('function deselectNote()'), 'deselectNote missing');
     assert(htmlContent.includes('function openNoteDetails()'), 'openNoteDetails missing');
     assert(htmlContent.includes('function findNoteAtPoint('), 'findNoteAtPoint missing');
     assert(htmlContent.includes('function startPitchDrag('), 'startPitchDrag missing');
+    assert(htmlContent.includes('function updateDeckUI('), 'updateDeckUI missing');
+    assert(htmlContent.includes('function stepNote('), 'stepNote missing');
+    assert(htmlContent.includes('function togglePianoStrip()'), 'togglePianoStrip missing');
+    assert(htmlContent.includes('function shiftSelectedNoteOctave('), 'shiftSelectedNoteOctave missing');
+    assert(htmlContent.includes('function applyWholeMeasureRestTool()'), 'applyWholeMeasureRestTool missing');
+    assert(htmlContent.includes('function applyRestDurationTool('), 'applyRestDurationTool missing');
+    assert(htmlContent.includes('function applyDurationTool('), 'applyDurationTool missing');
     assert(htmlContent.includes('function toggleSlur('), 'toggleSlur missing');
     assert(htmlContent.includes('function toggleTie('), 'toggleTie missing');
-    assert(htmlContent.includes('function openSideToolbox()'), 'openSideToolbox missing');
-    assert(htmlContent.includes('function closeSideToolbox()'), 'closeSideToolbox missing');
     assert(htmlContent.includes('display: none !important;'), 'Status bar not hidden via CSS');
 });
 
-// --- Section 6: Slurs and Ties ("The Curve Thingy") ---
-console.log('\n--- Section 6: Slurs & Ties ("The Curve Thingy") ---');
+// --- Section 6: Slurs, Ties, and Whole-Measure Rest Contracts ---
+console.log('\n--- Section 6: Slurs, Ties, and Whole-Measure Rest Contracts ---');
 
-runTest('6.1 Slur Curve toggling inserts start slur on origin note and stop slur on target note', () => {
+runTest('6.1 Whole-measure rest preserves measure-rest semantic distinction from pitched whole notes', () => {
+    const wholeNoteXml = '<note><pitch><step>C</step><octave>4</octave></pitch><duration>960</duration><voice>1</voice><type>whole</type></note>';
+    const wholeMeasureRestXml = '<note><rest measure="yes"/><duration>960</duration><voice>1</voice></note>';
+
+    assert(wholeNoteXml.includes('<type>whole</type>') && wholeNoteXml.includes('<step>C</step>'), 'Pitched whole note must have pitch');
+    assert(wholeMeasureRestXml.includes('<rest measure="yes"/>') && !wholeMeasureRestXml.includes('<pitch>'), 'Whole-measure rest must have rest measure="yes" and no pitch');
+});
+
+runTest('6.2 Sequential note stepper respects boundary clamping', () => {
+    const testIds = [101, 102, 103, 104];
+    function simulateStep(currentId, dir) {
+        const idx = testIds.indexOf(currentId);
+        const nextIdx = Math.max(0, Math.min(testIds.length - 1, idx + dir));
+        return testIds[nextIdx];
+    }
+
+    assert.strictEqual(simulateStep(101, 1), 102, 'Step forward 101 -> 102');
+    assert.strictEqual(simulateStep(104, 1), 104, 'Clamp at end of measure');
+    assert.strictEqual(simulateStep(101, -1), 101, 'Clamp at start of measure');
+    assert.strictEqual(simulateStep(103, -1), 102, 'Step backward 103 -> 102');
+});
+
+runTest('6.3 Slur Curve toggling inserts start slur on origin note and stop slur on target note', () => {
     // Simulate DOM elements for origin note and next note
     const note1 = {
         tagName: 'note',

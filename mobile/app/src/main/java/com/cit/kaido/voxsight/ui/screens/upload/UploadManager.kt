@@ -55,6 +55,7 @@ object UploadManager {
     var pendingMusicXml: String? = null
     var pendingScoreTitle: String? = null
     var pendingFileName: String? = null
+    var pendingOriginalUri: String? = null
     var activeError: String? = null
     val activeErrorFlow = MutableStateFlow<String?>(null)
     val navigateToReview = MutableStateFlow(false)
@@ -324,6 +325,7 @@ object UploadManager {
         onSuccess: (String, String) -> Unit,
         onError: (String) -> Unit
     ) {
+        pendingOriginalUri = imageUri.toString()
         if (!tryBeginImporting()) return // Atomic gate: block duplicate/concurrent uploads
 
         android.widget.Toast.makeText(context, "Import in progress", android.widget.Toast.LENGTH_SHORT).show()
