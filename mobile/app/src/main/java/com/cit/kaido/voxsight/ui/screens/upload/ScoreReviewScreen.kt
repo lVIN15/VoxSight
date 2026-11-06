@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -109,6 +110,12 @@ fun ScoreReviewScreen(
     var canUndo by remember { mutableStateOf(false) }
     var canRedo by remember { mutableStateOf(false) }
     var showPartsLegend by remember { mutableStateOf(false) }
+    var editorSettings by remember { mutableStateOf(EditorPreferences.loadSettings(context)) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    val isDeviceLowEnd = remember { EditorPreferences.isLowEndDevice(context) }
+    val isEffectivePerformance = remember(editorSettings, isDeviceLowEnd) {
+        EditorPreferences.isEffectivePerformanceMode(context, editorSettings)
+    }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -121,6 +128,23 @@ fun ScoreReviewScreen(
             val encoded = android.util.Base64.encodeToString(musicXml.toByteArray(), android.util.Base64.NO_WRAP)
             val palette = com.cit.kaido.voxsight.ui.screens.practice.VoicePalette.asJson()
             webViewInstance?.evaluateJavascript("setVoicePalette($palette);loadScoreBase64('$encoded');", null)
+        }
+    }
+
+    LaunchedEffect(isWebLoaded, editorSettings) {
+        if (isWebLoaded) {
+            val settingsJson = escapeJavascriptString(editorSettings.toJson())
+            webViewInstance?.evaluateJavascript("applyEditorPreferences('$settingsJson');", null)
+        }
+    }
+
+    LaunchedEffect(isEffectivePerformance) {
+        webViewInstance?.let { wv ->
+            if (isEffectivePerformance) {
+                wv.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            } else {
+                wv.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            }
         }
     }
 
@@ -208,6 +232,14 @@ fun ScoreReviewScreen(
                 selectedMultiRest = SelectedMultiRestInfo(measureNum, count)
             }
         }
+
+        @JavascriptInterface
+        fun onToolGroupSelected(groupName: String) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                editorSettings = editorSettings.copy(lastSelectedToolGroup = groupName)
+                EditorPreferences.saveSettings(context, editorSettings)
+            }
+        }
     }
 
     Scaffold(
@@ -274,6 +306,13 @@ fun ScoreReviewScreen(
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
                                 contentDescription = "Edit Score Info & Words",
+                                tint = VoxPurplePrimary
+                            )
+                        }
+                        IconButton(onClick = { showSettingsSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Editor Settings",
                                 tint = VoxPurplePrimary
                             )
                         }
@@ -519,6 +558,18 @@ fun ScoreReviewScreen(
                         }
 
                         IconButton(
+                            onClick = { showSettingsSheet = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Editor Settings",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = {
                                 isFullscreen = !isFullscreen
                                 webViewInstance?.evaluateJavascript("zoomFit();", null)
@@ -576,9 +627,7 @@ fun ScoreReviewScreen(
                     factory = { ctx ->
                         WebView(ctx).apply {
                             setBackgroundColor(android.graphics.Color.WHITE)
-                            val activityManager = ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-                            val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
-                            if (isLowEnd) {
+                            if (isEffectivePerformance) {
                                 setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                             } else {
                                 setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
@@ -630,17 +679,30 @@ fun ScoreReviewScreen(
 
         // Show Edit sheet only if user explicitly requested note details & lyrics
         if (showOriginalScoreSheet && !originalScoreUri.isNullOrBlank()) {
-        ModalBottomSheet(
-            onDismissRequest = { showOriginalScoreSheet = false },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-        ) {
-            OriginalScoreViewer(
-                uriString = originalScoreUri,
-                onClose = { showOriginalScoreSheet = false }
+            ModalBottomSheet(
+                onDismissRequest = { showOriginalScoreSheet = false },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            ) {
+                OriginalScoreViewer(
+                    uriString = originalScoreUri,
+                    isPerformanceMode = isEffectivePerformance,
+                    onClose = { showOriginalScoreSheet = false }
+                )
+            }
+        }
+
+        if (showSettingsSheet) {
+            EditorSettingsBottomSheet(
+                settings = editorSettings,
+                isDeviceLowEnd = isDeviceLowEnd,
+                onSettingsChanged = { newSettings ->
+                    editorSettings = newSettings
+                    EditorPreferences.saveSettings(context, newSettings)
+                },
+                onDismissRequest = { showSettingsSheet = false }
             )
         }
-    }
 
     if (showNoteBottomSheet) {
             selectedNote?.let { note ->
@@ -1208,6 +1270,7 @@ fun extractScorePartLegendItems(
 @Composable
 fun OriginalScoreViewer(
     uriString: String,
+    isPerformanceMode: Boolean = false,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1216,7 +1279,14 @@ fun OriginalScoreViewer(
     var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(uriString, currentPage) {
+    DisposableEffect(Unit) {
+        onDispose {
+            bitmap?.recycle()
+            bitmap = null
+        }
+    }
+
+    LaunchedEffect(uriString, currentPage, isPerformanceMode) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val uri = android.net.Uri.parse(uriString)
@@ -1229,18 +1299,37 @@ fun OriginalScoreViewer(
                         totalPages = renderer.pageCount
                         val safePage = currentPage.coerceIn(0, totalPages - 1)
                         val page = renderer.openPage(safePage)
-                        val bmp = android.graphics.Bitmap.createBitmap(page.width, page.height, android.graphics.Bitmap.Config.ARGB_8888)
+                        val maxDim = if (isPerformanceMode) 1200 else 1800
+                        val scale = if (page.width > maxDim || page.height > maxDim) {
+                            minOf(maxDim.toFloat() / page.width, maxDim.toFloat() / page.height)
+                        } else {
+                            1.0f
+                        }
+                        val targetWidth = (page.width * scale).toInt().coerceAtLeast(100)
+                        val targetHeight = (page.height * scale).toInt().coerceAtLeast(100)
+                        val config = if (isPerformanceMode) android.graphics.Bitmap.Config.RGB_565 else android.graphics.Bitmap.Config.ARGB_8888
+                        val bmp = android.graphics.Bitmap.createBitmap(targetWidth, targetHeight, config)
                         page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         page.close()
                         renderer.close()
                         pfd.close()
+                        val oldBmp = bitmap
                         bitmap = bmp
+                        oldBmp?.recycle()
                     } else {
                         errorMessage = "Could not open document"
                     }
                 } else {
                     context.contentResolver.openInputStream(uri)?.use { stream ->
-                        bitmap = android.graphics.BitmapFactory.decodeStream(stream)
+                        val opts = android.graphics.BitmapFactory.Options()
+                        if (isPerformanceMode) {
+                            opts.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                            opts.inSampleSize = 2
+                        }
+                        val bmp = android.graphics.BitmapFactory.decodeStream(stream, null, opts)
+                        val oldBmp = bitmap
+                        bitmap = bmp
+                        oldBmp?.recycle()
                     }
                 }
             } catch (e: Exception) {

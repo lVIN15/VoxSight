@@ -462,8 +462,89 @@
             display: none;
         }
 
+        /* Adaptive Toolbar Density & Settings Profiles */
+        body.density-comfortable .deck-glyph-btn {
+            min-width: 44px;
+            height: 44px;
+            font-size: 20px;
+        }
+
+        body.density-comfortable .deck-voice-chip {
+            width: 36px;
+            height: 40px;
+            font-size: 14px;
+        }
+
+        body.density-comfortable .deck-action-btn {
+            height: 44px;
+            padding: 0 12px;
+            font-size: 13px;
+        }
+
+        body.density-comfortable .deck-nav-btn {
+            width: 38px;
+            height: 38px;
+        }
+
+        body.density-comfortable .deck-note-badge {
+            height: 38px;
+            padding: 0 12px;
+            font-size: 14px;
+        }
+
+        body.density-compact .deck-glyph-btn {
+            min-width: 34px;
+            height: 34px;
+            font-size: 16px;
+        }
+
+        body.density-compact .deck-voice-chip {
+            width: 28px;
+            height: 32px;
+            font-size: 11.5px;
+        }
+
+        body.density-compact .deck-action-btn {
+            height: 34px;
+            padding: 0 7px;
+            font-size: 11px;
+        }
+
+        /* Tool Labels Toggle */
+        body.hide-tool-labels .deck-group-label {
+            display: none !important;
+        }
+
+        body.hide-tool-labels .deck-action-btn span {
+            display: none !important;
+        }
+
+        /* Notation Display Toggles (Zero OSMD re-render required) */
+        body.hide-lyrics .vf-lyric {
+            display: none !important;
+        }
+
+        body.hide-voice-labels .deck-voice-badge {
+            display: none !important;
+        }
+
+        body.hide-measure-numbers .vf-measure-number {
+            display: none !important;
+        }
+
+        /* Performance Profile Optimizations */
+        body.performance-mode * {
+            transition: none !important;
+            animation: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        body.performance-mode #score-container {
+            scroll-behavior: auto !important;
+        }
+
         .deck-tool-group {
-            display: flex;
             align-items: center;
             gap: 3px;
             background: #F9FAFB;
@@ -1156,7 +1237,7 @@
         <!-- Row 2: Musical Glyph Editing Toolbar -->
         <div class="deck-toolbar-scroll">
             <!-- Group 1: Note Values (Crisp Vector Notation SVGs) -->
-            <div class="deck-tool-group">
+            <div id="deck-group-notes" class="deck-tool-group">
                 <span class="deck-group-label">Notes</span>
                 <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -1192,10 +1273,10 @@
                 </button>
             </div>
 
-            <div class="deck-divider"></div>
+            <div id="deck-divider-notes" class="deck-divider"></div>
 
             <!-- Group 2: Rests (Crisp Vector Notation SVGs) -->
-            <div class="deck-tool-group">
+            <div id="deck-group-rests" class="deck-tool-group">
                 <span class="deck-group-label">Rests</span>
                 <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -1230,10 +1311,10 @@
                 </button>
             </div>
 
-            <div class="deck-divider"></div>
+            <div id="deck-divider-rests" class="deck-divider"></div>
 
             <!-- Group 3: Accidentals & Dot -->
-            <div class="deck-tool-group">
+            <div id="deck-group-mod" class="deck-tool-group">
                 <span class="deck-group-label">Mod</span>
                 <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">♯</button>
                 <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">♭</button>
@@ -1241,10 +1322,10 @@
                 <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">•</button>
             </div>
 
-            <div class="deck-divider"></div>
+            <div id="deck-divider-mod" class="deck-divider"></div>
 
             <!-- Group 4: Curves & Phrasing (Authentic SVG Slurs & Ties) -->
-            <div class="deck-tool-group">
+            <div id="deck-group-curves" class="deck-tool-group">
                 <span class="deck-group-label">Curve</span>
                 <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -1258,10 +1339,10 @@
                 </button>
             </div>
 
-            <div class="deck-divider"></div>
+            <div id="deck-divider-curves" class="deck-divider"></div>
 
             <!-- Group 5: Voice Assignment -->
-            <div class="deck-tool-group">
+            <div id="deck-group-voice" class="deck-tool-group">
                 <span class="deck-group-label">Voice</span>
                 <button class="deck-voice-chip v-s" onclick="applyVoiceTool('S')" title="Soprano">S</button>
                 <button class="deck-voice-chip v-a" onclick="applyVoiceTool('A')" title="Alto">A</button>
@@ -1269,10 +1350,10 @@
                 <button class="deck-voice-chip v-b" onclick="applyVoiceTool('B')" title="Bass">B</button>
             </div>
 
-            <div class="deck-divider"></div>
+            <div id="deck-divider-voice" class="deck-divider"></div>
 
             <!-- Group 6: Actions (Lucide SVG Icons, No Emojis) -->
-            <div class="deck-tool-group">
+            <div id="deck-group-actions" class="deck-tool-group">
                 <button class="deck-action-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 20h9"></path>
@@ -1396,6 +1477,7 @@
         }
 
         function playNotePreview(midiNote, durationMs) {
+            if (window.editorPreferences && window.editorPreferences.audioPreview === false) return;
             if (midiNote === undefined || midiNote === null || midiNote < 0) return;
             ensureAudio();
             if (!synth || typeof Tone === 'undefined') return;
@@ -1483,12 +1565,24 @@
 
         function calculateFitToWidthZoom() {
             var container = document.getElementById('score-container') || document.getElementById('osmd-render');
-            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || document.documentElement.clientWidth || 360);
+            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 360);
             var targetWidth = Math.max(240, vpWidth - 16);
             // 50% zoomed-out full-system mobile view (~0.32 on 360px portrait mobile)
             var optimalZoom = (targetWidth / 360.0) * 0.33;
             return Math.max(0.28, Math.min(0.65, Math.round(optimalZoom * 100) / 100));
         }
+
+        function calculateFitToPageZoom() {
+            var container = document.getElementById('score-container') || document.getElementById('osmd-render');
+            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 360);
+            var vpHeight = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 600);
+            var wZoom = ((vpWidth - 24) / 750.0) * 0.35;
+            var hZoom = ((vpHeight - 48) / 1050.0) * 0.40;
+            var pageZoom = Math.min(wZoom, hZoom);
+            return Math.max(0.24, Math.min(0.60, Math.round(pageZoom * 100) / 100));
+        }
+        window.calculateFitToPageZoom = calculateFitToPageZoom;
+        window.calculateFitToWidthZoom = calculateFitToWidthZoom;
 
         var currentZoom = calculateFitToWidthZoom();
 
@@ -6553,7 +6647,11 @@
         };
 
         window.zoomFit = function () {
-            applyZoom(calculateFitToWidthZoom());
+            if (window.editorPreferences && window.editorPreferences.scoreScaling === 'fit_page') {
+                applyZoom(calculateFitToPageZoom());
+            } else {
+                applyZoom(calculateFitToWidthZoom());
+            }
         };
 
         window.setZoom = function (val) {
@@ -6987,14 +7085,154 @@
         let isPaletteDragging = false;
         let paletteDragGhost = null;
 
-                // ─── Soundslice Deck Controller & Navigation ────────────────────────
+                // ─── Haptic Feedback & Tool Usage Helpers ──────────────────────────
+        function triggerHaptic(durationMs) {
+            if (window.editorPreferences && window.editorPreferences.hapticFeedback === false) return;
+            try {
+                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    navigator.vibrate(durationMs || 10);
+                }
+            } catch (e) {}
+        }
+        window.triggerHaptic = triggerHaptic;
+
+        function reportToolGroupUsage(groupName) {
+            if (!groupName) return;
+            if (window.editorPreferences) {
+                window.editorPreferences.lastSelectedToolGroup = groupName;
+            }
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onToolGroupSelected === 'function') {
+                try {
+                    window.VoxSightBridge.onToolGroupSelected(groupName);
+                } catch (e) {}
+            }
+        }
+        window.reportToolGroupUsage = reportToolGroupUsage;
+
+        // ─── Editor Preferences Application ─────────────────────────────────
+        window.editorPreferences = {
+            performanceProfile: 'automatic',
+            toolbarDensity: 'compact',
+            scoreScaling: 'fit_width',
+            zoomLevel: 1.0,
+            showLyrics: true,
+            showVoiceLabels: true,
+            showMeasureNumbers: true,
+            showPartsLegend: true,
+            showToolLabels: true,
+            autoCollapseDeck: true,
+            autoScrollToNote: true,
+            audioPreview: true,
+            hapticFeedback: true,
+            showNotesGroup: true,
+            showRestsGroup: true,
+            showModGroup: true,
+            showCurvesGroup: true,
+            showVoiceGroup: true,
+            showActionsGroup: true,
+            lastSelectedToolGroup: 'notes'
+        };
+
+        window.applyEditorPreferences = function (prefJson) {
+            try {
+                var prefs = typeof prefJson === 'string' ? JSON.parse(prefJson) : prefJson;
+                if (!prefs) return;
+                window.editorPreferences = Object.assign({}, window.editorPreferences, prefs);
+                var body = document.body;
+                if (!body) return;
+
+                // 1. Performance Profile
+                var isPerf = (window.editorPreferences.performanceProfile === 'performance');
+                if (isPerf) {
+                    body.classList.add('performance-mode');
+                } else {
+                    body.classList.remove('performance-mode');
+                }
+
+                // 2. Toolbar Density
+                if (window.editorPreferences.toolbarDensity === 'comfortable') {
+                    body.classList.add('density-comfortable');
+                    body.classList.remove('density-compact');
+                } else {
+                    body.classList.add('density-compact');
+                    body.classList.remove('density-comfortable');
+                }
+
+                // 3. Tool Labels
+                if (window.editorPreferences.showToolLabels === false) {
+                    body.classList.add('hide-tool-labels');
+                } else {
+                    body.classList.remove('hide-tool-labels');
+                }
+
+                // 4. Notation Display Toggles
+                if (window.editorPreferences.showLyrics === false) {
+                    body.classList.add('hide-lyrics');
+                } else {
+                    body.classList.remove('hide-lyrics');
+                }
+
+                if (window.editorPreferences.showVoiceLabels === false) {
+                    body.classList.add('hide-voice-labels');
+                } else {
+                    body.classList.remove('hide-voice-labels');
+                }
+
+                if (window.editorPreferences.showMeasureNumbers === false) {
+                    body.classList.add('hide-measure-numbers');
+                } else {
+                    body.classList.remove('hide-measure-numbers');
+                }
+
+                // 5. Individual Tool Groups Visibility
+                function setGroupVis(groupId, dividerId, isVis) {
+                    var grp = document.getElementById(groupId);
+                    var div = dividerId ? document.getElementById(dividerId) : null;
+                    if (grp) grp.style.display = (isVis !== false) ? '' : 'none';
+                    if (div) div.style.display = (isVis !== false) ? '' : 'none';
+                }
+
+                setGroupVis('deck-group-notes', 'deck-divider-notes', window.editorPreferences.showNotesGroup);
+                setGroupVis('deck-group-rests', 'deck-divider-rests', window.editorPreferences.showRestsGroup);
+                setGroupVis('deck-group-mod', 'deck-divider-mod', window.editorPreferences.showModGroup);
+                setGroupVis('deck-group-curves', 'deck-divider-curves', window.editorPreferences.showCurvesGroup);
+                setGroupVis('deck-group-voice', 'deck-divider-voice', window.editorPreferences.showVoiceGroup);
+                setGroupVis('deck-group-actions', null, window.editorPreferences.showActionsGroup);
+
+                // 6. Score Scaling
+                if (window.editorPreferences.scoreScaling === 'fit_page' && typeof window.calculateFitToPageZoom === 'function') {
+                    applyZoom(window.calculateFitToPageZoom());
+                } else if (window.editorPreferences.scoreScaling === 'fit_width' && typeof window.calculateFitToWidthZoom === 'function') {
+                    applyZoom(window.calculateFitToWidthZoom());
+                }
+
+                // 7. Auto collapse deck state sync
+                if (selectedNoteId === null || selectedNoteId === undefined) {
+                    updateDeckUI(null);
+                }
+            } catch (e) {
+                console.warn('[VoxSight Editor] applyEditorPreferences error:', e);
+            }
+        };
+
+        // ─── Soundslice Deck Controller & Navigation ────────────────────────
         let isPianoOpen = false;
 
         function updateDeckUI(noteId) {
             var deck = document.getElementById('soundslice-deck');
             if (!deck) return;
             if (noteId === null || noteId === undefined) {
-                deck.classList.remove('visible');
+                if (window.editorPreferences && window.editorPreferences.autoCollapseDeck === false) {
+                    deck.classList.add('visible');
+                    var pitchBadge = document.getElementById('deck-note-pitch');
+                    var measBadge = document.getElementById('deck-note-meas');
+                    var voiceBadge = document.getElementById('deck-note-voice');
+                    if (pitchBadge) { pitchBadge.textContent = '--'; pitchBadge.style.background = '#9CA3AF'; }
+                    if (measBadge) measBadge.textContent = 'M.--';
+                    if (voiceBadge) { voiceBadge.textContent = '--'; voiceBadge.className = 'deck-voice-badge'; }
+                } else {
+                    deck.classList.remove('visible');
+                }
                 return;
             }
             deck.classList.add('visible');
@@ -7133,13 +7371,16 @@
                 }
             }
             if (targetCoord && scoreContainer) {
-                var cTop = scoreContainer.scrollTop;
-                var cHeight = scoreContainer.clientHeight;
-                if (targetCoord.cy < cTop + 60 || targetCoord.cy > cTop + cHeight - 120) {
-                    scoreContainer.scrollTo({
-                        top: Math.max(0, targetCoord.cy - cHeight / 2),
-                        behavior: 'smooth'
-                    });
+                if (!window.editorPreferences || window.editorPreferences.autoScrollToNote !== false) {
+                    var cTop = scoreContainer.scrollTop;
+                    var cHeight = scoreContainer.clientHeight;
+                    if (targetCoord.cy < cTop + 60 || targetCoord.cy > cTop + cHeight - 120) {
+                        var isPerf = (window.editorPreferences && window.editorPreferences.performanceProfile === 'performance');
+                        scoreContainer.scrollTo({
+                            top: Math.max(0, targetCoord.cy - cHeight / 2),
+                            behavior: isPerf ? 'auto' : 'smooth'
+                        });
+                    }
                 }
             }
         }
