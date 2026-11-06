@@ -461,13 +461,15 @@ fun ScoreReviewScreen(
                 modifier = if (isFullscreen) {
                     Modifier
                         .fillMaxSize()
+                        .navigationBarsPadding()
+                        .statusBarsPadding()
                         .background(Color.White)
                 } else {
                     Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color.White)
                 }
             ) {
@@ -587,8 +589,7 @@ fun ScoreReviewScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(end = 12.dp, bottom = if (isFullscreen) 24.dp else 70.dp)
+                        .padding(end = 10.dp, bottom = if (isFullscreen) 12.dp else 16.dp)
                         .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
                         .pointerInput(Unit) {
                             detectDragGestures { change, dragAmount ->
