@@ -138,12 +138,15 @@ fun ScoreReviewScreen(
         }
     }
 
-    LaunchedEffect(isEffectivePerformance) {
-        webViewInstance?.let { wv ->
-            if (isEffectivePerformance) {
-                wv.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-            } else {
-                wv.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+    // Lifecycle cleanup to guarantee WebGL/AudioContext/WebView resources are freed on exit
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewInstance?.let { wv ->
+                wv.stopLoading()
+                wv.removeJavascriptInterface("VoxSightBridge")
+                wv.loadUrl("about:blank")
+                wv.destroy()
+                webViewInstance = null
             }
         }
     }
@@ -417,7 +420,7 @@ fun ScoreReviewScreen(
                     ) {
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(44.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomOut,
@@ -432,12 +435,12 @@ fun ScoreReviewScreen(
                             color = Color(0xFFF3F4F6),
                             border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
                             modifier = Modifier
-                                .height(28.dp)
+                                .height(32.dp)
                                 .clickable { webViewInstance?.evaluateJavascript("zoomFit();", null) }
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 8.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp)
                             ) {
                                 Text(
                                     text = "Fit",
@@ -449,7 +452,7 @@ fun ScoreReviewScreen(
 
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(44.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomIn,
@@ -469,7 +472,7 @@ fun ScoreReviewScreen(
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
                                 enabled = editorCurrentPage > 1,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -489,7 +492,7 @@ fun ScoreReviewScreen(
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
                                 enabled = editorCurrentPage < editorTotalPages,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -627,11 +630,9 @@ fun ScoreReviewScreen(
                     factory = { ctx ->
                         WebView(ctx).apply {
                             setBackgroundColor(android.graphics.Color.WHITE)
-                            if (isEffectivePerformance) {
-                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                            } else {
-                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                            }
+                            // Use LAYER_TYPE_NONE allowing Chromium's native compositor to draw directly to Window
+                            // without allocating redundant View Bitmap layers (Software) or extra FBO textures (Hardware)
+                            setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
@@ -651,6 +652,12 @@ fun ScoreReviewScreen(
                             loadUrl("file:///android_asset/interactive_editor.html")
                             webViewInstance = this
                         }
+                    },
+                    onRelease = { webView ->
+                        webView.stopLoading()
+                        webView.removeJavascriptInterface("VoxSightBridge")
+                        webView.loadUrl("about:blank")
+                        webView.destroy()
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -1313,9 +1320,7 @@ fun OriginalScoreViewer(
                         page.close()
                         renderer.close()
                         pfd.close()
-                        val oldBmp = bitmap
                         bitmap = bmp
-                        oldBmp?.recycle()
                     } else {
                         errorMessage = "Could not open document"
                     }
@@ -1326,10 +1331,7 @@ fun OriginalScoreViewer(
                             opts.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
                             opts.inSampleSize = 2
                         }
-                        val bmp = android.graphics.BitmapFactory.decodeStream(stream, null, opts)
-                        val oldBmp = bitmap
-                        bitmap = bmp
-                        oldBmp?.recycle()
+                        bitmap = android.graphics.BitmapFactory.decodeStream(stream, null, opts)
                     }
                 }
             } catch (e: Exception) {

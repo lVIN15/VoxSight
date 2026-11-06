@@ -563,6 +563,27 @@
             padding: 0 4px;
         }
 
+        .deck-glyph-btn,
+        .deck-nav-btn,
+        .deck-voice-chip,
+        .deck-action-btn {
+            position: relative;
+        }
+
+        /* 44-48dp Accessible Hit Target Expansion without visual toolbar bloat */
+        .deck-glyph-btn::after,
+        .deck-nav-btn::after,
+        .deck-voice-chip::after,
+        .deck-action-btn::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            bottom: -6px;
+            left: -1px;
+            right: -1px;
+            z-index: 1;
+        }
+
         .deck-glyph-btn {
             min-width: 36px;
             height: 36px;
@@ -2308,10 +2329,11 @@
         function loadScoreBase64(b64, tpq = 960) {
             try {
                 const xmlStr = decodeBase64ToXml(b64);
-                loadScore(xmlStr, tpq);
+                return loadScore(xmlStr, tpq);
             } catch (e) {
                 console.error('Base64 decoding failed:', e);
                 updateStatus('Error decoding MusicXML');
+                return Promise.reject(e);
             }
         }
 
@@ -7133,10 +7155,40 @@
             lastSelectedToolGroup: 'notes'
         };
 
+        // ─── Audio Cleanup Handler ──────────────────────────────────────────
+        window.cleanupAudio = function () {
+            try {
+                if (synth) {
+                    synth.dispose();
+                    synth = null;
+                }
+                if (typeof Tone !== 'undefined' && Tone.context && typeof Tone.context.close === 'function') {
+                    Tone.context.close();
+                }
+                synthStarted = false;
+            } catch (e) {}
+        };
+
+        window.addEventListener('pagehide', function () {
+            if (typeof window.cleanupAudio === 'function') window.cleanupAudio();
+        });
+
         window.applyEditorPreferences = function (prefJson) {
             try {
                 var prefs = typeof prefJson === 'string' ? JSON.parse(prefJson) : prefJson;
-                if (!prefs) return;
+                if (!prefs || typeof prefs !== 'object') return;
+
+                // Defensive normalization of preference inputs
+                if (prefs.performanceProfile && ['automatic', 'performance', 'quality'].indexOf(prefs.performanceProfile) === -1) {
+                    prefs.performanceProfile = 'automatic';
+                }
+                if (prefs.toolbarDensity && ['compact', 'comfortable'].indexOf(prefs.toolbarDensity) === -1) {
+                    prefs.toolbarDensity = 'compact';
+                }
+                if (prefs.scoreScaling && ['fit_width', 'fit_page'].indexOf(prefs.scoreScaling) === -1) {
+                    prefs.scoreScaling = 'fit_width';
+                }
+
                 window.editorPreferences = Object.assign({}, window.editorPreferences, prefs);
                 var body = document.body;
                 if (!body) return;
