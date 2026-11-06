@@ -108,6 +108,7 @@ fun ScoreReviewScreen(
     var editorTotalPages by remember { mutableIntStateOf(1) }
     var canUndo by remember { mutableStateOf(false) }
     var canRedo by remember { mutableStateOf(false) }
+    var showPartsLegend by remember { mutableStateOf(false) }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -350,139 +351,224 @@ fun ScoreReviewScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(if (isFullscreen) Color.White else VoxBackground)
+                .background(Color.White)
                 .padding(if (isFullscreen) PaddingValues(0.dp) else innerPadding)
         ) {
-            if (!isFullscreen) {
-                // Help Hint Label
-                Surface(
-                    color = VoxPurplePrimary.copy(alpha = 0.08f),
+            // Dedicated Compact Utility Header Bar (Clean, non-overlapping, solid background)
+            Surface(
+                color = Color.White,
+                tonalElevation = 1.dp,
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                        .height(44.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // Left: Zoom Controls (Zoom Out, Fit, Zoom In)
                     Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Text(
-                            text = "Verify OMR accuracy. Tap any notehead or rest symbol on the sheet music to edit pitches, durations, dotted values, rests, or add new elements.",
-                            fontSize = 12.sp,
-                            color = VoxPurplePrimary,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-
-                // Score Parts Legend
-                Surface(
-                    color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, VoxCardStroke)
-                ) {
-                    var isExpanded by remember { mutableStateOf(false) }
-                    val showExpandToggle = legendItems.size > 4
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomOut,
+                                contentDescription = "Zoom Out",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF3F4F6),
+                            border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .clickable { webViewInstance?.evaluateJavascript("zoomFit();", null) }
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             ) {
                                 Text(
-                                    text = "Score Parts",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = VoxTextSubtitle
+                                    text = "Fit",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = VoxTextPrimary
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(VoxPurplePrimary.copy(alpha = 0.08f))
-                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomIn,
+                                contentDescription = "Zoom In",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Center: Dedicated Page Navigation (Clean, centered, NEVER obscures score title)
+                    if (editorTotalPages > 1) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
+                                enabled = editorCurrentPage > 1,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous Page",
+                                    tint = if (editorCurrentPage > 1) VoxTextPrimary else Color.LightGray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Text(
+                                text = "Page $editorCurrentPage of $editorTotalPages",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = VoxTextPrimary,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
+                                enabled = editorCurrentPage < editorTotalPages,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next Page",
+                                    tint = if (editorCurrentPage < editorTotalPages) VoxTextPrimary else Color.LightGray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Right: Parts toggle and Fullscreen toggle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (legendItems.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (showPartsLegend) VoxPurplePrimary.copy(alpha = 0.1f) else Color(0xFFF3F4F6),
+                                border = BorderStroke(1.dp, if (showPartsLegend) VoxPurplePrimary else Color(0xFFE5E7EB)),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .clickable { showPartsLegend = !showPartsLegend }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "${legendItems.size}",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VoxPurplePrimary
+                                        text = "Parts",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (showPartsLegend) VoxPurplePrimary else VoxTextPrimary
                                     )
-                                }
-                            }
-
-                            if (!isExpanded) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 10.dp)
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    legendItems.forEach { item ->
-                                        ScorePartLegendChip(item)
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (showPartsLegend) VoxPurplePrimary else Color(0xFFE5E7EB))
+                                            .size(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "${legendItems.size}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (showPartsLegend) Color.White else VoxTextPrimary
+                                        )
                                     }
-                                }
-                            }
-
-                            if (showExpandToggle) {
-                                IconButton(
-                                    onClick = { isExpanded = !isExpanded },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (isExpanded) "Collapse" else "Expand All Score Parts",
-                                        tint = VoxTextSubtitle,
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                 }
                             }
                         }
 
-                        if (isExpanded) {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                        if (!originalScoreUri.isNullOrBlank() && isFullscreen) {
+                            IconButton(
+                                onClick = { showOriginalScoreSheet = true },
+                                modifier = Modifier.size(36.dp)
                             ) {
-                                legendItems.forEach { item ->
-                                    ScorePartLegendChip(item)
-                                }
+                                Icon(
+                                    imageVector = Icons.Outlined.Visibility,
+                                    contentDescription = "Compare with Original Scan",
+                                    tint = VoxTextPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                isFullscreen = !isFullscreen
+                                webViewInstance?.evaluateJavascript("zoomFit();", null)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
             }
 
-            // WebView Sheet Music Render Area
+            // Expandable Score Parts Legend Bar (when toggled)
+            if (showPartsLegend && legendItems.isNotEmpty()) {
+                Surface(
+                    color = Color(0xFFF9FAFB),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        legendItems.forEach { item ->
+                            ScorePartLegendChip(item)
+                        }
+                    }
+                }
+            }
+
+            // WebView Sheet Music Render Area (100% UNCLUTTERED - ZERO FLOATING OVERLAYS)
             Box(
                 modifier = if (isFullscreen) {
                     Modifier
                         .fillMaxSize()
                         .navigationBarsPadding()
-                        .statusBarsPadding()
                         .background(Color.White)
                 } else {
                     Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
                         .background(Color.White)
                 }
             ) {
@@ -519,179 +605,6 @@ fun ScoreReviewScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // Floating Original Score Button
-                if (!originalScoreUri.isNullOrBlank()) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(if (isFullscreen) 16.dp else 10.dp)
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                showOriginalScoreSheet = true
-                            },
-                        color = Color.White.copy(alpha = 0.94f),
-                        shadowElevation = 6.dp,
-                        shape = CircleShape,
-                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Outlined.Visibility,
-                                contentDescription = "Compare with Original Scan",
-                                tint = VoxPurplePrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Floating Fullscreen / Exit Fullscreen Button
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(if (isFullscreen) 16.dp else 10.dp)
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            isFullscreen = !isFullscreen
-                            webViewInstance?.evaluateJavascript("zoomFit();", null)
-                        },
-                    color = Color.White.copy(alpha = 0.94f),
-                    shadowElevation = 6.dp,
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
-                            tint = VoxPurplePrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                // Floating Page Navigation Pill (Visible for multi-page scores, docked at top center)
-                if (editorTotalPages > 1) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 10.dp),
-                        color = Color.White.copy(alpha = 0.95f),
-                        shadowElevation = 6.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
-                                enabled = editorCurrentPage > 1,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    contentDescription = "Previous Page",
-                                    tint = if (editorCurrentPage > 1) VoxPurplePrimary else Color.LightGray,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            Text(
-                                text = "Page $editorCurrentPage of $editorTotalPages",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = VoxPurplePrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp)
-                            )
-
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
-                                enabled = editorCurrentPage < editorTotalPages,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = "Next Page",
-                                    tint = if (editorCurrentPage < editorTotalPages) VoxPurplePrimary else Color.LightGray,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Floating Zoom Controls Pill (Positioned in bottom-right margin, draggable if moved)
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 10.dp, bottom = if (isFullscreen) 12.dp else 16.dp)
-                        .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
-                        .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                zoomOffsetX += dragAmount.x
-                                zoomOffsetY += dragAmount.y
-                            }
-                        },
-                    color = Color.White.copy(alpha = 0.95f),
-                    shadowElevation = 6.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DragHandle,
-                            contentDescription = "Drag to move",
-                            tint = VoxPurplePrimary.copy(alpha = 0.45f),
-                            modifier = Modifier
-                                .size(18.dp)
-                                .padding(end = 2.dp)
-                        )
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ZoomOut,
-                                contentDescription = "Zoom Out",
-                                tint = VoxPurplePrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        TextButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Text(
-                                text = "FIT",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = VoxPurplePrimary
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ZoomIn,
-                                contentDescription = "Zoom In",
-                                tint = VoxPurplePrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
             }
         }
 

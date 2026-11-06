@@ -37,47 +37,47 @@
             min-height: 200px;
         }
 
-        /* Floating Selection Ring Overlay */
+        /* Selection Ring Overlay (Restrained, professional) */
         #selection-indicator {
             position: absolute;
-            border: 2.5px solid #5B2D8E;
-            background: rgba(91, 45, 142, 0.14);
-            border-radius: 8px;
+            border: 2px solid #5B2D8E;
+            background: rgba(91, 45, 142, 0.08);
+            border-radius: 4px;
             pointer-events: auto;
             cursor: grab;
             touch-action: none;
             transition: border-color 0.15s ease, background 0.15s ease;
             display: none;
             z-index: 150;
-            box-shadow: 0 0 10px rgba(91, 45, 142, 0.35);
+            box-shadow: none;
         }
 
         #selection-indicator.dragging {
             cursor: grabbing;
-            border-color: #7C3AED;
-            background: rgba(124, 58, 237, 0.22);
-            box-shadow: 0 0 16px rgba(124, 58, 237, 0.55);
+            border-color: #5B2D8E;
+            background: rgba(91, 45, 142, 0.16);
+            box-shadow: none;
             transition: none !important;
         }
 
         /* Drag Handle on Selection Ring */
         .selection-drag-handle {
             position: absolute;
-            right: -13px;
+            right: -11px;
             top: 50%;
             transform: translateY(-50%);
-            width: 18px;
-            height: 26px;
+            width: 14px;
+            height: 22px;
             background: #5B2D8E;
             color: #FFFFFF;
-            border-radius: 5px;
+            border-radius: 3px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: ns-resize;
-            font-size: 11px;
-            font-weight: 800;
-            box-shadow: 0 2px 6px rgba(91, 45, 142, 0.35);
+            font-size: 10px;
+            font-weight: 700;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
             pointer-events: auto;
             touch-action: none;
             user-select: none;
@@ -85,109 +85,22 @@
         }
 
         .selection-drag-handle:active, #selection-indicator.dragging .selection-drag-handle {
-            background: #7C3AED;
-            transform: translateY(-50%) scale(1.1);
+            background: #4C2278;
+            transform: translateY(-50%) scale(1.05);
         }
 
-        /* ─── Floating Note Micro-HUD (Quick 1-Tap In-Situ Action Bar) ─── */
-        .note-micro-hud {
-            position: absolute;
-            display: none;
-            align-items: center;
-            gap: 3px;
-            padding: 3px 5px;
-            background: #FFFFFF;
-            border: 1.5px solid #D8CCE6;
-            border-radius: 999px;
-            box-shadow: 0 2px 10px rgba(91, 45, 142, 0.18);
-            z-index: 220;
-            pointer-events: auto;
-            user-select: none;
-            -webkit-user-select: none;
-            transform: translate(-50%, -100%);
-            margin-top: -8px;
-            transition: opacity 0.15s ease, transform 0.15s ease;
-        }
-
+        /* ─── Note Micro-HUD (Hidden: All operations are housed in the unified bottom editing deck) ─── */
+        .note-micro-hud,
         .note-micro-hud.visible {
-            display: flex;
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            opacity: 0 !important;
         }
 
-        .hud-btn {
-            background: #F7F3FB;
-            border: 1px solid #E4D8F0;
-            color: #5B2D8E;
-            width: 26px;
-            height: 26px;
-            border-radius: 50%;
-            font-size: 12px;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            outline: none;
-            transition: all 0.15s ease;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            flex-shrink: 0;
-            padding: 0;
-        }
-
-        .hud-btn:hover {
-            background: #EDE5F4;
-            color: #3E1A63;
-            transform: scale(1.08);
-        }
-
-        .hud-btn:active {
-            transform: scale(0.92);
-        }
-
-        .hud-btn-delete {
-            background: #FEE2E2;
-            border-color: #FECACA;
-            color: #DC2626;
-        }
-
-        .hud-btn-delete:hover {
-            background: #DC2626;
-            color: #FFFFFF;
-            border-color: #DC2626;
-            transform: scale(1.1);
-        }
-
-        .hud-btn-close {
-            background: #EDE5F4;
-            border-color: #E0D4ED;
-            color: #5B2D8E;
-            font-size: 11px;
-            font-weight: 800;
-        }
-
-        .hud-btn-close:hover {
-            background: #E0D4ED;
-            color: #3E1A63;
-            transform: scale(1.08);
-        }
-
-        .hud-divider {
-            width: 1px;
-            height: 16px;
-            background: #E0D4ED;
-            margin: 0 2px;
-            flex-shrink: 0;
-        }
-
-        .hud-note-badge {
-            font-size: 11px;
-            font-weight: 800;
-            color: #5B2D8E;
-            background: #EDE5F4;
-            padding: 2px 7px;
-            border-radius: 6px;
-            white-space: nowrap;
-            letter-spacing: 0.2px;
-        }
+        .hud-btn { display: none !important; }
+        .hud-divider { display: none !important; }
+        .hud-note-badge { display: none !important; }
 
         /* ─── Floating Pitch Drag Badge (Prevent Fat-Finger Occlusion) ─── */
         .drag-pitch-badge {
@@ -273,8 +186,8 @@
             left: 0;
             right: 0;
             background: #FFFFFF;
-            border-top: 1.5px solid #DED4E8;
-            box-shadow: 0 -4px 18px rgba(45, 20, 80, 0.12);
+            border-top: 1px solid #E5E7EB;
+            box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
             z-index: 500;
             display: flex;
             flex-direction: column;
@@ -282,7 +195,7 @@
             transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
             user-select: none;
             -webkit-user-select: none;
-            padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+            padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
         }
 
         .soundslice-deck.visible {
@@ -290,128 +203,160 @@
         }
 
         /* Row 1: Note Context & Sequential Navigation Bar */
+        .deck-nav-group-left {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .deck-nav-group-right {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
         .deck-nav-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 6px 10px;
-            background: #F9F6FC;
-            border-bottom: 1px solid #ECE3F5;
-            gap: 6px;
+            padding: 5px 8px;
+            background: #F9FAFB;
+            border-bottom: 1px solid #F3F4F6;
+            gap: 4px;
         }
 
         .deck-nav-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
+            gap: 2px;
             height: 32px;
-            padding: 0 10px;
-            background: #EDE5F4;
-            color: #4C2278;
-            border: 1px solid #D6C8E6;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 700;
+            min-width: 32px;
+            padding: 0 6px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.12s ease;
             flex-shrink: 0;
+            touch-action: manipulation;
         }
 
         .deck-nav-btn:hover {
-            background: #5B2D8E;
-            color: #FFFFFF;
-            border-color: #5B2D8E;
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+            color: #111827;
         }
 
         .deck-nav-btn:active {
-            transform: scale(0.94);
+            background: #E5E7EB;
+            transform: scale(0.96);
         }
 
         .deck-note-info {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
             flex-shrink: 0;
         }
 
         .deck-pitch-badge {
-            font-size: 14px;
-            font-weight: 800;
+            font-size: 12px;
+            font-weight: 700;
             color: #FFFFFF;
             background: #5B2D8E;
-            padding: 3px 9px;
-            border-radius: 6px;
-            letter-spacing: 0.3px;
+            padding: 3px 8px;
+            border-radius: 5px;
+            letter-spacing: 0.2px;
             min-width: 32px;
             text-align: center;
-            box-shadow: 0 1px 4px rgba(91, 45, 142, 0.25);
             cursor: pointer;
         }
 
         .deck-meas-badge {
-            font-size: 11px;
-            font-weight: 700;
-            color: #605273;
-            background: #EFE9F5;
-            padding: 3px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #4B5563;
+            background: #F3F4F6;
+            border: 1px solid #E5E7EB;
+            padding: 2px 5px;
             border-radius: 4px;
         }
 
         .deck-voice-badge {
-            font-size: 11px;
-            font-weight: 800;
-            padding: 3px 7px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
             border-radius: 4px;
             text-transform: uppercase;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.2px;
         }
 
-        .deck-voice-badge.voice-s { background: #FFE4E6; color: #BE123C; }
-        .deck-voice-badge.voice-a { background: #F3E8FF; color: #7E22CE; }
-        .deck-voice-badge.voice-t { background: #DBEAFE; color: #1D4ED8; }
-        .deck-voice-badge.voice-b { background: #DCFCE7; color: #15803D; }
-        .deck-voice-badge.voice-other { background: #F1F5F9; color: #475569; }
+        .deck-voice-badge.voice-s { background: #FEE2E2; color: #DC2626; border: 1px solid #FECACA; }
+        .deck-voice-badge.voice-a { background: #F3E8FF; color: #7E22CE; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-t { background: #DBEAFE; color: #2563EB; border: 1px solid #BFDBFE; }
+        .deck-voice-badge.voice-b { background: #DCFCE7; color: #16A34A; border: 1px solid #BBF7D0; }
+        .deck-voice-badge.voice-other { background: #F3F4F6; color: #4B5563; border: 1px solid #E5E7EB; }
 
         .deck-oct-controls {
             display: flex;
             align-items: center;
-            gap: 3px;
+            gap: 2px;
             flex-shrink: 0;
         }
 
         .deck-oct-btn {
-            height: 30px;
-            padding: 0 7px;
-            background: #EDE5F4;
-            color: #5B2D8E;
-            border: 1px solid #D6C8E6;
+            height: 32px;
+            padding: 0 6px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
             border-radius: 5px;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             cursor: pointer;
             transition: all 0.12s ease;
+            flex-shrink: 0;
         }
 
         .deck-oct-btn:hover {
-            background: #5B2D8E;
-            color: #FFFFFF;
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+        }
+
+        .deck-oct-btn:active {
+            background: #E5E7EB;
         }
 
         .deck-piano-toggle {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 4px;
-            height: 30px;
-            padding: 0 8px;
-            background: #EDE5F4;
-            color: #5B2D8E;
-            border: 1px solid #D6C8E6;
+            height: 32px;
+            padding: 0 7px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
             border-radius: 5px;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .deck-piano-toggle:hover {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
         }
 
         .deck-piano-toggle.active {
@@ -422,33 +367,32 @@
 
         .deck-close-btn {
             background: transparent;
-            color: #8A7A9E;
+            color: #6B7280;
             border: none;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
+            width: 30px;
+            height: 32px;
+            border-radius: 5px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 13px;
-            font-weight: 700;
             cursor: pointer;
             transition: all 0.12s ease;
+            flex-shrink: 0;
         }
 
         .deck-close-btn:hover {
-            background: #EAE1F2;
-            color: #3E1A63;
+            background: #F3F4F6;
+            color: #111827;
         }
 
-        /* Row 1b: Expandable Mini Piano Strip (Soundslice Style) */
+        /* Row 1b: Expandable Visual Mini-Piano Strip */
         .soundslice-piano-strip {
             display: none;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
-            padding: 6px 10px;
-            background: #25232A;
-            border-bottom: 1px solid #3E3B46;
+            padding: 6px 12px;
+            background: #1F2937;
+            border-bottom: 1px solid #374151;
         }
 
         .soundslice-piano-strip.open {
@@ -464,10 +408,10 @@
         }
 
         .piano-white-key {
-            width: 25px;
+            width: 26px;
             height: 64px;
             background: #FFFFFF;
-            border: 1px solid #CBD5E1;
+            border: 1px solid #D1D5DB;
             border-radius: 0 0 3px 3px;
             position: relative;
             display: flex;
@@ -475,31 +419,31 @@
             justify-content: center;
             padding-bottom: 4px;
             font-size: 9px;
-            font-weight: 800;
-            color: #64748B;
+            font-weight: 700;
+            color: #6B7280;
             cursor: pointer;
-            box-shadow: inset 0 -2px 0 #E2E8F0;
+            box-shadow: inset 0 -2px 0 #E5E7EB;
         }
 
         .piano-white-key:active, .piano-white-key.active-press {
-            background: #D8B4FE;
-            color: #581C87;
+            background: #EDE9FE;
+            color: #5B2D8E;
         }
 
         .piano-black-key {
-            width: 17px;
+            width: 18px;
             height: 40px;
-            background: #1E293B;
+            background: #111827;
             border-radius: 0 0 2px 2px;
             position: absolute;
             top: 0;
             z-index: 10;
             cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
 
         .piano-black-key:active, .piano-black-key.active-press {
-            background: #7C3AED;
+            background: #5B2D8E;
         }
 
         /* Row 2: Musical Glyph Editing Toolbar */
@@ -507,10 +451,11 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 10px;
+            padding: 6px 12px;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
+            background: #FFFFFF;
         }
 
         .deck-toolbar-scroll::-webkit-scrollbar {
@@ -521,32 +466,32 @@
             display: flex;
             align-items: center;
             gap: 3px;
-            background: #F7F4FA;
+            background: #F9FAFB;
             padding: 2px 4px;
             border-radius: 6px;
-            border: 1px solid #ECE3F5;
+            border: 1px solid #F3F4F6;
             flex-shrink: 0;
         }
 
         .deck-group-label {
             font-size: 8.5px;
-            font-weight: 800;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.4px;
-            color: #9283A4;
-            padding: 0 3px;
+            color: #9CA3AF;
+            padding: 0 4px;
         }
 
         .deck-glyph-btn {
-            min-width: 34px;
-            height: 34px;
+            min-width: 36px;
+            height: 36px;
             padding: 0 4px;
             background: #FFFFFF;
-            color: #2D1A45;
-            border: 1px solid #DED4E8;
-            border-radius: 5px;
-            font-size: 17px;
-            font-weight: 700;
+            color: #1F2937;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: 600;
             line-height: 1;
             display: inline-flex;
             align-items: center;
@@ -557,9 +502,9 @@
         }
 
         .deck-glyph-btn:hover {
-            background: #EDE5F4;
-            border-color: #5B2D8E;
-            color: #5B2D8E;
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+            color: #111827;
         }
 
         .deck-glyph-btn.active {
@@ -569,18 +514,18 @@
         }
 
         .deck-glyph-btn:active {
-            transform: scale(0.92);
+            transform: scale(0.95);
         }
 
         .deck-voice-chip {
-            width: 28px;
-            height: 32px;
+            width: 30px;
+            height: 34px;
             background: #FFFFFF;
-            border: 1px solid #DED4E8;
-            border-radius: 5px;
-            font-size: 11px;
-            font-weight: 800;
-            color: #5B2D8E;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #374151;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -589,54 +534,59 @@
         }
 
         .deck-voice-chip:hover {
-            background: #5B2D8E;
-            color: #FFFFFF;
+            background: #F3F4F6;
         }
 
-        .deck-voice-chip.v-s { color: #BE123C; }
-        .deck-voice-chip.v-a { color: #7E22CE; }
-        .deck-voice-chip.v-t { color: #1D4ED8; }
-        .deck-voice-chip.v-b { color: #15803D; }
+        .deck-voice-chip.v-s { color: #DC2626; border-color: #FECACA; }
+        .deck-voice-chip.v-s:hover { background: #FEE2E2; }
+        .deck-voice-chip.v-a { color: #7E22CE; border-color: #E9D5FF; }
+        .deck-voice-chip.v-a:hover { background: #F3E8FF; }
+        .deck-voice-chip.v-t { color: #2563EB; border-color: #BFDBFE; }
+        .deck-voice-chip.v-t:hover { background: #DBEAFE; }
+        .deck-voice-chip.v-b { color: #16A34A; border-color: #BBF7D0; }
+        .deck-voice-chip.v-b:hover { background: #DCFCE7; }
 
         .deck-action-btn {
-            height: 34px;
-            padding: 0 7px;
+            height: 36px;
+            padding: 0 10px;
             background: #FFFFFF;
-            border: 1px solid #DED4E8;
-            border-radius: 5px;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
             font-size: 12px;
-            font-weight: 700;
-            color: #4A3B5E;
+            font-weight: 600;
+            color: #374151;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 3px;
+            gap: 4px;
             cursor: pointer;
             transition: all 0.12s ease;
         }
 
         .deck-action-btn:hover {
-            background: #EDE5F4;
-            color: #5B2D8E;
+            background: #F3F4F6;
+            color: #111827;
         }
 
         .deck-action-btn.btn-delete {
-            background: #FFF1F2;
-            border-color: #FECDD3;
-            color: #E11D48;
+            background: #FEF2F2;
+            border-color: #FECACA;
+            color: #DC2626;
+            padding: 0 10px;
         }
 
         .deck-action-btn.btn-delete:hover {
-            background: #E11D48;
+            background: #DC2626;
             color: #FFFFFF;
+            border-color: #DC2626;
         }
 
         .deck-divider {
             width: 1px;
-            height: 20px;
-            background: #E2D9EE;
+            height: 22px;
+            background: #E5E7EB;
             flex-shrink: 0;
-            margin: 0 1px;
+            margin: 0 2px;
         }
 
         /* ─── Desktop Optimization (@media min-width: 768px) ─── */
@@ -646,40 +596,75 @@
                 left: 50%;
                 right: auto;
                 transform: translate(-50%, 110%);
-                border-radius: 12px 12px 0 0;
-                border: 1.5px solid #DED4E8;
+                border-radius: 8px 8px 0 0;
+                border: 1px solid #E5E7EB;
                 border-bottom: none;
             }
 
             .soundslice-deck.visible {
                 transform: translate(-50%, 0);
             }
-
-            .deck-toolbar-scroll {
-                justify-content: center;
-                overflow-x: visible;
-            }
         }
-
-        /* Narrow Screen Support */
-        @media (max-width: 480px) {
+        /* Mobile Responsive Support (Mobile Phones & Tablets <= 767px) */
+        @media (max-width: 767px) {
+            .deck-nav-row {
+                padding: 6px 8px;
+                gap: 4px;
+                flex-wrap: nowrap;
+            }
+            .deck-nav-btn {
+                padding: 0 8px;
+                min-width: 34px;
+                height: 32px;
+                flex-shrink: 0;
+            }
             .deck-nav-btn .nav-label {
-                display: none;
+                display: none !important;
             }
-
-            .deck-glyph-btn {
-                min-width: 31px;
-                height: 31px;
-                font-size: 15px;
+            .deck-oct-controls {
+                gap: 2px;
+                flex-shrink: 0;
             }
-
+            .deck-oct-btn {
+                padding: 0 5px;
+                height: 32px;
+                font-size: 10px;
+                gap: 2px;
+                flex-shrink: 0;
+            }
+            .deck-piano-toggle {
+                padding: 0 8px;
+                height: 32px;
+                min-width: 34px;
+                flex-shrink: 0;
+            }
+            .deck-piano-toggle span:last-child {
+                display: none !important;
+            }
             .deck-pitch-badge {
-                font-size: 13px;
-                padding: 2px 7px;
+                font-size: 12px;
+                padding: 3px 6px;
+                min-width: 28px;
+            }
+            .deck-meas-badge {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+            .deck-voice-badge {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+            .deck-glyph-btn {
+                min-width: 34px;
+                height: 34px;
+            }
+            .deck-action-btn {
+                padding: 0 8px;
+                height: 34px;
+                font-size: 11px;
             }
         }
         
-        /* ─── Floating Drag Ghost for Palette Drag-and-Drop Stamping ─── */
         .palette-drag-ghost {
             position: fixed;
             display: none;
@@ -1069,14 +1054,17 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"></polyline>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    <line x1="10" y1="11" x2="10" y2="17"></line>
-                    <line x1="14" y1="11" x2="14" y2="17"></line>
                 </svg>
             </button>
             <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">𝄽</button>
             <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">♯</button>
             <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">·</button>
-            <button id="hud-btn-details" class="hud-btn" title="Edit Details & Lyrics" onclick="openNoteDetails()">✏️</button>
+            <button id="hud-btn-details" class="hud-btn" title="Edit Details & Lyrics" onclick="openNoteDetails()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+            </button>
             <div class="hud-divider"></div>
             <div id="hud-note-badge" class="hud-note-badge">G4</div>
             <div class="hud-divider"></div>
@@ -1093,7 +1081,10 @@
 
     <!-- Drag-to-Trash Drop Zone -->
     <div id="trash-drop-zone" class="trash-drop-zone">
-        <span class="trash-icon">🗑️</span>
+        <svg class="trash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
         <span id="trash-label" class="trash-label">Drop here to Delete</span>
     </div>
 
@@ -1107,42 +1098,55 @@
     <div id="soundslice-deck" class="soundslice-deck">
         <!-- Row 1: Note Selection & Sequential Navigation Bar -->
         <div class="deck-nav-row">
-            <button id="deck-btn-prev" class="deck-nav-btn" onclick="stepNote(-1)" title="Previous Note (◀)">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                </svg>
-                <span class="nav-label">Prev</span>
-            </button>
+            <div class="deck-nav-group-left">
+                <button id="deck-btn-prev" class="deck-nav-btn" onclick="stepNote(-1)" title="Previous Note">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    <span class="nav-label">Prev</span>
+                </button>
 
-            <div class="deck-note-info">
-                <span id="deck-note-pitch" class="deck-pitch-badge" onclick="cycleSelectedNoteAccidental()" title="Selected Pitch (Tap to cycle accidental)">--</span>
-                <span id="deck-note-meas" class="deck-meas-badge">M.1</span>
-                <span id="deck-note-voice" class="deck-voice-badge voice-s">S</span>
+                <div class="deck-note-info">
+                    <span id="deck-note-pitch" class="deck-pitch-badge" onclick="cycleSelectedNoteAccidental()" title="Selected Pitch">--</span>
+                    <span id="deck-note-meas" class="deck-meas-badge">M.1</span>
+                    <span id="deck-note-voice" class="deck-voice-badge voice-s">S</span>
+                </div>
+
+                <button id="deck-btn-next" class="deck-nav-btn" onclick="stepNote(1)" title="Next Note">
+                    <span class="nav-label">Next</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
             </div>
 
-            <button id="deck-btn-next" class="deck-nav-btn" onclick="stepNote(1)" title="Next Note (▶)">
-                <span class="nav-label">Next</span>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-            </button>
+            <div class="deck-nav-group-right">
+                <div class="deck-oct-controls">
+                    <button id="deck-btn-oct-down" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(-1)" title="Lower Octave (-8va)">-8va</button>
+                    <button id="deck-btn-oct-up" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(1)" title="Higher Octave (+8va)">+8va</button>
+                </div>
 
-            <div class="deck-divider"></div>
+                <button id="deck-btn-piano" class="deck-piano-toggle" onclick="togglePianoStrip()" title="Toggle Visual Piano Strip">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                        <line x1="6" y1="4" x2="6" y2="12"></line>
+                        <line x1="10" y1="4" x2="10" y2="12"></line>
+                        <line x1="14" y1="4" x2="14" y2="12"></line>
+                        <line x1="18" y1="4" x2="18" y2="12"></line>
+                    </svg>
+                    <span>Piano</span>
+                </button>
 
-            <div class="deck-oct-controls">
-                <button id="deck-btn-oct-down" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(-1)" title="Lower Octave (-8va)">8va ▼</button>
-                <button id="deck-btn-oct-up" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(1)" title="Higher Octave (+8va)">8va ▲</button>
+                <button id="deck-btn-close" class="deck-close-btn" onclick="deselectNote()" title="Deselect Note (Esc)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
-
-            <button id="deck-btn-piano" class="deck-piano-toggle" onclick="togglePianoStrip()" title="Toggle Visual Piano Strip">
-                <span>🎹</span>
-                <span>Piano</span>
-            </button>
-
-            <button id="deck-btn-close" class="deck-close-btn" onclick="deselectNote()" title="Deselect Note (Esc)">✕</button>
         </div>
 
-        <!-- Row 1b: Expandable Visual Mini-Piano Strip (Soundslice Style) -->
+        <!-- Row 1b: Expandable Visual Mini-Piano Strip -->
         <div id="soundslice-piano-strip" class="soundslice-piano-strip">
             <div id="piano-keys-track" class="piano-keys-track">
                 <!-- Dynamically generated 2-octave piano keys -->
@@ -1151,25 +1155,79 @@
 
         <!-- Row 2: Musical Glyph Editing Toolbar -->
         <div class="deck-toolbar-scroll">
-            <!-- Group 1: Note Values -->
+            <!-- Group 1: Note Values (Crisp Vector Notation SVGs) -->
             <div class="deck-tool-group">
                 <span class="deck-group-label">Notes</span>
-                <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">𝅝</button>
-                <button class="deck-glyph-btn" data-type="half" onclick="applyDurationTool('half', false)" title="Half Note">𝅗</button>
-                <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">𝅘</button>
-                <button class="deck-glyph-btn" data-type="eighth" onclick="applyDurationTool('eighth', false)" title="8th Note">𝅙</button>
-                <button class="deck-glyph-btn" data-type="16th" onclick="applyDurationTool('16th', false)" title="16th Note">𝅚</button>
+                <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="12" cy="12" rx="7" ry="4.5" transform="rotate(-15 12 12)" stroke="currentColor" stroke-width="2.2"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="half" onclick="applyDurationTool('half', false)" title="Half Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="9" cy="15" rx="5.5" ry="3.8" transform="rotate(-15 9 15)" stroke="currentColor" stroke-width="2.2"/>
+                        <line x1="14" y1="15" x2="14" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="9" cy="15" rx="5.5" ry="3.8" transform="rotate(-15 9 15)" fill="currentColor"/>
+                        <line x1="14" y1="15" x2="14" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="eighth" onclick="applyDurationTool('eighth', false)" title="8th Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="8.5" cy="15.5" rx="5" ry="3.5" transform="rotate(-15 8.5 15.5)" fill="currentColor"/>
+                        <line x1="13" y1="15" x2="13" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M13 4 C16 6, 17 9, 19 11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="16th" onclick="applyDurationTool('16th', false)" title="16th Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="8" cy="16" rx="4.5" ry="3.2" transform="rotate(-15 8 16)" fill="currentColor"/>
+                        <line x1="12" y1="16" x2="12" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M12 4 C15 5.5, 16 7.5, 18 9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                        <path d="M12 8 C15 9.5, 16 11.5, 18 13" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                    </svg>
+                </button>
             </div>
 
             <div class="deck-divider"></div>
 
-            <!-- Group 2: Rests (Including Whole-Measure Rest) -->
+            <!-- Group 2: Rests (Crisp Vector Notation SVGs) -->
             <div class="deck-tool-group">
                 <span class="deck-group-label">Rests</span>
-                <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">𝄻</button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">𝄼</button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">𝄽</button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">𝄾</button>
+                <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                        <rect x="7" y="9" width="10" height="5" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <line x1="3" y1="15" x2="21" y2="15" stroke="currentColor" stroke-width="1.5"/>
+                        <rect x="7" y="10" width="10" height="5" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M14 4 L9 10 L14 13 C11 15, 10 17, 10 19 C10 20, 11 21, 12 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <circle cx="10" cy="8" r="2.2" fill="currentColor"/>
+                        <path d="M12 8 C14 10, 15 11, 14 13 L11 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('16th')" title="16th Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <circle cx="10" cy="7" r="1.8" fill="currentColor"/>
+                        <path d="M12 7 C14 8.5, 14.5 9.5, 13.5 11 L11 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+                        <circle cx="9" cy="12" r="1.8" fill="currentColor"/>
+                        <path d="M11 12 C13 13.5, 13.5 14.5, 12.5 16 L10 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+                    </svg>
+                </button>
             </div>
 
             <div class="deck-divider"></div>
@@ -1180,16 +1238,24 @@
                 <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">♯</button>
                 <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">♭</button>
                 <button id="deck-btn-natural" class="deck-glyph-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">♮</button>
-                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">·</button>
+                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">•</button>
             </div>
 
             <div class="deck-divider"></div>
 
-            <!-- Group 4: Curves & Phrasing ("the curve thingy") -->
+            <!-- Group 4: Curves & Phrasing (Authentic SVG Slurs & Ties) -->
             <div class="deck-tool-group">
                 <span class="deck-group-label">Curve</span>
-                <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">⁀</button>
-                <button id="deck-btn-tie" class="deck-glyph-btn" onclick="applyTieTool()" title="Tie Curve (Hold Pitch)">𝆢</button>
+                <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 15 C8 6, 16 6, 21 15 C16 9, 8 9, 3 15 Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-tie" class="deck-glyph-btn" onclick="applyTieTool()" title="Tie Curve (Hold Pitch)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 9 C8 18, 16 18, 21 9 C16 15, 8 15, 3 9 Z" fill="currentColor"/>
+                    </svg>
+                </button>
             </div>
 
             <div class="deck-divider"></div>
@@ -1205,12 +1271,33 @@
 
             <div class="deck-divider"></div>
 
-            <!-- Group 6: Actions -->
+            <!-- Group 6: Actions (Lucide SVG Icons, No Emojis) -->
             <div class="deck-tool-group">
-                <button class="deck-action-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">✏️ Lyrics</button>
-                <button class="deck-action-btn btn-delete" onclick="deleteSelectedNote()" title="Delete Element">🗑️</button>
-                <button class="deck-action-btn" onclick="undo()" id="deck-btn-undo" title="Undo (Ctrl+Z)">↩</button>
-                <button class="deck-action-btn" onclick="redo()" id="deck-btn-redo" title="Redo (Ctrl+Y)">↪</button>
+                <button class="deck-action-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9"></path>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                    </svg>
+                    <span>Lyrics</span>
+                </button>
+                <button class="deck-action-btn btn-delete" onclick="deleteSelectedNote()" title="Delete Element">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+                <button class="deck-action-btn" onclick="undo()" id="deck-btn-undo" title="Undo (Ctrl+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 14 4 9 9 4"></polyline>
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                    </svg>
+                </button>
+                <button class="deck-action-btn" onclick="redo()" id="deck-btn-redo" title="Redo (Ctrl+Y)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 14 20 9 15 4"></polyline>
+                        <path d="M4 20v-7a4 4 0 0 1 4-4h12"></path>
+                    </svg>
+                </button>
             </div>
         </div>
     </div>
@@ -6748,7 +6835,7 @@
                 if (badge) {
                     badge.classList.add('danger');
                     var nameEl = document.getElementById('drag-pitch-name');
-                    if (nameEl) nameEl.textContent = '🗑️ Release to Delete';
+                    if (nameEl) nameEl.textContent = 'Release to Delete';
                 }
                 if (ind) ind.style.transform = 'none';
                 return;
