@@ -12,6 +12,7 @@ Watch the live end-to-end system walkthrough on YouTube:
 
 - **Direct Video Link**: [https://www.youtube.com/watch?v=31P9AGV1Fak](https://www.youtube.com/watch?v=31P9AGV1Fak)
 - **Latest Android APK Release**: [GitHub Releases](https://github.com/lVIN15/VoxSight/releases)
+- **Commercial Video**: [https://youtu.be/89PtPotMPFQ](https://youtu.be/89PtPotMPFQ)
 
 ---
 
