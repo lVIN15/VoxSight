@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, ArrowRight, Music, Mic, Play } from 'lucide-react';
+import { Download, ArrowRight, Music, Mic, Play, QrCode } from 'lucide-react';
 import { PROJECT_INFO } from '../data/mockData';
 
 export const Hero: React.FC = () => {
@@ -46,6 +46,15 @@ export const Hero: React.FC = () => {
                 <Download className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300" />
                 <span>Download Android APK</span>
                 <span className="text-[11px] font-mono opacity-80">({PROJECT_INFO.apkSize})</span>
+              </a>
+
+              <a
+                href="#download"
+                className="inline-flex items-center justify-center gap-2 px-4 py-3.5 text-xs sm:text-sm font-sans font-semibold text-slate-700 hover:text-violet-900 bg-[#F4EFEA] hover:bg-[#EBE3DB] border border-[#E3D7CB] rounded-2xl transition-all duration-200 min-h-[48px]"
+                title="Scan QR Code to install APK on mobile"
+              >
+                <QrCode className="w-4 h-4 text-violet-800" />
+                <span className="hidden sm:inline">Scan QR</span>
               </a>
 
               <a

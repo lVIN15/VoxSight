@@ -1,6 +1,6 @@
 import React from 'react';
 import { PROJECT_INFO } from '../data/mockData';
-import { Download, ShieldCheck, Smartphone, FileCode } from 'lucide-react';
+import { Download, ShieldCheck, Smartphone, FileCode, QrCode } from 'lucide-react';
 
 export const DownloadSection: React.FC = () => {
   return (
@@ -30,35 +30,67 @@ export const DownloadSection: React.FC = () => {
               Download the VoxSight Android application directly as a static APK file. Scan printed choir sheet music and get real-time vocal intonation feedback at home.
             </p>
 
-            {/* Download Button */}
-            <div className="pt-2 sm:pt-4 flex flex-col items-center justify-center gap-4">
-              <a
-                href={PROJECT_INFO.downloadUrl}
-                download={`voxsight-v${PROJECT_INFO.apkVersion}.apk`}
-                className="group inline-flex items-center justify-center gap-3 px-8 sm:px-9 py-4 text-sm sm:text-base font-sans font-bold text-violet-950 bg-white hover:bg-amber-100 rounded-2xl shadow-xl hover:-translate-y-1 transition-all duration-200 min-h-[52px]"
-              >
-                <Download className="w-5 h-5 sm:w-6 sm:h-6 text-violet-900 group-hover:animate-bounce" />
-                <span>Download Android APK</span>
-                <span className="text-xs font-mono opacity-80 text-violet-950">({PROJECT_INFO.apkSize})</span>
-              </a>
-
-              <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-xs text-violet-200 font-mono">
-                <span className="flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5 text-amber-300" /> {PROJECT_INFO.minAndroidVersion}
-                </span>
-                <span>•</span>
-                <span className="flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Verified Clean Build
-                </span>
-                <span>•</span>
+            {/* Download Button & QR Quick Scan */}
+            <div className="pt-2 sm:pt-4 flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-8">
+              
+              {/* Direct APK Download Button + Specs */}
+              <div className="flex flex-col items-center lg:items-start gap-4">
                 <a
-                  href={PROJECT_INFO.releaseUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-amber-300 hover:text-white underline transition-colors"
+                  href={PROJECT_INFO.downloadUrl}
+                  download={`voxsight-v${PROJECT_INFO.apkVersion}.apk`}
+                  className="group inline-flex items-center justify-center gap-3 px-8 sm:px-9 py-4 text-sm sm:text-base font-sans font-bold text-violet-950 bg-white hover:bg-amber-100 rounded-2xl shadow-xl hover:-translate-y-1 transition-all duration-200 min-h-[52px]"
                 >
-                  <FileCode className="w-3.5 h-3.5" /> What's New in v{PROJECT_INFO.apkVersion} ↗
+                  <Download className="w-5 h-5 sm:w-6 sm:h-6 text-violet-900 group-hover:animate-bounce" />
+                  <span>Download Android APK</span>
+                  <span className="text-xs font-mono opacity-80 text-violet-950">({PROJECT_INFO.apkSize})</span>
                 </a>
+
+                <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 sm:gap-4 text-xs text-violet-200 font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-amber-300" /> {PROJECT_INFO.minAndroidVersion}
+                  </span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Verified Clean Build
+                  </span>
+                  <span>•</span>
+                  <a
+                    href={PROJECT_INFO.releaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-amber-300 hover:text-white underline transition-colors"
+                  >
+                    <FileCode className="w-3.5 h-3.5" /> What's New in v{PROJECT_INFO.apkVersion} ↗
+                  </a>
+                </div>
+              </div>
+
+              {/* Scan QR Code to Install Card */}
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-xs text-left shadow-lg max-w-sm">
+                <div className="p-1.5 bg-white rounded-xl shadow-md shrink-0">
+                  <img
+                    src="/voxsight-v1.4.0-qr.svg"
+                    alt="Scan QR code to install VoxSight APK directly"
+                    className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="space-y-1 text-left">
+                  <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-amber-300">
+                    <QrCode className="w-4 h-4 text-amber-300 shrink-0" />
+                    <span>Quick Scan Install</span>
+                  </div>
+                  <p className="text-[11px] font-sans text-violet-100 leading-snug">
+                    Scan with your Android camera to download and install the APK directly to your phone.
+                  </p>
+                  <a
+                    href="/voxsight-v1.4.0-qr.png"
+                    download="voxsight-v1.4.0-qr.png"
+                    className="inline-block text-[10px] font-mono text-emerald-300 hover:text-white underline pt-0.5"
+                  >
+                    Save QR Image ↓
+                  </a>
+                </div>
               </div>
               {/* v1.4.0 Highlights Banner */}
               <div className="mt-2 p-4 rounded-2xl bg-white/5 border border-white/10 text-left max-w-xl mx-auto backdrop-blur-xs">
