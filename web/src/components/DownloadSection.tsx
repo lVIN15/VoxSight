@@ -60,6 +60,27 @@ export const DownloadSection: React.FC = () => {
                   <FileCode className="w-3.5 h-3.5" /> What's New in v{PROJECT_INFO.apkVersion} ↗
                 </a>
               </div>
+              {/* v1.4.0 Highlights Banner */}
+              <div className="mt-2 p-4 rounded-2xl bg-white/5 border border-white/10 text-left max-w-xl mx-auto backdrop-blur-xs">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 text-xs">
+                  <span className="font-mono font-bold text-amber-300">★ What's New in v1.4.0</span>
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">Latest Release</span>
+                </div>
+                <ul className="text-[11px] text-violet-100 font-sans space-y-1">
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-amber-300">•</span>
+                    <span><strong>Soundslice-Inspired Notation Editor:</strong> Unified bottom editing deck with SMuFL musical glyphs.</span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-amber-300">•</span>
+                    <span><strong>Note & Rest Insertion:</strong> Add Whole, Half, Quarter, 8th, and 16th notes/rests with octave & accidental controls.</span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-amber-300">•</span>
+                    <span><strong>Production Railway Backend:</strong> Direct low-latency cloud sync with all development tools removed.</span>
+                  </li>
+                </ul>
+              </div>
             </div>
 
             {/* Android Installation Steps: Adaptive 1 -> 2 -> 4 columns */}

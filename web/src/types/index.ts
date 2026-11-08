@@ -33,7 +33,7 @@ export interface ScreenshotItem {
   id: string;
   title: string;
   caption: string;
-  category: 'Scan & OMR' | 'Selective Focus' | 'Live Pitch' | 'Analytics';
+  category: 'Scan & OMR' | 'Selective Focus' | 'Live Pitch' | 'Analytics' | 'Sheet Music Editor';
   imagePlaceholder: string;
 }
 

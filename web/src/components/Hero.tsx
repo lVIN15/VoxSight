@@ -20,6 +20,9 @@ export const Hero: React.FC = () => {
               <span className="text-[11px] sm:text-xs font-sans font-bold text-violet-950 tracking-wide">
                 CAPSTONE INITIATIVE • TEAM {PROJECT_INFO.teamCode}
               </span>
+              <span className="px-2 py-0.5 rounded-full bg-violet-900 text-white font-mono text-[10px] font-bold">
+                v{PROJECT_INFO.apkVersion} Live
+              </span>
             </div>
 
             {/* Serif Main Headline */}
@@ -31,7 +34,7 @@ export const Hero: React.FC = () => {
 
             {/* Subtitle */}
             <p className="text-sm sm:text-base lg:text-lg text-slate-600 font-sans leading-relaxed max-w-2xl mx-auto lg:mx-0">
-              An Android mobile companion created for amateur choir members. Scans printed choir sheet music into digital scores, isolates your vocal part with staff dimming, plays sustained vocal soundfonts, and gives real-time microphone pitch feedback.
+              An Android mobile companion created for amateur choir members. Scans printed choir sheet music into digital scores, refines notation with an intuitive Soundslice-style touch editor, isolates your vocal part with staff dimming, plays sustained vocal soundfonts, and gives real-time microphone pitch feedback.
             </p>
 
             {/* Action Buttons: Original Content with Responsive Flex Stacking */}

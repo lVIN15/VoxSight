@@ -48,3 +48,15 @@ export const StaffIsolationIcon: React.FC<{ className?: string }> = ({ className
     <circle cx="12" cy="13" r="3" fill="currentColor" />
   </svg>
 );
+
+export const ScoreEditorIcon: React.FC<{ className?: string }> = ({ className = "w-6 h-6" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {/* Stave lines with musical note and pencil edit cursor */}
+    <line x1="2" y1="6" x2="22" y2="6" strokeOpacity="0.3" />
+    <line x1="2" y1="12" x2="22" y2="12" strokeOpacity="0.3" />
+    <line x1="2" y1="18" x2="22" y2="18" strokeOpacity="0.3" />
+    <ellipse cx="8" cy="12" rx="3" ry="2" transform="rotate(-20 8 12)" fill="currentColor" />
+    <line x1="10.5" y1="11" x2="10.5" y2="4" strokeWidth="2" />
+    <path d="M14 16l4-4 2 2-4 4-3 1 1-3z" strokeWidth="1.5" fill="none" />
+  </svg>
+);

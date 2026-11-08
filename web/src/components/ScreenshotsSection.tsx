@@ -4,7 +4,7 @@ import { Smartphone, Scan, Check } from 'lucide-react';
 import { InteractivePitchDemo } from './InteractivePitchDemo';
 
 export const ScreenshotsSection: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('focus');
+  const [activeTab, setActiveTab] = useState<string>('editor');
 
   const activeScreenshot = APP_SCREENSHOTS.find((s) => s.id === activeTab) || APP_SCREENSHOTS[1];
 
@@ -96,6 +96,74 @@ export const ScreenshotsSection: React.FC = () => {
                 </div>
 
                 {/* Tab Specific Screen Content */}
+                {activeTab === 'editor' && (
+                  <div className="bg-[#FAF8F5] rounded-2xl p-2.5 sm:p-3 text-left space-y-2 font-sans text-xs text-slate-900 border border-slate-200">
+                    {/* Header bar: Page 1 of 2 with fit & zoom */}
+                    <div className="flex justify-between items-center bg-white p-1.5 rounded-lg border border-slate-200 text-[10px]">
+                      <span className="font-bold text-violet-950 font-sans">Page 1 of 2</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 font-mono text-[9px] font-bold text-slate-700">FIT</span>
+                        <span className="px-1.5 py-0.5 rounded bg-violet-100 font-mono text-[9px] font-bold text-violet-900">100%</span>
+                      </div>
+                    </div>
+
+                    {/* Score Canvas with highlighted note */}
+                    <div className="h-28 sm:h-32 bg-white rounded-xl border border-slate-200 p-2 relative flex flex-col justify-center">
+                      <div className="space-y-1.5 opacity-40">
+                        <div className="h-px bg-slate-800 w-full" />
+                        <div className="h-px bg-slate-800 w-full" />
+                        <div className="h-px bg-slate-800 w-full" />
+                        <div className="h-px bg-slate-800 w-full" />
+                        <div className="h-px bg-slate-800 w-full" />
+                      </div>
+                      {/* Active note highlight */}
+                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-violet-100/90 border border-violet-400 px-2 py-1 rounded-md shadow-sm">
+                        <span className="w-2.5 h-2.5 rounded-full bg-violet-900 inline-block" />
+                        <span className="text-[10px] font-bold font-mono text-violet-950">F#3 (Tenor)</span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Editing Deck */}
+                    <div className="bg-white p-2 rounded-xl border border-violet-200 space-y-1.5 shadow-xs">
+                      {/* Note navigation & octave */}
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <div className="flex items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 font-bold">◀</span>
+                          <span className="px-2 py-0.5 rounded bg-violet-900 text-white font-bold">F#3</span>
+                          <span className="text-slate-500 text-[9px]">M.5</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 font-bold">▶</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-bold">-8va</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-bold">+8va</span>
+                        </div>
+                      </div>
+
+                      {/* Note duration buttons */}
+                      <div className="grid grid-cols-5 gap-1 text-[9px] font-sans font-bold text-center">
+                        <div className="p-1 rounded bg-slate-100 text-slate-700">Whole</div>
+                        <div className="p-1 rounded bg-slate-100 text-slate-700">Half</div>
+                        <div className="p-1 rounded bg-violet-900 text-white shadow-xs">● Quarter</div>
+                        <div className="p-1 rounded bg-slate-100 text-slate-700">8th</div>
+                        <div className="p-1 rounded bg-purple-50 text-purple-900 border border-purple-200">Rest</div>
+                      </div>
+
+                      {/* Accidentals & curves */}
+                      <div className="flex items-center justify-between text-[9px] font-sans pt-1 border-t border-slate-100">
+                        <div className="flex gap-1 font-bold">
+                          <span className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-900 border border-violet-200"># Sharp</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">b Flat</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">♮ Natural</span>
+                        </div>
+                        <div className="flex gap-1 font-bold">
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200">Slur</span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200">Tie</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === 'scan' && (
                   <div className="bg-[#FAF8F5] rounded-2xl p-3 sm:p-4 text-left space-y-3 sm:space-y-4 font-mono text-xs text-slate-900 border border-slate-200">
                     <div className="flex justify-between items-center pb-2 border-b border-slate-200">

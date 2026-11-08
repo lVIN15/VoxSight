@@ -1,7 +1,7 @@
 import React from 'react';
 import { CORE_FEATURES } from '../data/mockData';
 import { Check, Sparkles } from 'lucide-react';
-import { TrebleClefIcon, StaffIsolationIcon, WaveformIcon, TuningForkIcon } from './icons/CustomMusicIcons';
+import { TrebleClefIcon, StaffIsolationIcon, WaveformIcon, TuningForkIcon, ScoreEditorIcon } from './icons/CustomMusicIcons';
 import { InteractiveSATBDemo } from './InteractiveSATBDemo';
 
 export const FeaturesSection: React.FC = () => {
@@ -15,6 +15,8 @@ export const FeaturesSection: React.FC = () => {
         return WaveformIcon;
       case 'Mic':
         return TuningForkIcon;
+      case 'Edit3':
+        return ScoreEditorIcon;
       default:
         return TrebleClefIcon;
     }
@@ -39,7 +41,7 @@ export const FeaturesSection: React.FC = () => {
           </h2>
 
           <p className="text-base font-sans text-slate-600 leading-relaxed">
-            VoxSight incorporates four synchronized core modules specifically engineered to solve independent sight-reading challenges.
+            VoxSight incorporates synchronized core modules and an intuitive sheet music editor specifically engineered to solve independent sight-reading challenges.
           </p>
         </div>
 

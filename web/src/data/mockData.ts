@@ -16,6 +16,22 @@ export const PROJECT_INFO = {
 
 export const CORE_FEATURES: FeatureItem[] = [
   {
+    id: 'sheet-editor',
+    title: 'Soundslice-Inspired Notation Editor',
+    shortDesc: 'Refine and correct digitized sheet music with an ergonomic, touch-friendly mobile editing deck.',
+    fullDesc: 'Seamlessly correct OMR recognition inaccuracies on mobile. Select notes, adjust pitches and octaves, insert whole to 16th notes and rests, toggle accidentals, and shape slur/tie curves with instant MusicXML synchronization.',
+    metric: 'Instant Live Sync',
+    iconName: 'Edit3',
+    badge: 'Mobile Editor',
+    highlights: [
+      'Ergonomic bottom editing deck designed for fast single-hand mobile touch interaction',
+      'Quick-insert notes & rests (Whole, Half, Quarter, 8th, 16th) with standard SMuFL glyphs',
+      'Instant accidental modifiers (Sharp, Flat, Natural, Dot) and octave shifts (±8va)',
+      'Phrasing curve controls for slurs and tie curves with real-time MusicXML DOM updates',
+      'Unobstructed score canvas with dedicated non-intrusive page navigation and zoom'
+    ]
+  },
+  {
     id: 'omr',
     title: 'Controlled OMR Digitization',
     shortDesc: 'Instantly convert printed SATB sheet music into playable MusicXML digital scores.',
@@ -79,6 +95,13 @@ export const CORE_FEATURES: FeatureItem[] = [
 ];
 
 export const TECH_STACK: TechItem[] = [
+  {
+    name: 'OpenSheetMusicDisplay (OSMD) & SMuFL',
+    category: 'Music & OMR',
+    description: 'High-fidelity vector notation rendering engine with Standard Music Font Layout (SMuFL) glyphs for dynamic sheet music editing.',
+    badge: 'Notation Engine',
+    icon: 'Music'
+  },
   {
     name: 'Android Native (Kotlin)',
     category: 'Mobile',
@@ -162,6 +185,13 @@ export const TEAM_MEMBERS: TeamMember[] = [
 ];
 
 export const APP_SCREENSHOTS: ScreenshotItem[] = [
+  {
+    id: 'editor',
+    title: 'Interactive Notation Editor',
+    caption: 'Correct digitized scores with an ergonomic bottom editing deck featuring SMuFL notation glyphs, note insertion, and octave shifts.',
+    category: 'Sheet Music Editor',
+    imagePlaceholder: 'sheet-editor'
+  },
   {
     id: 'scan',
     title: 'Controlled OMR Score Scanner',
