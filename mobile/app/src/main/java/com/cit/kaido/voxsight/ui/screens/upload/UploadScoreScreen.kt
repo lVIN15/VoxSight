@@ -240,9 +240,6 @@ fun UploadScoreScreen(
         }
     }
     var scoreToDelete by remember { mutableStateOf<RecentScoreItem?>(null) }
-    var forceFreshScan by remember { mutableStateOf(false) }
-    var activeBackendUrl by remember { mutableStateOf(ApiClient.getBaseUrl(context)) }
-    var showDebugServerDialog by remember { mutableStateOf(false) }
 
     // ── Camera URI for captured image ───────────────────────────
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -259,7 +256,6 @@ fun UploadScoreScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 ApiClient.init(context)
-                activeBackendUrl = ApiClient.getBaseUrl(context)
                 uploadCredits = PremiumManager.getUploadCredits(context)
                 profilePictureBase64 = prefs.getString("logged_in_profile_picture", null)
                 coroutineScope.launch {
@@ -308,7 +304,7 @@ fun UploadScoreScreen(
                 context = context,
                 imageUri = pendingCameraUri!!,
                 coroutineScope = coroutineScope,
-                bypassCache = forceFreshScan,
+                bypassCache = false,
                 onProgress = { /* handled by UploadManager state */ },
                 onSuccess = { musicXml, title ->
                     val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -349,7 +345,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = it,
                     coroutineScope = coroutineScope,
-                    bypassCache = forceFreshScan,
+                    bypassCache = false,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, _ ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -388,7 +384,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = it,
                     coroutineScope = coroutineScope,
-                    bypassCache = forceFreshScan,
+                    bypassCache = false,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -489,7 +485,7 @@ fun UploadScoreScreen(
                     context = context,
                     imageUri = optimizedUri,
                     coroutineScope = coroutineScope,
-                    bypassCache = forceFreshScan,
+                    bypassCache = false,
                     onProgress = { /* handled by UploadManager state */ },
                     onSuccess = { musicXml, title ->
                         val unsupportedReason = ScoreValidator.checkUnsupportedMusicXml(musicXml)
@@ -832,180 +828,6 @@ fun UploadScoreScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = VoxTextSecondary,
                     textAlign = TextAlign.Center
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ===== Fresh Scan / Bypass Cache Option =====
-            androidx.compose.material3.Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = VoxCardBackground,
-                border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(
-                            text = "Force Fresh Scan",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = VoxTextPrimary
-                        )
-                        Text(
-                            text = "Bypasses server cache to re-run full OMR analysis from scratch.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VoxTextSecondary,
-                            lineHeight = 16.sp
-                        )
-                    }
-                    androidx.compose.material3.Switch(
-                        checked = forceFreshScan,
-                        onCheckedChange = { forceFreshScan = it },
-                        colors = androidx.compose.material3.SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = VoxPurplePrimary
-                        )
-                    )
-                }
-            }
-
-            if (com.cit.kaido.voxsight.BuildConfig.DEBUG) {
-                Spacer(modifier = Modifier.height(10.dp))
-                androidx.compose.material3.Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = VoxCardBackground,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, VoxCardStroke)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = "OMR Server (Debug)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = VoxTextPrimary
-                            )
-                            Text(
-                                text = activeBackendUrl,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = VoxTextSecondary,
-                                lineHeight = 16.sp
-                            )
-                        }
-                        TextButton(onClick = { showDebugServerDialog = true }) {
-                            Text("SWITCH", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            if (com.cit.kaido.voxsight.BuildConfig.DEBUG && showDebugServerDialog) {
-                var customServerInput by remember(activeBackendUrl) { mutableStateOf(activeBackendUrl) }
-                AlertDialog(
-                    onDismissRequest = { showDebugServerDialog = false },
-                    title = {
-                        Text(
-                            text = "Select Debug OMR Server",
-                            fontWeight = FontWeight.Bold,
-                            color = VoxTextPrimary
-                        )
-                    },
-                    text = {
-                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                            Text(
-                                text = "Select backend server or enter a custom address:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = VoxTextSecondary
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            androidx.compose.material3.OutlinedButton(
-                                onClick = {
-                                    ApiClient.setDebugServerOverride(context, "http://192.168.1.12:8080/")
-                                    activeBackendUrl = ApiClient.getBaseUrl(context)
-                                    showDebugServerDialog = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Local Wi-Fi PC (http://192.168.1.12:8080/)")
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            androidx.compose.material3.OutlinedButton(
-                                onClick = {
-                                    ApiClient.setDebugServerOverride(context, ApiClient.EMULATOR_BASE_URL)
-                                    activeBackendUrl = ApiClient.getBaseUrl(context)
-                                    showDebugServerDialog = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Android Emulator (${ApiClient.EMULATOR_BASE_URL})")
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            androidx.compose.material3.OutlinedButton(
-                                onClick = {
-                                    ApiClient.setDebugServerOverride(context, ApiClient.PRODUCTION_BASE_URL)
-                                    activeBackendUrl = ApiClient.getBaseUrl(context)
-                                    showDebugServerDialog = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Railway Cloud (main)")
-                            }
-                            if (ApiClient.DEFAULT_BASE_URL != "http://192.168.1.12:8080/" &&
-                                ApiClient.DEFAULT_BASE_URL != ApiClient.EMULATOR_BASE_URL &&
-                                ApiClient.DEFAULT_BASE_URL != ApiClient.PRODUCTION_BASE_URL) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                androidx.compose.material3.OutlinedButton(
-                                    onClick = {
-                                        ApiClient.setDebugServerOverride(context, ApiClient.DEFAULT_BASE_URL)
-                                        activeBackendUrl = ApiClient.getBaseUrl(context)
-                                        showDebugServerDialog = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Configured Default (${ApiClient.DEFAULT_BASE_URL})")
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = customServerInput,
-                                onValueChange = { customServerInput = it },
-                                label = { Text("Custom Server URL") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                ApiClient.setDebugServerOverride(context, customServerInput)
-                                activeBackendUrl = ApiClient.getBaseUrl(context)
-                                showDebugServerDialog = false
-                            }
-                        ) {
-                            Text("SAVE", color = VoxPurplePrimary, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDebugServerDialog = false }) {
-                            Text("CANCEL", color = VoxTextSubtitle)
-                        }
-                    },
-                    containerColor = Color.White,
-                    shape = RoundedCornerShape(16.dp)
                 )
             }
 

@@ -14,9 +14,9 @@ object ApiClient {
 
     const val PRODUCTION_BASE_URL: String = "https://voxsight-production.up.railway.app/"
     const val EMULATOR_BASE_URL: String = "http://10.0.2.2:8080/"
-    val DEFAULT_BASE_URL: String = BuildConfig.BASE_URL
+    val DEFAULT_BASE_URL: String = PRODUCTION_BASE_URL
 
-    private var activeUrl = DEFAULT_BASE_URL
+    private var activeUrl = PRODUCTION_BASE_URL
     private var cachedRetrofit: Retrofit? = null
     private var cachedService: OmrService? = null
     private var cachedVersionApi: AppVersionApi? = null
@@ -65,24 +65,11 @@ object ApiClient {
 
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        var storedUrl = prefs.getString(KEY_BASE_URL, null)
-
-        if (!BuildConfig.DEBUG) {
-            val candidate = storedUrl ?: PRODUCTION_BASE_URL
-            storedUrl = if (isLocalUrl(candidate) || candidate.contains("onrender.com")) {
-                PRODUCTION_BASE_URL
-            } else {
-                candidate
-            }
-        } else {
-            val manualDebugUrl = prefs.getString(KEY_DEBUG_MANUAL_URL, null)?.takeIf { it.isNotBlank() }
-            storedUrl = when {
-                manualDebugUrl != null -> manualDebugUrl
-                isLocalUrl(DEFAULT_BASE_URL) && isRunningOnEmulator() -> EMULATOR_BASE_URL
-                else -> DEFAULT_BASE_URL
-            }
-        }
-        updateBaseUrl(context, storedUrl)
+        prefs.edit()
+            .remove(KEY_DEBUG_MANUAL_URL)
+            .putString(KEY_BASE_URL, PRODUCTION_BASE_URL)
+            .apply()
+        updateBaseUrl(context, PRODUCTION_BASE_URL)
     }
 
     fun setDebugServerOverride(context: Context, newUrl: String?) {
@@ -98,7 +85,12 @@ object ApiClient {
 
     fun getBaseUrl(context: Context): String {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+        val stored = prefs.getString(KEY_BASE_URL, PRODUCTION_BASE_URL) ?: PRODUCTION_BASE_URL
+        return if (isLocalUrl(stored) || stored.contains("onrender.com")) {
+            PRODUCTION_BASE_URL
+        } else {
+            stored
+        }
     }
 
     fun updateBaseUrl(context: Context, newUrl: String) {

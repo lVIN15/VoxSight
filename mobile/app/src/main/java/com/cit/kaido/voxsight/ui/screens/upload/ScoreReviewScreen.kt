@@ -245,6 +245,17 @@ fun ScoreReviewScreen(
                 EditorPreferences.saveSettings(context, editorSettings)
             }
         }
+
+        @JavascriptInterface
+        fun onVoiceAssigned(voiceCode: String) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                val clean = voiceCode.trim().uppercase()
+                if (clean.isNotEmpty()) {
+                    dynamicVoiceCodes = dynamicVoiceCodes + clean
+                    selectedNote = selectedNote?.copy(voiceCode = clean)
+                }
+            }
+        }
     }
 
     Scaffold(
@@ -628,6 +639,8 @@ fun ScoreReviewScreen(
         // Show Edit Info & Text Words Dialog
         if (showMetadataDialog) {
             ScoreInfoDialog(
+                initialTitle = parsedScore?.title ?: "",
+                initialComposer = parsedScore?.composer ?: "",
                 onDismissRequest = { showMetadataDialog = false },
                 onApply = { newTitle, newComposer, newArranger, oldWord, newWord ->
                     showMetadataDialog = false
@@ -952,14 +965,28 @@ private fun formatPitchName(step: String, alter: Int, octave: Int): String {
 
 @Composable
 fun ScoreInfoDialog(
+    initialTitle: String = "",
+    initialComposer: String = "",
     onDismissRequest: () -> Unit,
     onApply: (title: String, composer: String, arranger: String, oldWord: String, newWord: String) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var composer by remember { mutableStateOf("") }
+    var title by remember(initialTitle) { mutableStateOf(initialTitle) }
+    var composer by remember(initialComposer) { mutableStateOf(initialComposer) }
     var arranger by remember { mutableStateOf("") }
     var oldWord by remember { mutableStateOf("") }
     var newWord by remember { mutableStateOf("") }
+
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = VoxTextPrimary,
+        unfocusedTextColor = VoxTextPrimary,
+        focusedBorderColor = VoxPurplePrimary,
+        unfocusedBorderColor = VoxCardStroke,
+        focusedLabelColor = VoxPurplePrimary,
+        unfocusedLabelColor = VoxTextSubtitle,
+        focusedPlaceholderColor = VoxTextSubtitle.copy(alpha = 0.7f),
+        unfocusedPlaceholderColor = VoxTextSubtitle.copy(alpha = 0.7f),
+        cursorColor = VoxPurplePrimary
+    )
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -989,7 +1016,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Happy Birthday To You") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = composer,
@@ -998,7 +1026,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Patty and Mildred J. Hill") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = arranger,
@@ -1007,7 +1036,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Arranged by Jed Scott") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -1029,7 +1059,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. optional descanr") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = newWord,
@@ -1038,22 +1069,26 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. optional descant") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = { onApply(title, composer, arranger, oldWord, newWord) },
-                colors = ButtonDefaults.buttonColors(containerColor = VoxPurplePrimary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = VoxPurplePrimary,
+                    contentColor = Color.White
+                ),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("APPLY", fontWeight = FontWeight.Bold)
+                Text("APPLY", fontWeight = FontWeight.Bold, color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text("CANCEL", color = VoxTextSubtitle)
+                Text("CANCEL", color = VoxTextSubtitle, fontWeight = FontWeight.SemiBold)
             }
         },
         containerColor = Color.White,

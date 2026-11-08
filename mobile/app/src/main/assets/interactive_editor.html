@@ -295,13 +295,27 @@
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.2px;
+            cursor: pointer;
+            user-select: none;
         }
 
-        .deck-voice-badge.voice-s { background: #FEE2E2; color: #DC2626; border: 1px solid #FECACA; }
-        .deck-voice-badge.voice-a { background: #F3E8FF; color: #7E22CE; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-s { background: #FFE4E6; color: #E11D48; border: 1px solid #FECDD3; }
+        .deck-voice-badge.voice-s1 { background: #FFE4E6; color: #FB7185; border: 1px solid #FECDD3; }
+        .deck-voice-badge.voice-s2 { background: #FFE4E6; color: #881337; border: 1px solid #FDA4AF; }
+        .deck-voice-badge.voice-a { background: #F3E8FF; color: #8E24AA; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-a1 { background: #F3E8FF; color: #9333EA; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-a2 { background: #EDE9FE; color: #4C1D95; border: 1px solid #DDD6FE; }
         .deck-voice-badge.voice-t { background: #DBEAFE; color: #2563EB; border: 1px solid #BFDBFE; }
+        .deck-voice-badge.voice-t1 { background: #E0F2FE; color: #0284C7; border: 1px solid #BAE6FD; }
+        .deck-voice-badge.voice-t2 { background: #DBEAFE; color: #1E3A8A; border: 1px solid #93C5FD; }
         .deck-voice-badge.voice-b { background: #DCFCE7; color: #16A34A; border: 1px solid #BBF7D0; }
-        .deck-voice-badge.voice-other { background: #F3F4F6; color: #4B5563; border: 1px solid #E5E7EB; }
+        .deck-voice-badge.voice-b1 { background: #ECFCCB; color: #65A30D; border: 1px solid #D9F99D; }
+        .deck-voice-badge.voice-b2 { background: #DCFCE7; color: #064E3B; border: 1px solid #86EFAC; }
+        .deck-voice-badge.voice-solo { background: #FFF7ED; color: #FF6D00; border: 1px solid #FED7AA; }
+        .deck-voice-badge.voice-sa { background: #E0E7FF; color: #4F46E5; border: 1px solid #C7D2FE; }
+        .deck-voice-badge.voice-tb { background: #CCFBF1; color: #0D9488; border: 1px solid #99F6E4; }
+        .deck-voice-badge.voice-tutti { background: #FEF9C3; color: #CA8A04; border: 1px solid #FDE047; }
+        .deck-voice-badge.voice-other { background: #F1F5F9; color: #546E7A; border: 1px solid #CBD5E1; }
 
         .deck-oct-controls {
             display: flex;
@@ -500,9 +514,10 @@
         }
 
         body.density-comfortable .deck-voice-chip {
-            width: 36px;
+            min-width: 36px;
             height: 40px;
-            font-size: 14px;
+            padding: 0 8px;
+            font-size: 13px;
         }
 
         body.density-comfortable .deck-action-btn {
@@ -529,9 +544,10 @@
         }
 
         body.density-compact .deck-voice-chip {
-            width: 28px;
+            min-width: 28px;
             height: 32px;
-            font-size: 11.5px;
+            padding: 0 5px;
+            font-size: 11px;
         }
 
         body.density-compact .deck-action-btn {
@@ -649,13 +665,20 @@
             transform: scale(0.95);
         }
 
+        .deck-voice-chips-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+
         .deck-voice-chip {
-            width: 30px;
+            min-width: 30px;
             height: 34px;
+            padding: 0 6px;
             background: #FFFFFF;
             border: 1px solid #E5E7EB;
             border-radius: 6px;
-            font-size: 12px;
+            font-size: 11.5px;
             font-weight: 700;
             color: #374151;
             display: inline-flex;
@@ -663,20 +686,132 @@
             justify-content: center;
             cursor: pointer;
             transition: all 0.12s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .deck-voice-chip:hover {
             background: #F3F4F6;
         }
 
-        .deck-voice-chip.v-s { color: #DC2626; border-color: #FECACA; }
-        .deck-voice-chip.v-s:hover { background: #FEE2E2; }
-        .deck-voice-chip.v-a { color: #7E22CE; border-color: #E9D5FF; }
+        .deck-voice-chip.v-s { color: #E11D48; border-color: #FECDD3; }
+        .deck-voice-chip.v-s:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s.active { background: #E11D48; color: #FFFFFF; border-color: #E11D48; }
+
+        .deck-voice-chip.v-s1 { color: #FB7185; border-color: #FECDD3; }
+        .deck-voice-chip.v-s1:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s1.active { background: #FB7185; color: #FFFFFF; border-color: #FB7185; }
+
+        .deck-voice-chip.v-s2 { color: #881337; border-color: #FDA4AF; }
+        .deck-voice-chip.v-s2:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s2.active { background: #881337; color: #FFFFFF; border-color: #881337; }
+
+        .deck-voice-chip.v-a { color: #8E24AA; border-color: #E9D5FF; }
         .deck-voice-chip.v-a:hover { background: #F3E8FF; }
+        .deck-voice-chip.v-a.active { background: #8E24AA; color: #FFFFFF; border-color: #8E24AA; }
+
+        .deck-voice-chip.v-a1 { color: #9333EA; border-color: #E9D5FF; }
+        .deck-voice-chip.v-a1:hover { background: #F3E8FF; }
+        .deck-voice-chip.v-a1.active { background: #C084FC; color: #FFFFFF; border-color: #C084FC; }
+
+        .deck-voice-chip.v-a2 { color: #4C1D95; border-color: #DDD6FE; }
+        .deck-voice-chip.v-a2:hover { background: #EDE9FE; }
+        .deck-voice-chip.v-a2.active { background: #4C1D95; color: #FFFFFF; border-color: #4C1D95; }
+
         .deck-voice-chip.v-t { color: #2563EB; border-color: #BFDBFE; }
         .deck-voice-chip.v-t:hover { background: #DBEAFE; }
+        .deck-voice-chip.v-t.active { background: #2563EB; color: #FFFFFF; border-color: #2563EB; }
+
+        .deck-voice-chip.v-t1 { color: #0284C7; border-color: #BAE6FD; }
+        .deck-voice-chip.v-t1:hover { background: #E0F2FE; }
+        .deck-voice-chip.v-t1.active { background: #0284C7; color: #FFFFFF; border-color: #0284C7; }
+
+        .deck-voice-chip.v-t2 { color: #1E3A8A; border-color: #93C5FD; }
+        .deck-voice-chip.v-t2:hover { background: #DBEAFE; }
+        .deck-voice-chip.v-t2.active { background: #1E3A8A; color: #FFFFFF; border-color: #1E3A8A; }
+
         .deck-voice-chip.v-b { color: #16A34A; border-color: #BBF7D0; }
         .deck-voice-chip.v-b:hover { background: #DCFCE7; }
+        .deck-voice-chip.v-b.active { background: #16A34A; color: #FFFFFF; border-color: #16A34A; }
+
+        .deck-voice-chip.v-b1 { color: #65A30D; border-color: #D9F99D; }
+        .deck-voice-chip.v-b1:hover { background: #ECFCCB; }
+        .deck-voice-chip.v-b1.active { background: #65A30D; color: #FFFFFF; border-color: #65A30D; }
+
+        .deck-voice-chip.v-b2 { color: #064E3B; border-color: #86EFAC; }
+        .deck-voice-chip.v-b2:hover { background: #DCFCE7; }
+        .deck-voice-chip.v-b2.active { background: #064E3B; color: #FFFFFF; border-color: #064E3B; }
+
+        .deck-voice-chip.v-solo { color: #FF6D00; border-color: #FED7AA; }
+        .deck-voice-chip.v-solo:hover { background: #FFF7ED; }
+        .deck-voice-chip.v-solo.active { background: #FF6D00; color: #FFFFFF; border-color: #FF6D00; }
+
+        .deck-voice-chip.v-sa { color: #4F46E5; border-color: #C7D2FE; }
+        .deck-voice-chip.v-sa:hover { background: #E0E7FF; }
+        .deck-voice-chip.v-sa.active { background: #4F46E5; color: #FFFFFF; border-color: #4F46E5; }
+
+        .deck-voice-chip.v-tb { color: #0D9488; border-color: #99F6E4; }
+        .deck-voice-chip.v-tb:hover { background: #CCFBF1; }
+        .deck-voice-chip.v-tb.active { background: #0D9488; color: #FFFFFF; border-color: #0D9488; }
+
+        .deck-voice-chip.v-tutti { color: #CA8A04; border-color: #FDE047; }
+        .deck-voice-chip.v-tutti:hover { background: #FEF9C3; }
+        .deck-voice-chip.v-tutti.active { background: #CA8A04; color: #FFFFFF; border-color: #CA8A04; }
+
+        .deck-voice-chip.v-other { color: #546E7A; border-color: #CBD5E1; }
+        .deck-voice-chip.v-other:hover { background: #F1F5F9; }
+        .deck-voice-chip.v-other.active { background: #546E7A; color: #FFFFFF; border-color: #546E7A; }
+
+        .deck-voice-chip.v-more {
+            color: #5B2D8E;
+            border-color: #DDD6FE;
+            background: #F5F3FF;
+            font-size: 10.5px;
+        }
+        .deck-voice-chip.v-more.active {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-color: #5B2D8E;
+        }
+
+        /* Row 1c: Expandable Full Voice / Score Part Assignment Strip */
+        .soundslice-voice-strip {
+            display: none;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 6px 12px;
+            background: #F8FAFC;
+            border-bottom: 1px solid #E2E8F0;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .soundslice-voice-strip.open {
+            display: flex;
+        }
+
+        .voice-strip-section {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding-right: 6px;
+            border-right: 1px solid #E2E8F0;
+            flex-shrink: 0;
+        }
+
+        .voice-strip-section:last-child {
+            border-right: none;
+            padding-right: 0;
+        }
+
+        .voice-strip-label {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748B;
+            letter-spacing: 0.3px;
+            margin-right: 2px;
+        }
 
         .deck-action-btn {
             height: 36px;
@@ -1188,9 +1323,21 @@
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
             </button>
-            <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">𝄽</button>
-            <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">♯</button>
-            <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">·</button>
+            <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M10.2 2.5C10.6 2.2 11.2 2.3 11.5 2.7L15.2 7.3C15.6 7.8 15.5 8.4 15.0 8.8C13.4 10.1 12.3 11.3 12.3 12.3C12.3 13.1 13.1 13.9 14.5 15.0C14.9 15.3 14.9 15.9 14.4 16.1C13.4 16.5 12.1 16.2 11.1 16.7C10.1 17.2 9.8 18.3 10.6 19.6C11.0 20.2 11.7 20.6 12.3 20.8C12.6 20.9 12.6 21.4 12.2 21.5C10.5 21.8 8.3 20.6 7.7 18.7C7.1 16.9 8.1 14.9 10.3 14.3C11.1 14.1 11.8 14.2 12.4 14.4L8.8 10.4C8.4 9.9 8.5 9.2 9.0 8.8C10.6 7.5 11.6 6.4 11.6 5.4C11.6 4.7 11.0 3.9 10.0 3.2C9.7 2.9 9.8 2.7 10.2 2.5Z" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M9.5 3.5V8.4L6.5 9.3V11.6L9.5 10.7V14.5L6.5 15.4V17.7L9.5 16.8V21H11.1V16.3L12.9 15.8V20.5H14.5V15.3L17.5 14.4V12.1L14.5 13V9.2L17.5 8.3V6L14.5 6.9V2.8H12.9V7.4L11.1 7.9V3.5H9.5ZM11.1 10.2L12.9 9.7V13.5L11.1 14V10.2Z" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+                </svg>
+            </button>
             <button id="hud-btn-details" class="hud-btn" title="Edit Details & Lyrics" onclick="openNoteDetails()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 20h9"></path>
@@ -1241,7 +1388,7 @@
                 <div class="deck-note-info">
                     <span id="deck-note-pitch" class="deck-pitch-badge" onclick="cycleSelectedNoteAccidental()" title="Selected Pitch">--</span>
                     <span id="deck-note-meas" class="deck-meas-badge">M.1</span>
-                    <span id="deck-note-voice" class="deck-voice-badge voice-s">S</span>
+                    <span id="deck-note-voice" class="deck-voice-badge voice-s" onclick="toggleVoiceStrip()" title="Tap to change Voice / Score Part">S</span>
                 </div>
 
                 <button id="deck-btn-next" class="deck-nav-btn" onclick="stepNote(1)" title="Next Note">
@@ -1293,23 +1440,52 @@
             </div>
         </div>
 
+        <!-- Row 1c: Expandable Full Voice / Score Part Assignment Strip -->
+        <div id="soundslice-voice-strip" class="soundslice-voice-strip">
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Core &amp; Solo</span>
+                <button class="deck-voice-chip v-solo" data-voice="SOLO" onclick="applyVoiceTool('SOLO')" title="Solo / Cantor / Descant">Solo</button>
+                <button class="deck-voice-chip v-s" data-voice="S" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                <button class="deck-voice-chip v-a" data-voice="A" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                <button class="deck-voice-chip v-t" data-voice="T" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                <button class="deck-voice-chip v-b" data-voice="B" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                <button class="deck-voice-chip v-other" data-voice="OTHERS" onclick="applyVoiceTool('OTHERS')" title="Accompaniment / Other">Other</button>
+            </div>
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Divisi</span>
+                <button class="deck-voice-chip v-s1" data-voice="S1" onclick="applyVoiceTool('S1')" title="Soprano 1">S1</button>
+                <button class="deck-voice-chip v-s2" data-voice="S2" onclick="applyVoiceTool('S2')" title="Soprano 2">S2</button>
+                <button class="deck-voice-chip v-a1" data-voice="A1" onclick="applyVoiceTool('A1')" title="Alto 1">A1</button>
+                <button class="deck-voice-chip v-a2" data-voice="A2" onclick="applyVoiceTool('A2')" title="Alto 2">A2</button>
+                <button class="deck-voice-chip v-t1" data-voice="T1" onclick="applyVoiceTool('T1')" title="Tenor 1">T1</button>
+                <button class="deck-voice-chip v-t2" data-voice="T2" onclick="applyVoiceTool('T2')" title="Tenor 2">T2</button>
+                <button class="deck-voice-chip v-b1" data-voice="B1" onclick="applyVoiceTool('B1')" title="Bass 1">B1</button>
+                <button class="deck-voice-chip v-b2" data-voice="B2" onclick="applyVoiceTool('B2')" title="Bass 2">B2</button>
+            </div>
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Unison</span>
+                <button class="deck-voice-chip v-sa" data-voice="UNISON_SA" onclick="applyVoiceTool('UNISON_SA')" title="Soprano / Alto Unison">S/A</button>
+                <button class="deck-voice-chip v-tb" data-voice="UNISON_TB" onclick="applyVoiceTool('UNISON_TB')" title="Tenor / Bass Unison">T/B</button>
+                <button class="deck-voice-chip v-tutti" data-voice="TUTTI" onclick="applyVoiceTool('TUTTI')" title="Tutti (All Voices)">Tutti</button>
+            </div>
+        </div>
+
         <!-- Row 2: Musical Glyph Editing Toolbar -->
         <div class="deck-toolbar-scroll">
             <!-- Group 0: Add Elements (Soundslice-style Quick Insert) -->
             <div id="deck-group-add" class="deck-tool-group">
                 <span class="deck-group-label">Add</span>
                 <button id="deck-btn-add-note" class="deck-glyph-btn deck-add-btn" onclick="insertNoteAfterSelected()" title="Insert Note After Selected">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <ellipse cx="9" cy="15" rx="4.5" ry="3.2" transform="rotate(-15 9 15)" fill="currentColor"/>
-                        <line x1="13" y1="15" x2="13" y2="5" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M17 6h6m-3-3v6" stroke-width="2.2" stroke-linecap="round"/>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M11.6 3.5C11.6 3.1 11.9 2.8 12.3 2.8C12.7 2.8 13.0 3.1 13.0 3.5V14.4C13.0 16.3 10.8 18.2 8.0 18.8C5.4 19.4 3.3 18.4 2.9 16.6C2.5 14.8 4.6 12.7 7.4 12.1C9.3 11.7 10.8 12.0 11.6 12.7V3.5Z" fill="currentColor"/>
+                        <path d="M18.2 3.8V9.2M15.5 6.5H20.9" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
                     </svg>
                     <span class="glyph-sublabel">+Note</span>
                 </button>
                 <button id="deck-btn-add-rest" class="deck-glyph-btn deck-add-btn" onclick="insertRestAfterSelected()" title="Insert Rest After Selected">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M12 4 L8 9 L12 11 C9.5 13, 8.5 15, 8.5 17 C8.5 18, 9.5 19, 10.5 19" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                        <path d="M16 6h6m-3-3v6" stroke-width="2.2" stroke-linecap="round"/>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M8.8 3.0C9.2 2.7 9.7 2.8 10.0 3.2L13.3 7.3C13.7 7.8 13.6 8.3 13.1 8.7C11.7 9.9 10.7 11.0 10.7 11.9C10.7 12.6 11.4 13.3 12.7 14.3C13.0 14.6 13.0 15.1 12.6 15.3C11.7 15.7 10.5 15.4 9.6 15.8C8.7 16.3 8.4 17.3 9.2 18.5C9.5 19.0 10.1 19.4 10.7 19.6C11.0 19.7 11.0 20.1 10.6 20.2C9.1 20.5 7.1 19.4 6.5 17.7C6.0 16.1 6.9 14.2 8.9 13.7C9.6 13.5 10.2 13.6 10.8 13.8L7.5 10.2C7.2 9.7 7.3 9.1 7.7 8.7C9.2 7.5 10.1 6.5 10.1 5.6C10.1 5.0 9.5 4.3 8.6 3.6C8.3 3.4 8.4 3.2 8.8 3.0Z" fill="currentColor"/>
+                        <path d="M18.2 3.8V9.2M15.5 6.5H20.9" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
                     </svg>
                     <span class="glyph-sublabel">+Rest</span>
                 </button>
@@ -1317,118 +1493,144 @@
 
             <div id="deck-divider-add" class="deck-divider"></div>
 
-            <!-- Group 1: Note Values (Crisp Vector Notation SVGs) -->
+            <!-- Group 1: Note Values (SMuFL / Bravura Engraved Vector Notation SVGs) -->
             <div id="deck-group-notes" class="deck-tool-group">
                 <span class="deck-group-label">Notes</span>
                 <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <ellipse cx="12" cy="12" rx="7" ry="4.5" transform="rotate(-15 12 12)" stroke="currentColor" stroke-width="2.2"/>
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M12 7.5C7.6 7.5 4.5 9.4 4.5 12C4.5 14.6 7.6 16.5 12 16.5C16.4 16.5 19.5 14.6 19.5 12C19.5 9.4 16.4 7.5 12 7.5ZM10.8 9.2C8.9 9.7 8.1 11.4 8.9 13.1C9.7 14.7 11.8 15.3 13.5 14.7C15.3 14.1 16.0 12.4 15.2 10.8C14.4 9.2 12.5 8.7 10.8 9.2Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" data-type="half" onclick="applyDurationTool('half', false)" title="Half Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <ellipse cx="9" cy="15" rx="5.5" ry="3.8" transform="rotate(-15 9 15)" stroke="currentColor" stroke-width="2.2"/>
-                        <line x1="14" y1="15" x2="14" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2ZM8.8 14.1C6.8 14.8 5.6 16.1 5.9 17.1C6.2 18.0 8.0 18.2 10.0 17.5C12.0 16.8 13.2 15.5 12.9 14.5C12.6 13.6 10.8 13.4 8.8 14.1Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <ellipse cx="9" cy="15" rx="5.5" ry="3.8" transform="rotate(-15 9 15)" fill="currentColor"/>
-                        <line x1="14" y1="15" x2="14" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" data-type="eighth" onclick="applyDurationTool('eighth', false)" title="8th Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <ellipse cx="8.5" cy="15.5" rx="5" ry="3.5" transform="rotate(-15 8.5 15.5)" fill="currentColor"/>
-                        <line x1="13" y1="15" x2="13" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M13 4 C16 6, 17 9, 19 11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+                        <path d="M12.2 3.0C12.2 2.6 12.5 2.3 12.9 2.3C13.3 2.3 13.5 2.5 13.7 2.9C14.4 4.4 16.2 5.6 17.8 7.1C19.3 8.5 19.9 10.5 19.2 12.6C18.9 13.5 18.3 14.2 17.9 14.0C17.6 13.8 17.9 13.1 18.1 12.3C18.6 10.5 17.9 8.9 16.3 7.7C15.2 6.9 14.2 6.3 13.6 5.8V15.0C13.6 17.0 11.3 19.0 8.5 19.6C5.8 20.2 3.6 19.1 3.2 17.3C2.8 15.4 4.9 13.2 7.9 12.6C9.8 12.2 11.4 12.5 12.2 13.2V3.0Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" data-type="16th" onclick="applyDurationTool('16th', false)" title="16th Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <ellipse cx="8" cy="16" rx="4.5" ry="3.2" transform="rotate(-15 8 16)" fill="currentColor"/>
-                        <line x1="12" y1="16" x2="12" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M12 4 C15 5.5, 16 7.5, 18 9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-                        <path d="M12 8 C15 9.5, 16 11.5, 18 13" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                        <path d="M12.0 2.6C12.0 2.2 12.3 2.0 12.7 2.0C13.1 2.0 13.3 2.2 13.5 2.5C14.2 3.8 16.0 4.9 17.6 6.2C18.9 7.3 19.6 8.9 19.1 10.7C18.9 11.3 18.4 11.8 18.1 11.6C17.8 11.5 18.0 10.9 18.2 10.3C18.5 9.0 17.8 7.8 16.3 6.8C15.2 6.1 14.1 5.6 13.4 5.1V6.8C14.2 7.8 15.9 8.9 17.5 10.1C18.9 11.3 19.5 13.0 18.9 14.9C18.6 15.6 18.1 16.1 17.8 15.9C17.5 15.8 17.7 15.2 17.9 14.5C18.3 13.1 17.6 11.8 16.1 10.8C15.0 10.0 14.0 9.5 13.4 9.0V15.2C13.4 17.1 11.1 19.1 8.3 19.7C5.6 20.3 3.5 19.2 3.1 17.4C2.7 15.5 4.8 13.4 7.7 12.8C9.6 12.4 11.2 12.7 12.0 13.4V2.6Z" fill="currentColor"/>
                     </svg>
                 </button>
             </div>
 
             <div id="deck-divider-notes" class="deck-divider"></div>
 
-            <!-- Group 2: Rests (Crisp Vector Notation SVGs) -->
+            <!-- Group 2: Rests (SMuFL / Bravura Engraved Vector Notation SVGs) -->
             <div id="deck-group-rests" class="deck-tool-group">
                 <span class="deck-group-label">Rests</span>
                 <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.5"/>
-                        <rect x="7" y="9" width="10" height="5" fill="currentColor"/>
+                        <line x1="3" y1="8.5" x2="21" y2="8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        <rect x="6.5" y="8.5" width="11" height="5.5" rx="0.8" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <line x1="3" y1="15" x2="21" y2="15" stroke="currentColor" stroke-width="1.5"/>
-                        <rect x="7" y="10" width="10" height="5" fill="currentColor"/>
+                        <line x1="3" y1="15.5" x2="21" y2="15.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        <rect x="6.5" y="10" width="11" height="5.5" rx="0.8" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <path d="M14 4 L9 10 L14 13 C11 15, 10 17, 10 19 C10 20, 11 21, 12 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                        <path d="M10.2 2.5C10.6 2.2 11.2 2.3 11.5 2.7L15.2 7.3C15.6 7.8 15.5 8.4 15.0 8.8C13.4 10.1 12.3 11.3 12.3 12.3C12.3 13.1 13.1 13.9 14.5 15.0C14.9 15.3 14.9 15.9 14.4 16.1C13.4 16.5 12.1 16.2 11.1 16.7C10.1 17.2 9.8 18.3 10.6 19.6C11.0 20.2 11.7 20.6 12.3 20.8C12.6 20.9 12.6 21.4 12.2 21.5C10.5 21.8 8.3 20.6 7.7 18.7C7.1 16.9 8.1 14.9 10.3 14.3C11.1 14.1 11.8 14.2 12.4 14.4L8.8 10.4C8.4 9.9 8.5 9.2 9.0 8.8C10.6 7.5 11.6 6.4 11.6 5.4C11.6 4.7 11.0 3.9 10.0 3.2C9.7 2.9 9.8 2.7 10.2 2.5Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <circle cx="10" cy="8" r="2.2" fill="currentColor"/>
-                        <path d="M12 8 C14 10, 15 11, 14 13 L11 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+                        <path d="M9.6 6.2C10.9 6.2 11.9 7.1 12.0 8.3C12.1 9.0 12.6 9.3 13.3 9.1C14.0 8.9 14.7 8.2 15.1 7.3C15.3 6.9 15.9 6.9 16.1 7.3C16.3 7.7 16.2 8.2 16.0 8.8L11.3 20.2C11.1 20.7 10.5 20.9 10.0 20.7C9.5 20.5 9.3 19.9 9.5 19.4L13.4 10.4C12.3 10.9 11.0 11.0 9.8 10.6C8.3 10.1 7.4 8.7 7.7 7.4C7.9 6.6 8.7 6.2 9.6 6.2Z" fill="currentColor"/>
                     </svg>
                 </button>
                 <button class="deck-glyph-btn" onclick="applyRestDurationTool('16th')" title="16th Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <circle cx="10" cy="7" r="1.8" fill="currentColor"/>
-                        <path d="M12 7 C14 8.5, 14.5 9.5, 13.5 11 L11 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-                        <circle cx="9" cy="12" r="1.8" fill="currentColor"/>
-                        <path d="M11 12 C13 13.5, 13.5 14.5, 12.5 16 L10 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+                        <path d="M10.4 4.5C11.5 4.5 12.4 5.3 12.5 6.3C12.6 6.9 13.1 7.2 13.7 7.0C14.3 6.8 14.9 6.2 15.3 5.4C15.5 5.0 16.1 5.0 16.3 5.4C16.5 5.7 16.4 6.2 16.2 6.8L10.6 20.5C10.4 21.0 9.8 21.2 9.4 21.0C8.9 20.8 8.7 20.2 8.9 19.8L11.2 14.2C10.2 14.6 9.0 14.6 8.0 14.2C6.7 13.7 5.9 12.5 6.2 11.3C6.4 10.5 7.2 10.0 8.1 10.0C9.2 10.0 10.1 10.8 10.2 11.8C10.3 12.4 10.8 12.7 11.5 12.5C11.8 12.4 12.1 12.1 12.4 11.8L13.7 8.5C12.7 8.9 11.5 8.9 10.5 8.5C9.2 8.0 8.4 6.8 8.7 5.6C8.9 4.9 9.6 4.5 10.4 4.5Z" fill="currentColor"/>
                     </svg>
                 </button>
             </div>
 
             <div id="deck-divider-rests" class="deck-divider"></div>
 
-            <!-- Group 3: Accidentals & Dot -->
+            <!-- Group 3: Accidentals & Augmentation Dot (SMuFL Engraved Vector SVGs) -->
             <div id="deck-group-mod" class="deck-tool-group">
                 <span class="deck-group-label">Mod</span>
-                <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">♯</button>
-                <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">♭</button>
-                <button id="deck-btn-natural" class="deck-glyph-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">♮</button>
-                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">•</button>
+                <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M9.5 3.5V8.4L6.5 9.3V11.6L9.5 10.7V14.5L6.5 15.4V17.7L9.5 16.8V21H11.1V16.3L12.9 15.8V20.5H14.5V15.3L17.5 14.4V12.1L14.5 13V9.2L17.5 8.3V6L14.5 6.9V2.8H12.9V7.4L11.1 7.9V3.5H9.5ZM11.1 10.2L12.9 9.7V13.5L11.1 14V10.2Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M8.5 3.0C8.5 2.5 8.9 2.2 9.3 2.2C9.8 2.2 10.2 2.5 10.2 3.0V11.2C11.3 10.2 12.8 9.7 14.2 10.0C16.1 10.4 17.1 12.1 16.5 14.2C15.9 16.3 13.7 18.2 10.0 20.4C9.3 20.8 8.5 20.3 8.5 19.5V3.0ZM10.2 13.1V18.0C12.5 16.6 14.0 15.1 14.4 13.7C14.7 12.5 14.1 11.7 13.0 11.6C12.0 11.5 10.9 12.1 10.2 13.1Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-natural" class="deck-glyph-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M8.5 3.2H10.2V8.5L15.5 6.9V19.8H13.8V14.5L8.5 16.1V3.2ZM10.2 10.8V13.4L13.8 12.3V9.7L10.2 10.8Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M10.4 5.5C10.4 5.1 10.7 4.8 11.1 4.8C11.5 4.8 11.8 5.1 11.8 5.5V14.8C11.8 16.5 9.8 18.2 7.3 18.8C5.0 19.3 3.1 18.4 2.7 16.8C2.4 15.2 4.2 13.3 6.8 12.7C8.4 12.4 9.7 12.6 10.4 13.3V5.5Z" fill="currentColor"/>
+                        <circle cx="16.8" cy="14.5" r="2.3" fill="currentColor"/>
+                    </svg>
+                </button>
             </div>
 
             <div id="deck-divider-mod" class="deck-divider"></div>
 
-            <!-- Group 4: Curves & Phrasing (Authentic SVG Slurs & Ties) -->
+            <!-- Group 4: Curves, Phrasing & Ottava (Slurs, Ties, 8va, 8vb) -->
             <div id="deck-group-curves" class="deck-tool-group">
                 <span class="deck-group-label">Curve</span>
                 <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <path d="M3 15 C8 6, 16 6, 21 15 C16 9, 8 9, 3 15 Z" fill="currentColor"/>
+                        <path d="M3 15 C7.5 5.5, 16.5 5.5, 21 15 C16.2 8.5, 7.8 8.5, 3 15 Z" fill="currentColor"/>
+                        <ellipse cx="5.5" cy="17.2" rx="2.3" ry="1.6" transform="rotate(-18 5.5 17.2)" fill="currentColor"/>
+                        <ellipse cx="18.5" cy="17.2" rx="2.3" ry="1.6" transform="rotate(-18 18.5 17.2)" fill="currentColor"/>
                     </svg>
                 </button>
                 <button id="deck-btn-tie" class="deck-glyph-btn" onclick="applyTieTool()" title="Tie Curve (Hold Pitch)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <path d="M3 9 C8 18, 16 18, 21 9 C16 15, 8 15, 3 9 Z" fill="currentColor"/>
+                        <ellipse cx="5.5" cy="9.2" rx="2.3" ry="1.6" transform="rotate(-18 5.5 9.2)" fill="currentColor"/>
+                        <ellipse cx="18.5" cy="9.2" rx="2.3" ry="1.6" transform="rotate(-18 18.5 9.2)" fill="currentColor"/>
+                        <path d="M4.5 12 C8.5 19.5, 15.5 19.5, 19.5 12 C15.2 16.8, 8.8 16.8, 4.5 12 Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-8va" class="deck-glyph-btn" onclick="applyOctaveShiftTool('8va')" title="8va Ottava Alta (Play 1 Octave Higher)">
+                    <svg width="24" height="20" viewBox="0 0 28 24" fill="none">
+                        <text x="1" y="16" fill="currentColor" font-family="Georgia, serif" font-style="italic" font-weight="bold" font-size="11">8va</text>
+                        <path d="M18 6H26V11" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-8vb" class="deck-glyph-btn" onclick="applyOctaveShiftTool('8vb')" title="8vb Ottava Bassa (Play 1 Octave Lower)">
+                    <svg width="24" height="20" viewBox="0 0 28 24" fill="none">
+                        <text x="1" y="15" fill="currentColor" font-family="Georgia, serif" font-style="italic" font-weight="bold" font-size="11">8vb</text>
+                        <path d="M18 18H26V13" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.5" stroke-linecap="round"/>
                     </svg>
                 </button>
             </div>
 
             <div id="deck-divider-curves" class="deck-divider"></div>
 
-            <!-- Group 5: Voice Assignment -->
+            <!-- Group 5: Voice & Score Part Assignment -->
             <div id="deck-group-voice" class="deck-tool-group">
                 <span class="deck-group-label">Voice</span>
-                <button class="deck-voice-chip v-s" onclick="applyVoiceTool('S')" title="Soprano">S</button>
-                <button class="deck-voice-chip v-a" onclick="applyVoiceTool('A')" title="Alto">A</button>
-                <button class="deck-voice-chip v-t" onclick="applyVoiceTool('T')" title="Tenor">T</button>
-                <button class="deck-voice-chip v-b" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                <div id="deck-voice-chips-container" class="deck-voice-chips-container">
+                    <button class="deck-voice-chip v-solo" data-voice="SOLO" onclick="applyVoiceTool('SOLO')" title="Solo / Cantor">Solo</button>
+                    <button class="deck-voice-chip v-s" data-voice="S" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                    <button class="deck-voice-chip v-a" data-voice="A" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                    <button class="deck-voice-chip v-t" data-voice="T" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                    <button class="deck-voice-chip v-b" data-voice="B" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                </div>
+                <button id="deck-btn-voice-more" class="deck-voice-chip v-more" onclick="toggleVoiceStrip()" title="All Score Parts &amp; Divisi">+Part</button>
             </div>
 
             <div id="deck-divider-voice" class="deck-divider"></div>
@@ -3505,6 +3707,9 @@
                     var coord = { id: vxId, x: sx, y: sy, w: sw, h: sh, cx: cx, cy: cy };
                     noteCoordinates.push(coord);
 
+                    // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
+                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
+
                     // Store stable 1:1 mapping
                     gNote.__vx_id = vxId;
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
@@ -3514,15 +3719,15 @@
                         xmlNote: xn.el,
                         coord: coord,
                         staffIdx: gn.staffIdx,
+                        partIdx: xn.partIdx,
                         measureIdx: mIdx,
                         measureNum: gn.mNum,
                         voiceNum: xn.voice,
                         chordPos: xn.chordPos,
-                        customVoice: xn.customVoice
+                        isDivisiChord: xn.isDivisiChord,
+                        customVoice: xn.customVoice,
+                        voiceColor: voiceColor
                     });
-
-                    // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
-                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
 
                     if (domEls.length > 0) {
                         for (let d = 0; d < domEls.length; d++) {
@@ -3544,6 +3749,11 @@
 
             // Step 5b: Map Multimeasure Rests for stepper editing
             buildMultiRestMap();
+
+            // Step 5c: Refresh dynamic Voice & Score Part Assignment toolbar from detected score parts
+            if (typeof renderVoiceAssignmentToolbar === 'function') {
+                renderVoiceAssignmentToolbar();
+            }
 
             // Step 6: Attach click handlers
             setupClickListeners();
@@ -4219,6 +4429,194 @@
             }
         }
 
+        // ─── Score-Aware Voice & Part Resolution Helper ──────────────────────
+        function resolveNoteVoiceInfo(noteEl, entry) {
+            var parsedVoice = 1;
+            var customVoiceStr = null;
+            if (noteEl) {
+                var vEl = noteEl.getElementsByTagName('voice')[0];
+                if (vEl && vEl.textContent) {
+                    parsedVoice = parseInt(vEl.textContent.trim(), 10) || 1;
+                }
+                customVoiceStr = noteEl.getAttribute('data-vx-voice');
+            } else if (entry && typeof entry.voiceNum === 'number') {
+                parsedVoice = entry.voiceNum;
+            }
+
+            if (customVoiceStr && customVoiceStr.trim() !== '') {
+                var cu = customVoiceStr.trim().toUpperCase();
+                if (cu === '1' || cu === 'S' || cu === 'SOPRANO') return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+                if (cu === 'S1' || cu === 'SOPRANO 1' || cu === 'SOPRANO1') return { voiceCode: 'S1', voiceId: 1, voiceLabel: 'S1', badgeClass: 'voice-s1', chipClass: 'v-s1' };
+                if (cu === 'S2' || cu === 'SOPRANO 2' || cu === 'SOPRANO2') return { voiceCode: 'S2', voiceId: 1, voiceLabel: 'S2', badgeClass: 'voice-s2', chipClass: 'v-s2' };
+                if (cu === '2' || cu === 'A' || cu === 'ALTO') return { voiceCode: 'A', voiceId: 2, voiceLabel: 'A', badgeClass: 'voice-a', chipClass: 'v-a' };
+                if (cu === 'A1' || cu === 'ALTO 1' || cu === 'ALTO1') return { voiceCode: 'A1', voiceId: 2, voiceLabel: 'A1', badgeClass: 'voice-a1', chipClass: 'v-a1' };
+                if (cu === 'A2' || cu === 'ALTO 2' || cu === 'ALTO2') return { voiceCode: 'A2', voiceId: 2, voiceLabel: 'A2', badgeClass: 'voice-a2', chipClass: 'v-a2' };
+                if (cu === '3' || cu === 'T' || cu === 'TENOR') return { voiceCode: 'T', voiceId: 3, voiceLabel: 'T', badgeClass: 'voice-t', chipClass: 'v-t' };
+                if (cu === 'T1' || cu === 'TENOR 1' || cu === 'TENOR1') return { voiceCode: 'T1', voiceId: 3, voiceLabel: 'T1', badgeClass: 'voice-t1', chipClass: 'v-t1' };
+                if (cu === 'T2' || cu === 'TENOR 2' || cu === 'TENOR2') return { voiceCode: 'T2', voiceId: 3, voiceLabel: 'T2', badgeClass: 'voice-t2', chipClass: 'v-t2' };
+                if (cu === '4' || cu === 'B' || cu === 'BASS') return { voiceCode: 'B', voiceId: 4, voiceLabel: 'B', badgeClass: 'voice-b', chipClass: 'v-b' };
+                if (cu === 'B1' || cu === 'BASS 1' || cu === 'BASS1') return { voiceCode: 'B1', voiceId: 4, voiceLabel: 'B1', badgeClass: 'voice-b1', chipClass: 'v-b1' };
+                if (cu === 'B2' || cu === 'BASS 2' || cu === 'BASS2') return { voiceCode: 'B2', voiceId: 4, voiceLabel: 'B2', badgeClass: 'voice-b2', chipClass: 'v-b2' };
+                if (cu === '5' || cu === 'SOLO' || cu.indexOf('SOLO') !== -1 || cu === 'BARITONE') return { voiceCode: 'SOLO', voiceId: 5, voiceLabel: 'SOLO', badgeClass: 'voice-solo', chipClass: 'v-solo' };
+                if (cu === 'UNISON_SA' || cu === 'SA') return { voiceCode: 'UNISON_SA', voiceId: 1, voiceLabel: 'S/A', badgeClass: 'voice-sa', chipClass: 'v-sa' };
+                if (cu === 'UNISON_TB' || cu === 'TB') return { voiceCode: 'UNISON_TB', voiceId: 3, voiceLabel: 'T/B', badgeClass: 'voice-tb', chipClass: 'v-tb' };
+                if (cu === 'TUTTI' || cu === 'UNISON_ALL' || cu === 'ALL') return { voiceCode: 'TUTTI', voiceId: 1, voiceLabel: 'TUTTI', badgeClass: 'voice-tutti', chipClass: 'v-tutti' };
+                if (cu === '6' || cu === 'OTHERS' || cu === 'OTHER') return { voiceCode: 'OTHERS', voiceId: 6, voiceLabel: 'OTHER', badgeClass: 'voice-other', chipClass: 'v-other' };
+            }
+
+            // Resolve partIdx from entry or XML hierarchy
+            var partIdx = (entry && typeof entry.partIdx === 'number') ? entry.partIdx : undefined;
+            var totalParts = 1;
+            if (xmlDoc && typeof xmlDoc.getElementsByTagName === 'function') {
+                var xmlParts = xmlDoc.getElementsByTagName('part');
+                totalParts = xmlParts ? xmlParts.length : 1;
+                if (partIdx === undefined && noteEl) {
+                    var pNode = noteEl.parentNode;
+                    while (pNode && pNode.tagName !== 'part') pNode = pNode.parentNode;
+                    if (pNode && xmlParts) {
+                        for (var pi = 0; pi < xmlParts.length; pi++) {
+                            if (xmlParts[pi] === pNode) {
+                                partIdx = pi;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            var staffIdx = (entry && typeof entry.staffIdx === 'number') ? entry.staffIdx : (typeof partIdx === 'number' ? partIdx : 0);
+            var chordPos = entry ? entry.chordPos : undefined;
+            var isDivisiChord = entry ? entry.isDivisiChord : false;
+            var resolvedColor = (entry && entry.voiceColor)
+                ? entry.voiceColor
+                : getVocalPartColor(parsedVoice, staffIdx, partIdx, totalParts, chordPos, customVoiceStr, isDivisiChord);
+
+            switch (String(resolvedColor || '').toUpperCase()) {
+                case '#E11D48': return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+                case '#FB7185': return { voiceCode: 'S1', voiceId: 1, voiceLabel: 'S1', badgeClass: 'voice-s1', chipClass: 'v-s1' };
+                case '#881337': return { voiceCode: 'S2', voiceId: 1, voiceLabel: 'S2', badgeClass: 'voice-s2', chipClass: 'v-s2' };
+                case '#8E24AA': return { voiceCode: 'A', voiceId: 2, voiceLabel: 'A', badgeClass: 'voice-a', chipClass: 'v-a' };
+                case '#C084FC': return { voiceCode: 'A1', voiceId: 2, voiceLabel: 'A1', badgeClass: 'voice-a1', chipClass: 'v-a1' };
+                case '#4C1D95': return { voiceCode: 'A2', voiceId: 2, voiceLabel: 'A2', badgeClass: 'voice-a2', chipClass: 'v-a2' };
+                case '#2563EB': return { voiceCode: 'T', voiceId: 3, voiceLabel: 'T', badgeClass: 'voice-t', chipClass: 'v-t' };
+                case '#0284C7': return { voiceCode: 'T1', voiceId: 3, voiceLabel: 'T1', badgeClass: 'voice-t1', chipClass: 'v-t1' };
+                case '#1E3A8A': return { voiceCode: 'T2', voiceId: 3, voiceLabel: 'T2', badgeClass: 'voice-t2', chipClass: 'v-t2' };
+                case '#16A34A': return { voiceCode: 'B', voiceId: 4, voiceLabel: 'B', badgeClass: 'voice-b', chipClass: 'v-b' };
+                case '#65A30D': return { voiceCode: 'B1', voiceId: 4, voiceLabel: 'B1', badgeClass: 'voice-b1', chipClass: 'v-b1' };
+                case '#064E3B': return { voiceCode: 'B2', voiceId: 4, voiceLabel: 'B2', badgeClass: 'voice-b2', chipClass: 'v-b2' };
+                case '#FF6D00': return { voiceCode: 'SOLO', voiceId: 5, voiceLabel: 'SOLO', badgeClass: 'voice-solo', chipClass: 'v-solo' };
+                case '#4F46E5': return { voiceCode: 'UNISON_SA', voiceId: 1, voiceLabel: 'S/A', badgeClass: 'voice-sa', chipClass: 'v-sa' };
+                case '#0D9488': return { voiceCode: 'UNISON_TB', voiceId: 3, voiceLabel: 'T/B', badgeClass: 'voice-tb', chipClass: 'v-tb' };
+                case '#CA8A04': return { voiceCode: 'TUTTI', voiceId: 1, voiceLabel: 'TUTTI', badgeClass: 'voice-tutti', chipClass: 'v-tutti' };
+                case '#546E7A': return { voiceCode: 'OTHERS', voiceId: 6, voiceLabel: 'OTHER', badgeClass: 'voice-other', chipClass: 'v-other' };
+                default: return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+            }
+        }
+        window.resolveNoteVoiceInfo = resolveNoteVoiceInfo;
+
+        var VOICE_OPTION_CATALOG = {
+            'SOLO': { code: 'SOLO', label: 'Solo', title: 'Solo / Cantor / Descant', chipClass: 'v-solo' },
+            'S': { code: 'S', label: 'S', title: 'Soprano', chipClass: 'v-s' },
+            'S1': { code: 'S1', label: 'S1', title: 'Soprano 1', chipClass: 'v-s1' },
+            'S2': { code: 'S2', label: 'S2', title: 'Soprano 2', chipClass: 'v-s2' },
+            'A': { code: 'A', label: 'A', title: 'Alto', chipClass: 'v-a' },
+            'A1': { code: 'A1', label: 'A1', title: 'Alto 1', chipClass: 'v-a1' },
+            'A2': { code: 'A2', label: 'A2', title: 'Alto 2', chipClass: 'v-a2' },
+            'T': { code: 'T', label: 'T', title: 'Tenor', chipClass: 'v-t' },
+            'T1': { code: 'T1', label: 'T1', title: 'Tenor 1', chipClass: 'v-t1' },
+            'T2': { code: 'T2', label: 'T2', title: 'Tenor 2', chipClass: 'v-t2' },
+            'B': { code: 'B', label: 'B', title: 'Bass', chipClass: 'v-b' },
+            'B1': { code: 'B1', label: 'B1', title: 'Bass 1', chipClass: 'v-b1' },
+            'B2': { code: 'B2', label: 'B2', title: 'Bass 2', chipClass: 'v-b2' },
+            'UNISON_SA': { code: 'UNISON_SA', label: 'S/A', title: 'Soprano / Alto Unison', chipClass: 'v-sa' },
+            'UNISON_TB': { code: 'UNISON_TB', label: 'T/B', title: 'Tenor / Bass Unison', chipClass: 'v-tb' },
+            'TUTTI': { code: 'TUTTI', label: 'Tutti', title: 'Tutti (All Voices)', chipClass: 'v-tutti' },
+            'OTHERS': { code: 'OTHERS', label: 'Other', title: 'Accompaniment / Other', chipClass: 'v-other' }
+        };
+
+        function detectAvailableScoreVoiceOptions(doc) {
+            var orderedCodes = [];
+            function addCode(c) {
+                if (c && VOICE_OPTION_CATALOG[c] && orderedCodes.indexOf(c) === -1) {
+                    orderedCodes.push(c);
+                }
+            }
+
+            if (doc && typeof doc.getElementsByTagName === 'function') {
+                var partsList = doc.getElementsByTagName('part');
+                var totalParts = partsList ? partsList.length : 0;
+                var partMap = buildXmlDocVocalPartMap(doc);
+
+                for (var i = 0; i < totalParts; i++) {
+                    var pElem = partsList[i];
+                    var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                    var sp = (pid && typeof doc.querySelector === 'function') ? doc.querySelector("score-part[id='" + pid + "']") : null;
+                    var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                    var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                    var comb = (pName + ' ' + pAbbr).trim();
+
+                    if (comb.indexOf('soprano 1') !== -1 || comb === 's1') addCode('S1');
+                    else if (comb.indexOf('soprano 2') !== -1 || comb === 's2') addCode('S2');
+                    else if (comb.indexOf('alto 1') !== -1 || comb === 'a1') addCode('A1');
+                    else if (comb.indexOf('alto 2') !== -1 || comb === 'a2') addCode('A2');
+                    else if (comb.indexOf('tenor 1') !== -1 || comb === 't1') addCode('T1');
+                    else if (comb.indexOf('tenor 2') !== -1 || comb === 't2') addCode('T2');
+                    else if (comb.indexOf('bass 1') !== -1 || comb === 'b1') addCode('B1');
+                    else if (comb.indexOf('bass 2') !== -1 || comb === 'b2') addCode('B2');
+                    else if (['s/a', 's / a', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return comb.indexOf(w) !== -1; })) {
+                        addCode('S');
+                        addCode('A');
+                        addCode('UNISON_SA');
+                    } else if (['t/b', 't / b', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return comb.indexOf(w) !== -1; })) {
+                        addCode('T');
+                        addCode('B');
+                        addCode('UNISON_TB');
+                    } else if (partMap && partMap[i] && partMap[i].part) {
+                        addCode(partMap[i].part);
+                    }
+                }
+
+                // Also include any in-staff divisi or explicit user-assigned voices present on mapped notes
+                if (noteMap && typeof noteMap.forEach === 'function') {
+                    noteMap.forEach(function(entry) {
+                        var info = resolveNoteVoiceInfo(entry.xmlNote, entry);
+                        if (info && info.voiceCode) {
+                            addCode(info.voiceCode);
+                        }
+                    });
+                }
+            }
+
+            // Ensure core SATB voices remain available for quick reassignment while preserving detected Solo/divisi order
+            ['S', 'A', 'T', 'B'].forEach(addCode);
+
+            return orderedCodes.map(function(code) { return VOICE_OPTION_CATALOG[code]; });
+        }
+        window.detectAvailableScoreVoiceOptions = detectAvailableScoreVoiceOptions;
+
+        function renderVoiceAssignmentToolbar() {
+            var container = document.getElementById('deck-voice-chips-container');
+            if (!container) return;
+            var options = detectAvailableScoreVoiceOptions(xmlDoc);
+            var activeCode = null;
+            if (selectedNoteId !== null && selectedNoteId !== undefined) {
+                var noteEl = getXmlNoteElement(selectedNoteId);
+                var entry = noteMap ? noteMap.get(selectedNoteId) : null;
+                if (noteEl || entry) {
+                    activeCode = resolveNoteVoiceInfo(noteEl, entry).voiceCode;
+                }
+            }
+
+            var html = '';
+            for (var i = 0; i < options.length; i++) {
+                var opt = options[i];
+                var activeCls = (activeCode === opt.code) ? ' active' : '';
+                html += '<button class="deck-voice-chip ' + opt.chipClass + activeCls + '" data-voice="' + opt.code + '" onclick="applyVoiceTool(\'' + opt.code + '\')" title="' + opt.title + '">' + opt.label + '</button>';
+            }
+            container.innerHTML = html;
+        }
+        window.renderVoiceAssignmentToolbar = renderVoiceAssignmentToolbar;
+
         // ─── Note Selection (sends info to Android bridge) ──────────────
         function selectNote(vxId) {
             selectedNoteId = vxId;
@@ -4275,50 +4673,9 @@
                     durationType = typeEl.textContent.trim().toLowerCase();
                 }
 
-                var voiceEl = xmlNoteEl.getElementsByTagName('voice')[0];
-                var parsedVoice = voiceEl ? (parseInt(voiceEl.textContent.trim(), 10) || 1) : 1;
-
-                // Check explicit override
-                var customVoiceStr = xmlNoteEl.getAttribute('data-vx-voice');
-                var voiceCode = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim().toUpperCase() : null;
-                if (customVoiceStr) {
-                    var parsedInt = parseInt(customVoiceStr, 10);
-                    if (!isNaN(parsedInt)) {
-                        voiceId = parsedInt;
-                    } else {
-                        var cu = customVoiceStr.trim().toUpperCase();
-                        if (cu.startsWith('S') || cu === 'UNISON_SA' || cu === 'UNISON_S1S2') voiceId = 1;
-                        else if (cu.startsWith('A') || cu === 'UNISON_A1A2') voiceId = 2;
-                        else if (cu.startsWith('T') || cu === 'UNISON_TB' || cu === 'UNISON_T1T2') voiceId = 3;
-                        else if (cu.startsWith('B') || cu === 'UNISON_B1B2') voiceId = 4;
-                        else if (cu.indexOf('BARITONE') !== -1) { voiceId = 5; voiceCode = 'BARITONE SOLO'; }
-                        else if (cu === 'SOLO') { voiceId = 5; voiceCode = 'SOLO'; }
-                        else if (cu === 'OTHERS' || cu === 'OTHER') voiceId = 6;
-                        else voiceId = 1;
-                    }
-                } else if (entry.staffIdx !== undefined) {
-                    // In 2-part scores or staves: determine SATB voice (1=S, 2=A, 3=T, 4=B)
-                    if (entry.staffIdx === 0) {
-                        voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2) ? 2 : 1;
-                        voiceCode = (voiceId === 2) ? 'A' : 'S';
-                    } else if (entry.staffIdx === 1) {
-                        voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2 || parsedVoice === 4 || parsedVoice === 6) ? 4 : 3;
-                        voiceCode = (voiceId === 4) ? 'B' : 'T';
-                    } else {
-                        voiceId = parsedVoice;
-                        voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                    }
-                } else {
-                    voiceId = parsedVoice;
-                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                }
-                if (!voiceCode) {
-                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                }
-                if (voiceId === 5 || voiceCode === 'SOLO') {
-                    voiceCode = 'SOLO';
-                    voiceId = 5;
-                }
+                var resolvedVoice = resolveNoteVoiceInfo(xmlNoteEl, entry);
+                var voiceId = resolvedVoice.voiceId;
+                var voiceCode = resolvedVoice.voiceCode;
 
                 var measEl = xmlNoteEl.parentNode;
                 while (measEl && measEl.tagName !== 'measure') measEl = measEl.parentNode;
@@ -4460,7 +4817,7 @@
                 else noteEl.appendChild(voiceEl);
             }
             var numCode = '1';
-            if (token === 'S' || token === 'S1' || token === 'UNISON_SA' || token === 'UNISON_S1S2' || token === 'TUTTI') numCode = '1';
+            if (token === 'S' || token === 'S1' || token === 'S2' || token === 'UNISON_SA' || token === 'UNISON_S1S2' || token === 'TUTTI') numCode = '1';
             else if (token === 'A' || token === 'A1' || token === 'A2' || token === 'UNISON_A1A2') numCode = '2';
             else if (token === 'T' || token === 'T1' || token === 'T2' || token === 'UNISON_TB' || token === 'UNISON_T1T2') numCode = '3';
             else if (token === 'B' || token === 'B1' || token === 'B2' || token === 'UNISON_B1B2') numCode = '4';
@@ -4468,7 +4825,14 @@
             else if (token === 'OTHERS' || token === 'OTHER') numCode = '1';
             voiceEl.textContent = numCode;
 
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onVoiceAssigned === 'function') {
+                window.VoxSightBridge.onVoiceAssigned(token);
+            }
+
             reloadScore();
+            if (selectedNoteId === noteId) {
+                selectNote(noteId);
+            }
         };
 
         window.updateNotePitch = function (noteId, step, alter, octave) {
@@ -6825,14 +7189,53 @@
 
         window.updateScoreMetadata = function (title, composer, arranger) {
             if (!xmlDoc) return;
-            var workTitle = xmlDoc.querySelector('work > work-title');
-            if (workTitle && title) workTitle.textContent = title;
+            var root = xmlDoc.documentElement;
+            if (title && title.trim() !== '') {
+                var cleanTitle = title.trim();
+                var work = xmlDoc.querySelector('work');
+                if (!work && root) {
+                    work = xmlDoc.createElement('work');
+                    root.insertBefore(work, root.firstChild);
+                }
+                if (work) {
+                    var workTitle = work.querySelector('work-title');
+                    if (!workTitle) {
+                        workTitle = xmlDoc.createElement('work-title');
+                        work.appendChild(workTitle);
+                    }
+                    workTitle.textContent = cleanTitle;
+                }
+                var movTitle = xmlDoc.querySelector('movement-title');
+                if (movTitle) movTitle.textContent = cleanTitle;
+            }
 
-            var comp = xmlDoc.querySelector("identification > creator[type='composer']");
-            if (comp && composer) comp.textContent = composer;
-
-            var arr = xmlDoc.querySelector("identification > creator[type='arranger']");
-            if (arr && arranger) arr.textContent = arranger;
+            if ((composer && composer.trim() !== '') || (arranger && arranger.trim() !== '')) {
+                var ident = xmlDoc.querySelector('identification');
+                if (!ident && root) {
+                    ident = xmlDoc.createElement('identification');
+                    var partList = xmlDoc.querySelector('part-list');
+                    if (partList) root.insertBefore(ident, partList);
+                    else root.appendChild(ident);
+                }
+                if (ident && composer && composer.trim() !== '') {
+                    var comp = ident.querySelector("creator[type='composer']");
+                    if (!comp) {
+                        comp = xmlDoc.createElement('creator');
+                        comp.setAttribute('type', 'composer');
+                        ident.insertBefore(comp, ident.firstChild);
+                    }
+                    comp.textContent = composer.trim();
+                }
+                if (ident && arranger && arranger.trim() !== '') {
+                    var arr = ident.querySelector("creator[type='arranger']");
+                    if (!arr) {
+                        arr = xmlDoc.createElement('creator');
+                        arr.setAttribute('type', 'arranger');
+                        ident.appendChild(arr);
+                    }
+                    arr.textContent = arranger.trim();
+                }
+            }
 
             reloadScore();
         };
@@ -7388,18 +7791,19 @@
             var mNum = meas ? (meas.getAttribute('number') || '1') : '1';
             if (measBadge) measBadge.textContent = 'M.' + mNum;
 
-            var vEl = noteEl.getElementsByTagName('voice')[0];
-            var vNum = vEl ? vEl.textContent.trim() : '1';
-            var customVoice = noteEl.getAttribute('data-vx-voice');
-            var voiceLabel = customVoice ? customVoice : (vNum === '1' ? 'S' : (vNum === '2' ? 'A' : (vNum === '3' ? 'T' : (vNum === '4' ? 'B' : 'V' + vNum))));
+            var mapEntry = noteMap ? noteMap.get(noteId) : null;
+            var resolvedVoice = resolveNoteVoiceInfo(noteEl, mapEntry);
             if (voiceBadge) {
-                voiceBadge.textContent = voiceLabel;
-                voiceBadge.className = 'deck-voice-badge';
-                if (voiceLabel.startsWith('S')) voiceBadge.classList.add('voice-s');
-                else if (voiceLabel.startsWith('A')) voiceBadge.classList.add('voice-a');
-                else if (voiceLabel.startsWith('T')) voiceBadge.classList.add('voice-t');
-                else if (voiceLabel.startsWith('B')) voiceBadge.classList.add('voice-b');
-                else voiceBadge.classList.add('voice-other');
+                voiceBadge.textContent = resolvedVoice.voiceLabel;
+                voiceBadge.className = 'deck-voice-badge ' + resolvedVoice.badgeClass;
+            }
+
+            // Highlight active voice chip in both primary voice toolbar and expandable voice strip
+            var allVoiceChips = deck.querySelectorAll ? deck.querySelectorAll('.deck-voice-chip[data-voice]') : [];
+            if (allVoiceChips && allVoiceChips.forEach) {
+                allVoiceChips.forEach(function(chip) {
+                    chip.classList.toggle('active', chip.getAttribute('data-voice') === resolvedVoice.voiceCode);
+                });
             }
 
             // Update duration buttons active state
@@ -7425,7 +7829,7 @@
             if (bNat) bNat.classList.toggle('active', alt === 0 && !isR);
             if (bDot) bDot.classList.toggle('active', noteEl.getElementsByTagName('dot').length > 0);
 
-            // Update Slur & Tie buttons active state
+            // Update Slur, Tie, 8va & 8vb buttons active state
             var notatEl = noteEl.getElementsByTagName('notations')[0];
             var hasSlur = notatEl && notatEl.getElementsByTagName('slur').length > 0;
             var hasTie = (noteEl.getElementsByTagName('tie').length > 0) || (notatEl && notatEl.getElementsByTagName('tied').length > 0);
@@ -7433,6 +7837,12 @@
             var bTie = document.getElementById('deck-btn-tie');
             if (bSlur) bSlur.classList.toggle('active', !!hasSlur);
             if (bTie) bTie.classList.toggle('active', !!hasTie);
+
+            var ottavaAttr = (noteEl.getAttribute('data-vx-ottava') || '').toLowerCase();
+            var b8va = document.getElementById('deck-btn-8va');
+            var b8vb = document.getElementById('deck-btn-8vb');
+            if (b8va) b8va.classList.toggle('active', ottavaAttr === '8va');
+            if (b8vb) b8vb.classList.toggle('active', ottavaAttr === '8vb');
         }
         window.updateDeckUI = updateDeckUI;
 
@@ -7500,7 +7910,18 @@
         }
         window.stepNote = stepNote;
 
-        // ─── Visual Mini-Piano Strip Controller ────────────────────────
+        // ─── Visual Mini-Piano Strip & Voice Assignment Strip Controllers ────────
+        let isVoiceStripOpen = false;
+
+        function toggleVoiceStrip() {
+            var strip = document.getElementById('soundslice-voice-strip');
+            var btn = document.getElementById('deck-btn-voice-more');
+            isVoiceStripOpen = !isVoiceStripOpen;
+            if (strip) strip.classList.toggle('open', isVoiceStripOpen);
+            if (btn) btn.classList.toggle('active', isVoiceStripOpen);
+        }
+        window.toggleVoiceStrip = toggleVoiceStrip;
+
         function togglePianoStrip() {
             var strip = document.getElementById('soundslice-piano-strip');
             var btn = document.getElementById('deck-btn-piano');
@@ -7941,6 +8362,74 @@
             else updateStatus('Select a note first to add a Tie');
         }
         window.applyTieTool = applyTieTool;
+
+        // ─── 8va / 8vb Octave-Shift Spanner Support ────────────────────────
+        function toggleOctaveShift(noteId, ottavaType) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var targetMode = (String(ottavaType || '8va').toLowerCase() === '8vb') ? '8vb' : '8va';
+            var currentMode = (noteEl.getAttribute('data-vx-ottava') || '').toLowerCase();
+            var parentMeas = noteEl.parentNode;
+
+            // Remove any existing octave-shift direction tied to this note
+            var prevSib = noteEl.previousElementSibling;
+            if (prevSib && prevSib.tagName === 'direction' && prevSib.getElementsByTagName('octave-shift').length > 0) {
+                parentMeas.removeChild(prevSib);
+            }
+            var nextSib = noteEl.nextElementSibling;
+            if (nextSib && nextSib.tagName === 'direction' && nextSib.getElementsByTagName('octave-shift').length > 0) {
+                parentMeas.removeChild(nextSib);
+            }
+
+            if (currentMode === targetMode) {
+                noteEl.removeAttribute('data-vx-ottava');
+                updateStatus(targetMode + ' marking removed');
+            } else {
+                noteEl.setAttribute('data-vx-ottava', targetMode);
+                if (parentMeas) {
+                    var startDir = xmlDoc.createElement('direction');
+                    startDir.setAttribute('placement', targetMode === '8va' ? 'above' : 'below');
+                    startDir.setAttribute('data-vx-ottava-owner', String(noteId));
+                    var startDirType = xmlDoc.createElement('direction-type');
+                    var startShift = xmlDoc.createElement('octave-shift');
+                    // MusicXML standard: 8va uses type="down" (written notes are below sounding pitch); 8vb uses type="up"
+                    startShift.setAttribute('type', targetMode === '8va' ? 'down' : 'up');
+                    startShift.setAttribute('size', '8');
+                    startShift.setAttribute('number', '1');
+                    startDirType.appendChild(startShift);
+                    startDir.appendChild(startDirType);
+                    parentMeas.insertBefore(startDir, noteEl);
+
+                    var stopDir = xmlDoc.createElement('direction');
+                    stopDir.setAttribute('data-vx-ottava-owner', String(noteId));
+                    var stopDirType = xmlDoc.createElement('direction-type');
+                    var stopShift = xmlDoc.createElement('octave-shift');
+                    stopShift.setAttribute('type', 'stop');
+                    stopShift.setAttribute('size', '8');
+                    stopShift.setAttribute('number', '1');
+                    stopDirType.appendChild(stopShift);
+                    stopDir.appendChild(stopDirType);
+                    if (noteEl.nextSibling) {
+                        parentMeas.insertBefore(stopDir, noteEl.nextSibling);
+                    } else {
+                        parentMeas.appendChild(stopDir);
+                    }
+                }
+                updateStatus('Applied ' + targetMode + ' (' + (targetMode === '8va' ? '+1 octave' : '-1 octave') + ')');
+            }
+
+            reloadScore();
+            selectNote(noteId);
+        }
+        window.toggleOctaveShift = toggleOctaveShift;
+
+        function applyOctaveShiftTool(ottavaType) {
+            if (selectedNoteId !== null) toggleOctaveShift(selectedNoteId, ottavaType);
+            else updateStatus('Select a note first to apply ' + (ottavaType || '8va'));
+        }
+        window.applyOctaveShiftTool = applyOctaveShiftTool;
 
 
         function initPaletteInteractions() {

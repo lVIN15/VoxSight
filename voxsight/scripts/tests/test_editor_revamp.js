@@ -298,6 +298,11 @@ runTest('5.1 interactive_editor.html contains all required UI components', () =>
     assert(htmlContent.includes('id="deck-note-voice"'), 'Deck voice badge missing');
     assert(htmlContent.includes('id="deck-btn-piano"'), 'Deck piano toggle missing');
     assert(htmlContent.includes('id="soundslice-piano-strip"'), 'Soundslice piano strip missing');
+    assert(htmlContent.includes('id="soundslice-voice-strip"'), 'Soundslice expandable voice strip missing');
+    assert(htmlContent.includes('id="deck-voice-chips-container"'), 'Dynamic voice chips container missing');
+    assert(htmlContent.includes('id="deck-btn-voice-more"'), 'Voice more (+Part) toggle button missing');
+    assert(htmlContent.includes('id="deck-btn-8va"'), '8va ottava alta button missing');
+    assert(htmlContent.includes('id="deck-btn-8vb"'), '8vb ottava bassa button missing');
     assert(htmlContent.includes('Tone.min.js'), 'Tone.min.js script tag missing');
 });
 
@@ -309,13 +314,26 @@ runTest('5.2 Soundslice Deck, Note Stepper, and Editing APIs are defined in Java
     assert(htmlContent.includes('function updateDeckUI('), 'updateDeckUI missing');
     assert(htmlContent.includes('function stepNote('), 'stepNote missing');
     assert(htmlContent.includes('function togglePianoStrip()'), 'togglePianoStrip missing');
+    assert(htmlContent.includes('function toggleVoiceStrip()'), 'toggleVoiceStrip missing');
+    assert(htmlContent.includes('function resolveNoteVoiceInfo('), 'resolveNoteVoiceInfo missing');
+    assert(htmlContent.includes('function detectAvailableScoreVoiceOptions('), 'detectAvailableScoreVoiceOptions missing');
+    assert(htmlContent.includes('function renderVoiceAssignmentToolbar('), 'renderVoiceAssignmentToolbar missing');
     assert(htmlContent.includes('function shiftSelectedNoteOctave('), 'shiftSelectedNoteOctave missing');
+    assert(htmlContent.includes('function toggleOctaveShift('), 'toggleOctaveShift missing');
+    assert(htmlContent.includes('function applyOctaveShiftTool('), 'applyOctaveShiftTool missing');
     assert(htmlContent.includes('function applyWholeMeasureRestTool()'), 'applyWholeMeasureRestTool missing');
     assert(htmlContent.includes('function applyRestDurationTool('), 'applyRestDurationTool missing');
     assert(htmlContent.includes('function applyDurationTool('), 'applyDurationTool missing');
     assert(htmlContent.includes('function toggleSlur('), 'toggleSlur missing');
     assert(htmlContent.includes('function toggleTie('), 'toggleTie missing');
     assert(htmlContent.includes('display: none !important;'), 'Status bar not hidden via CSS');
+});
+
+runTest('5.3 Expanded Voice Assignment & S2/Solo/Divisi Mapping Integrity', () => {
+    ['SOLO', 'S', 'S1', 'S2', 'A', 'A1', 'A2', 'T', 'T1', 'T2', 'B', 'B1', 'B2', 'UNISON_SA', 'UNISON_TB', 'TUTTI', 'OTHERS'].forEach(code => {
+        assert(htmlContent.includes(`data-voice="${code}"`), `Voice chip for ${code} missing in voice assignment strip`);
+    });
+    assert(htmlContent.includes("token === 'S2'"), 'S2 must map to voice 1 in updateNoteVoice');
 });
 
 // --- Section 6: Slurs, Ties, and Whole-Measure Rest Contracts ---
