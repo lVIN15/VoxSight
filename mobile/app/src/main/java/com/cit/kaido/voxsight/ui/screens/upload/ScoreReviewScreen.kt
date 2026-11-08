@@ -18,6 +18,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.automirrored.outlined.Redo
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
@@ -25,6 +29,7 @@ import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -40,6 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -85,12 +92,15 @@ data class SelectedMultiRestInfo(
 @Composable
 fun ScoreReviewScreen(
     musicXml: String,
+    originalScoreUri: String? = null,
     onConfirm: (String) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var selectedNote by remember { mutableStateOf<SelectedNoteInfo?>(null) }
+    var showNoteBottomSheet by remember { mutableStateOf(false) }
+    var showOriginalScoreSheet by remember { mutableStateOf(false) }
     var selectedMultiRest by remember { mutableStateOf<SelectedMultiRestInfo?>(null) }
     var isWebLoaded by remember { mutableStateOf(false) }
     var showMetadataDialog by remember { mutableStateOf(false) }
@@ -99,6 +109,15 @@ fun ScoreReviewScreen(
     var zoomOffsetY by remember { mutableStateOf(0f) }
     var editorCurrentPage by remember { mutableIntStateOf(1) }
     var editorTotalPages by remember { mutableIntStateOf(1) }
+    var canUndo by remember { mutableStateOf(false) }
+    var canRedo by remember { mutableStateOf(false) }
+    var showPartsLegend by remember { mutableStateOf(false) }
+    var editorSettings by remember { mutableStateOf(EditorPreferences.loadSettings(context)) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    val isDeviceLowEnd = remember { EditorPreferences.isLowEndDevice(context) }
+    val isEffectivePerformance = remember(editorSettings, isDeviceLowEnd) {
+        EditorPreferences.isEffectivePerformanceMode(context, editorSettings)
+    }
 
     val parsedScore = remember(musicXml) { parseMusicXmlFromString(musicXml) }
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -114,6 +133,26 @@ fun ScoreReviewScreen(
         }
     }
 
+    LaunchedEffect(isWebLoaded, editorSettings) {
+        if (isWebLoaded) {
+            val settingsJson = escapeJavascriptString(editorSettings.toJson())
+            webViewInstance?.evaluateJavascript("applyEditorPreferences('$settingsJson');", null)
+        }
+    }
+
+    // Lifecycle cleanup to guarantee WebGL/AudioContext/WebView resources are freed on exit
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewInstance?.let { wv ->
+                wv.stopLoading()
+                wv.removeJavascriptInterface("VoxSightBridge")
+                wv.loadUrl("about:blank")
+                wv.destroy()
+                webViewInstance = null
+            }
+        }
+    }
+
     BackHandler(enabled = isFullscreen) {
         isFullscreen = false
         webViewInstance?.evaluateJavascript("zoomFit();", null)
@@ -125,6 +164,13 @@ fun ScoreReviewScreen(
 
     // JS Bridge class to capture note/rest clicks
     class EditorJsBridge {
+        @JavascriptInterface
+        fun onHistoryChanged(canUndoVal: Boolean, canRedoVal: Boolean) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                canUndo = canUndoVal
+                canRedo = canRedoVal
+            }
+        }
         @JavascriptInterface
         fun onPageChanged(currentPage: Int, totalPages: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
@@ -161,6 +207,25 @@ fun ScoreReviewScreen(
                     isRest = isRest,
                     isDotted = isDotted
                 )
+                // In-situ note selection: bottom sheet is NOT shown automatically on selection,
+                // keeping the sheet music clear for direct drag-and-drop & micro-HUD interaction.
+            }
+        }
+
+        @JavascriptInterface
+        fun onNoteDeselected() {
+            (context as? android.app.Activity)?.runOnUiThread {
+                selectedNote = null
+                showNoteBottomSheet = false
+            }
+        }
+
+        @JavascriptInterface
+        fun onOpenNoteDetails() {
+            (context as? android.app.Activity)?.runOnUiThread {
+                if (selectedNote != null) {
+                    showNoteBottomSheet = true
+                }
             }
         }
 
@@ -168,7 +233,27 @@ fun ScoreReviewScreen(
         fun onMultiRestSelected(measureNum: Int, count: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
                 selectedNote = null
+                showNoteBottomSheet = false
                 selectedMultiRest = SelectedMultiRestInfo(measureNum, count)
+            }
+        }
+
+        @JavascriptInterface
+        fun onToolGroupSelected(groupName: String) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                editorSettings = editorSettings.copy(lastSelectedToolGroup = groupName)
+                EditorPreferences.saveSettings(context, editorSettings)
+            }
+        }
+
+        @JavascriptInterface
+        fun onVoiceAssigned(voiceCode: String) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                val clean = voiceCode.trim().uppercase()
+                if (clean.isNotEmpty()) {
+                    dynamicVoiceCodes = dynamicVoiceCodes + clean
+                    selectedNote = selectedNote?.copy(voiceCode = clean)
+                }
             }
         }
     }
@@ -179,9 +264,11 @@ fun ScoreReviewScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Review & Edit Score",
+                            text = "Review Score",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = VoxTextPrimary
                         )
                     },
@@ -195,47 +282,31 @@ fun ScoreReviewScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showMetadataDialog = true }) {
+                        if (!originalScoreUri.isNullOrBlank()) {
+                            IconButton(onClick = { showOriginalScoreSheet = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Visibility,
+                                    contentDescription = "Compare with Original Scan",
+                                    tint = VoxPurplePrimary
+                                )
+                            }
+                        }
+                        IconButton(onClick = { showMetadataDialog = true }, modifier = Modifier.size(36.dp)) {
                             Icon(
-                                imageVector = Icons.Outlined.Edit,
-                                contentDescription = "Edit Score Info & Words",
+                                imageVector = Icons.Outlined.Description,
+                                contentDescription = "Score Info & Metadata",
                                 tint = VoxPurplePrimary
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-                )
-            }
-        },
-        bottomBar = {
-            if (!isFullscreen) {
-                Surface(
-                    color = Color.White,
-                    tonalElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onCancel,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Cancel", tint = VoxTextSubtitle)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("CANCEL", fontWeight = FontWeight.Bold, color = VoxTextSubtitle)
+                        IconButton(onClick = { showSettingsSheet = true }, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Editor Settings",
+                                tint = VoxPurplePrimary
+                            )
                         }
-
                         Button(
                             onClick = {
-                                // Extract modified XML from WebView and confirm
                                 webViewInstance?.let { webView ->
                                     webView.evaluateJavascript("getModifiedXml();") { result ->
                                         if (result != null && result != "null" && result.isNotEmpty() && result != "\"\"") {
@@ -255,158 +326,275 @@ fun ScoreReviewScreen(
                                     }
                                 } ?: onConfirm(musicXml)
                             },
-                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = VoxPurplePrimary,
                                 contentColor = Color.White
                             ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                             modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
+                                .height(34.dp)
+                                .padding(end = 4.dp)
                         ) {
-                            Icon(Icons.Outlined.Check, contentDescription = "Confirm", tint = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White)
+                            Icon(
+                                imageVector = Icons.Outlined.Check,
+                                contentDescription = "Confirm",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Confirm",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
                         }
-                    }
-                }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                )
             }
-        }
+        },
+        bottomBar = {}
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(if (isFullscreen) Color.White else VoxBackground)
+                .background(Color.White)
                 .padding(if (isFullscreen) PaddingValues(0.dp) else innerPadding)
         ) {
-            if (!isFullscreen) {
-                // Help Hint Label
-                Surface(
-                    color = VoxPurplePrimary.copy(alpha = 0.08f),
+            // Dedicated Compact Utility Header Bar (Clean, non-overlapping, solid background)
+            Surface(
+                color = Color.White,
+                tonalElevation = 1.dp,
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                        .height(44.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // Left: Zoom Controls (Zoom Out, Fit, Zoom In)
                     Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Text(
-                            text = "Verify OMR accuracy. Tap any notehead or rest symbol on the sheet music to edit pitches, durations, dotted values, rests, or add new elements.",
-                            fontSize = 12.sp,
-                            color = VoxPurplePrimary,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-
-                // Score Parts Legend
-                Surface(
-                    color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, VoxCardStroke)
-                ) {
-                    var isExpanded by remember { mutableStateOf(false) }
-                    val showExpandToggle = legendItems.size > 4
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomOut,
+                                contentDescription = "Zoom Out",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF3F4F6),
+                            border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .clickable { webViewInstance?.evaluateJavascript("zoomFit();", null) }
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp)
                             ) {
                                 Text(
-                                    text = "Score Parts",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = VoxTextSubtitle
+                                    text = "Fit",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = VoxTextPrimary
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(VoxPurplePrimary.copy(alpha = 0.08f))
-                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ZoomIn,
+                                contentDescription = "Zoom In",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Center: Dedicated Page Navigation (Clean, centered, NEVER obscures score title)
+                    if (editorTotalPages > 1) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
+                                enabled = editorCurrentPage > 1,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous Page",
+                                    tint = if (editorCurrentPage > 1) VoxTextPrimary else Color.LightGray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Text(
+                                text = "Page $editorCurrentPage of $editorTotalPages",
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = VoxTextPrimary,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+
+                            IconButton(
+                                onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
+                                enabled = editorCurrentPage < editorTotalPages,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next Page",
+                                    tint = if (editorCurrentPage < editorTotalPages) VoxTextPrimary else Color.LightGray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Right: Parts toggle and Fullscreen toggle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (legendItems.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (showPartsLegend) VoxPurplePrimary.copy(alpha = 0.1f) else Color(0xFFF3F4F6),
+                                border = BorderStroke(1.dp, if (showPartsLegend) VoxPurplePrimary else Color(0xFFE5E7EB)),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .clickable { showPartsLegend = !showPartsLegend }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "${legendItems.size}",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VoxPurplePrimary
+                                        text = "Parts",
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (showPartsLegend) VoxPurplePrimary else VoxTextPrimary
                                     )
-                                }
-                            }
-
-                            if (!isExpanded) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 10.dp)
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    legendItems.forEach { item ->
-                                        ScorePartLegendChip(item)
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(if (showPartsLegend) VoxPurplePrimary else Color(0xFFE5E7EB))
+                                            .size(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "${legendItems.size}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (showPartsLegend) Color.White else VoxTextPrimary
+                                        )
                                     }
-                                }
-                            }
-
-                            if (showExpandToggle) {
-                                IconButton(
-                                    onClick = { isExpanded = !isExpanded },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (isExpanded) "Collapse" else "Expand All Score Parts",
-                                        tint = VoxTextSubtitle,
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                 }
                             }
                         }
 
-                        if (isExpanded) {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                        if (!originalScoreUri.isNullOrBlank() && isFullscreen) {
+                            IconButton(
+                                onClick = { showOriginalScoreSheet = true },
+                                modifier = Modifier.size(36.dp)
                             ) {
-                                legendItems.forEach { item ->
-                                    ScorePartLegendChip(item)
-                                }
+                                Icon(
+                                    imageVector = Icons.Outlined.Visibility,
+                                    contentDescription = "Compare with Original Scan",
+                                    tint = VoxTextPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
+                        }
+
+                        IconButton(
+                            onClick = { showSettingsSheet = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Editor Settings",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                isFullscreen = !isFullscreen
+                                webViewInstance?.evaluateJavascript("zoomFit();", null)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
+                                tint = VoxTextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
             }
 
-            // WebView Sheet Music Render Area
+            // Expandable Score Parts Legend Bar (when toggled)
+            if (showPartsLegend && legendItems.isNotEmpty()) {
+                Surface(
+                    color = Color(0xFFF9FAFB),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        legendItems.forEach { item ->
+                            ScorePartLegendChip(item)
+                        }
+                    }
+                }
+            }
+
+            // WebView Sheet Music Render Area (100% UNCLUTTERED - ZERO FLOATING OVERLAYS)
             Box(
                 modifier = if (isFullscreen) {
                     Modifier
                         .fillMaxSize()
+                        .navigationBarsPadding()
                         .background(Color.White)
                 } else {
                     Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .navigationBarsPadding()
                         .background(Color.White)
                 }
             ) {
@@ -414,13 +602,9 @@ fun ScoreReviewScreen(
                     factory = { ctx ->
                         WebView(ctx).apply {
                             setBackgroundColor(android.graphics.Color.WHITE)
-                            val activityManager = ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-                            val isLowEnd = activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q
-                            if (isLowEnd) {
-                                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                            } else {
-                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                            }
+                            // Use LAYER_TYPE_NONE allowing Chromium's native compositor to draw directly to Window
+                            // without allocating redundant View Bitmap layers (Software) or extra FBO textures (Hardware)
+                            setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
@@ -441,165 +625,22 @@ fun ScoreReviewScreen(
                             webViewInstance = this
                         }
                     },
+                    onRelease = { webView ->
+                        webView.stopLoading()
+                        webView.removeJavascriptInterface("VoxSightBridge")
+                        webView.loadUrl("about:blank")
+                        webView.destroy()
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // Floating Fullscreen / Exit Fullscreen Button
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(if (isFullscreen) 16.dp else 10.dp)
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            isFullscreen = !isFullscreen
-                            webViewInstance?.evaluateJavascript("zoomFit();", null)
-                        },
-                    color = Color.White.copy(alpha = 0.94f),
-                    shadowElevation = 6.dp,
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.35f))
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
-                            tint = VoxPurplePrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                // Floating Controls (Zooming feature centered directly above Next/Prev Page buttons)
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(bottom = if (isFullscreen) 14.dp else 52.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Floating Zoom Controls Pill (Positioned in middle above page buttons, draggable if moved)
-                    Surface(
-                        modifier = Modifier
-                            .offset { IntOffset(zoomOffsetX.roundToInt(), zoomOffsetY.roundToInt()) }
-                            .pointerInput(Unit) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    zoomOffsetX += dragAmount.x
-                                    zoomOffsetY += dragAmount.y
-                                }
-                            },
-                        color = Color.White.copy(alpha = 0.95f),
-                        shadowElevation = 6.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DragHandle,
-                                contentDescription = "Drag to move",
-                                tint = VoxPurplePrimary.copy(alpha = 0.45f),
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .padding(end = 2.dp)
-                            )
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ZoomOut,
-                                    contentDescription = "Zoom Out",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            TextButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomFit();", null) },
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Text(
-                                    text = "FIT",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = VoxPurplePrimary
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ZoomIn,
-                                    contentDescription = "Zoom In",
-                                    tint = VoxPurplePrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Floating Page Navigation Pill (Visible for multi-page scores)
-                    if (editorTotalPages > 1) {
-                        Surface(
-                            color = Color.White.copy(alpha = 0.95f),
-                            shadowElevation = 6.dp,
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
-                                    enabled = editorCurrentPage > 1,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                        contentDescription = "Previous Page",
-                                        tint = if (editorCurrentPage > 1) VoxPurplePrimary else Color.LightGray,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                Text(
-                                    text = "Page $editorCurrentPage of $editorTotalPages",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = VoxPurplePrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp)
-                                )
-
-                                IconButton(
-                                    onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
-                                    enabled = editorCurrentPage < editorTotalPages,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                        contentDescription = "Next Page",
-                                        tint = if (editorCurrentPage < editorTotalPages) VoxPurplePrimary else Color.LightGray,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 
         // Show Edit Info & Text Words Dialog
         if (showMetadataDialog) {
             ScoreInfoDialog(
+                initialTitle = parsedScore?.title ?: "",
+                initialComposer = parsedScore?.composer ?: "",
                 onDismissRequest = { showMetadataDialog = false },
                 onApply = { newTitle, newComposer, newArranger, oldWord, newWord ->
                     showMetadataDialog = false
@@ -617,70 +658,97 @@ fun ScoreReviewScreen(
             )
         }
 
-        // Show Edit sheet if a note or rest is selected
-        selectedNote?.let { note ->
-            NoteEditorBottomSheet(
-                noteId = note.id,
-                pitchStep = note.pitchStep,
-                alter = note.alter,
-                octave = note.octave,
-                durationType = note.durationType,
-                voiceId = note.voiceId,
-                voiceCode = note.voiceCode,
-                measureNumber = note.measureNumber,
-                lyricText = note.lyricText,
-                isRest = note.isRest,
-                isDotted = note.isDotted,
-                onLyricChanged = { newLyric ->
-                    val escapedLyric = escapeJavascriptString(newLyric)
-                    webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
-                    selectedNote = selectedNote?.copy(lyricText = newLyric)
+        // Show Edit sheet only if user explicitly requested note details & lyrics
+        if (showOriginalScoreSheet && !originalScoreUri.isNullOrBlank()) {
+            ModalBottomSheet(
+                onDismissRequest = { showOriginalScoreSheet = false },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            ) {
+                OriginalScoreViewer(
+                    uriString = originalScoreUri,
+                    isPerformanceMode = isEffectivePerformance,
+                    onClose = { showOriginalScoreSheet = false }
+                )
+            }
+        }
+
+        if (showSettingsSheet) {
+            EditorSettingsBottomSheet(
+                settings = editorSettings,
+                isDeviceLowEnd = isDeviceLowEnd,
+                onSettingsChanged = { newSettings ->
+                    editorSettings = newSettings
+                    EditorPreferences.saveSettings(context, newSettings)
                 },
-                onVoiceChanged = { newVoiceCode ->
-                    val escapedCode = escapeJavascriptString(newVoiceCode)
-                    webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
-                    selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
-                    dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
-                },
-                onPitchChanged = { newStep, newAlter, newOctave ->
-                    webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
-                    selectedNote = selectedNote?.copy(pitchStep = newStep, alter = newAlter, octave = newOctave, isRest = false)
-                },
-                onDurationChanged = { newDuration, dotted ->
-                    webViewInstance?.evaluateJavascript("updateNoteDuration(${note.id}, '$newDuration', $dotted);", null)
-                    selectedNote = selectedNote?.copy(durationType = newDuration, isDotted = dotted)
-                },
-                onToggleDot = { dotted ->
-                    webViewInstance?.evaluateJavascript("toggleNoteDot(${note.id}, $dotted);", null)
-                    selectedNote = selectedNote?.copy(isDotted = dotted)
-                },
-                onConvertToRest = {
-                    webViewInstance?.evaluateJavascript("convertToRest(${note.id});", null)
-                    selectedNote = selectedNote?.copy(isRest = true)
-                },
-                onConvertToNote = { step, alter, octave ->
-                    webViewInstance?.evaluateJavascript("convertToNote(${note.id}, '$step', $alter, $octave);", null)
-                    selectedNote = selectedNote?.copy(isRest = false, pitchStep = step, alter = alter, octave = octave)
-                },
-                onAddNote = { pos, step, alter, octave, type, dotted ->
-                    webViewInstance?.evaluateJavascript("addNote(${note.id}, '$pos', '$step', $alter, $octave, '$type', $dotted);", null)
-                    Toast.makeText(context, "Note added", Toast.LENGTH_SHORT).show()
-                },
-                onAddRest = { pos, type, dotted ->
-                    webViewInstance?.evaluateJavascript("addRest(${note.id}, '$pos', '$type', $dotted);", null)
-                    Toast.makeText(context, "Rest added", Toast.LENGTH_SHORT).show()
-                },
-                onDeleteClicked = {
-                    webViewInstance?.evaluateJavascript("deleteNote(${note.id});", null)
-                    selectedNote = null
-                    Toast.makeText(context, "Element deleted successfully", Toast.LENGTH_SHORT).show()
-                },
-                onDismissRequest = {
-                    selectedNote = null
-                    // Clear graphic highlights
-                    webViewInstance?.evaluateJavascript("clearHighlights();", null)
-                }
+                onDismissRequest = { showSettingsSheet = false }
             )
+        }
+
+    if (showNoteBottomSheet) {
+            selectedNote?.let { note ->
+                NoteEditorBottomSheet(
+                    noteId = note.id,
+                    pitchStep = note.pitchStep,
+                    alter = note.alter,
+                    octave = note.octave,
+                    durationType = note.durationType,
+                    voiceId = note.voiceId,
+                    voiceCode = note.voiceCode,
+                    measureNumber = note.measureNumber,
+                    lyricText = note.lyricText,
+                    isRest = note.isRest,
+                    isDotted = note.isDotted,
+                    onLyricChanged = { newLyric ->
+                        val escapedLyric = escapeJavascriptString(newLyric)
+                        webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
+                        selectedNote = selectedNote?.copy(lyricText = newLyric)
+                    },
+                    onVoiceChanged = { newVoiceCode ->
+                        val escapedCode = escapeJavascriptString(newVoiceCode)
+                        webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
+                        selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
+                        dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
+                    },
+                    onPitchChanged = { newStep, newAlter, newOctave ->
+                        webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
+                        selectedNote = selectedNote?.copy(pitchStep = newStep, alter = newAlter, octave = newOctave, isRest = false)
+                    },
+                    onDurationChanged = { newDuration, dotted ->
+                        webViewInstance?.evaluateJavascript("updateNoteDuration(${note.id}, '$newDuration', $dotted);", null)
+                        selectedNote = selectedNote?.copy(durationType = newDuration, isDotted = dotted)
+                    },
+                    onToggleDot = { dotted ->
+                        webViewInstance?.evaluateJavascript("toggleNoteDot(${note.id}, $dotted);", null)
+                        selectedNote = selectedNote?.copy(isDotted = dotted)
+                    },
+                    onConvertToRest = {
+                        webViewInstance?.evaluateJavascript("convertToRest(${note.id});", null)
+                        selectedNote = selectedNote?.copy(isRest = true)
+                    },
+                    onConvertToNote = { step, alter, octave ->
+                        webViewInstance?.evaluateJavascript("convertToNote(${note.id}, '$step', $alter, $octave);", null)
+                        selectedNote = selectedNote?.copy(isRest = false, pitchStep = step, alter = alter, octave = octave)
+                    },
+                    onAddNote = { pos, step, alter, octave, type, dotted ->
+                        webViewInstance?.evaluateJavascript("addNote(${note.id}, '$pos', '$step', $alter, $octave, '$type', $dotted);", null)
+                        Toast.makeText(context, "Note added", Toast.LENGTH_SHORT).show()
+                    },
+                    onAddRest = { pos, type, dotted ->
+                        webViewInstance?.evaluateJavascript("addRest(${note.id}, '$pos', '$type', $dotted);", null)
+                        Toast.makeText(context, "Rest added", Toast.LENGTH_SHORT).show()
+                    },
+                    onDeleteClicked = {
+                        webViewInstance?.evaluateJavascript("deleteNote(${note.id});", null)
+                        selectedNote = null
+                        showNoteBottomSheet = false
+                        Toast.makeText(context, "Element deleted successfully", Toast.LENGTH_SHORT).show()
+                    },
+                    onDismissRequest = {
+                        showNoteBottomSheet = false
+                    }
+                )
+            }
         }
 
         // Show Native Edit Bottom Sheet if a multimeasure rest (H-bar) is selected
@@ -897,14 +965,28 @@ private fun formatPitchName(step: String, alter: Int, octave: Int): String {
 
 @Composable
 fun ScoreInfoDialog(
+    initialTitle: String = "",
+    initialComposer: String = "",
     onDismissRequest: () -> Unit,
     onApply: (title: String, composer: String, arranger: String, oldWord: String, newWord: String) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var composer by remember { mutableStateOf("") }
+    var title by remember(initialTitle) { mutableStateOf(initialTitle) }
+    var composer by remember(initialComposer) { mutableStateOf(initialComposer) }
     var arranger by remember { mutableStateOf("") }
     var oldWord by remember { mutableStateOf("") }
     var newWord by remember { mutableStateOf("") }
+
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = VoxTextPrimary,
+        unfocusedTextColor = VoxTextPrimary,
+        focusedBorderColor = VoxPurplePrimary,
+        unfocusedBorderColor = VoxCardStroke,
+        focusedLabelColor = VoxPurplePrimary,
+        unfocusedLabelColor = VoxTextSubtitle,
+        focusedPlaceholderColor = VoxTextSubtitle.copy(alpha = 0.7f),
+        unfocusedPlaceholderColor = VoxTextSubtitle.copy(alpha = 0.7f),
+        cursorColor = VoxPurplePrimary
+    )
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -934,7 +1016,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Happy Birthday To You") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = composer,
@@ -943,7 +1026,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Patty and Mildred J. Hill") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = arranger,
@@ -952,7 +1036,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. Arranged by Jed Scott") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -974,7 +1059,8 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. optional descanr") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
                 OutlinedTextField(
                     value = newWord,
@@ -983,22 +1069,26 @@ fun ScoreInfoDialog(
                     placeholder = { Text("e.g. optional descant") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = textFieldColors
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = { onApply(title, composer, arranger, oldWord, newWord) },
-                colors = ButtonDefaults.buttonColors(containerColor = VoxPurplePrimary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = VoxPurplePrimary,
+                    contentColor = Color.White
+                ),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("APPLY", fontWeight = FontWeight.Bold)
+                Text("APPLY", fontWeight = FontWeight.Bold, color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text("CANCEL", color = VoxTextSubtitle)
+                Text("CANCEL", color = VoxTextSubtitle, fontWeight = FontWeight.SemiBold)
             }
         },
         containerColor = Color.White,
@@ -1176,4 +1266,141 @@ fun extractScorePartLegendItems(
         ScorePartLegendItem("T", "Tenor", Color(0xFF2563EB)),
         ScorePartLegendItem("B", "Bass", Color(0xFF16A34A))
     )
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OriginalScoreViewer(
+    uriString: String,
+    isPerformanceMode: Boolean = false,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentPage by remember { mutableIntStateOf(0) }
+    var totalPages by remember { mutableIntStateOf(1) }
+    var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            bitmap?.recycle()
+            bitmap = null
+        }
+    }
+
+    LaunchedEffect(uriString, currentPage, isPerformanceMode) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val uri = android.net.Uri.parse(uriString)
+                val isPdf = uriString.endsWith(".pdf", ignoreCase = true) ||
+                        context.contentResolver.getType(uri)?.contains("pdf") == true
+                if (isPdf) {
+                    val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                    if (pfd != null) {
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        totalPages = renderer.pageCount
+                        val safePage = currentPage.coerceIn(0, totalPages - 1)
+                        val page = renderer.openPage(safePage)
+                        val maxDim = if (isPerformanceMode) 1200 else 1800
+                        val scale = if (page.width > maxDim || page.height > maxDim) {
+                            minOf(maxDim.toFloat() / page.width, maxDim.toFloat() / page.height)
+                        } else {
+                            1.0f
+                        }
+                        val targetWidth = (page.width * scale).toInt().coerceAtLeast(100)
+                        val targetHeight = (page.height * scale).toInt().coerceAtLeast(100)
+                        val config = if (isPerformanceMode) android.graphics.Bitmap.Config.RGB_565 else android.graphics.Bitmap.Config.ARGB_8888
+                        val bmp = android.graphics.Bitmap.createBitmap(targetWidth, targetHeight, config)
+                        page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        renderer.close()
+                        pfd.close()
+                        bitmap = bmp
+                    } else {
+                        errorMessage = "Could not open document"
+                    }
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val opts = android.graphics.BitmapFactory.Options()
+                        if (isPerformanceMode) {
+                            opts.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                            opts.inSampleSize = 2
+                        }
+                        bitmap = android.graphics.BitmapFactory.decodeStream(stream, null, opts)
+                    }
+                }
+            } catch (e: Exception) {
+                errorMessage = "Could not load preview: ${e.message}"
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.88f)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Original Uploaded Score",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    color = VoxTextPrimary
+                )
+                Text(
+                    text = "Reference document for verification",
+                    fontSize = androidx.compose.ui.unit.TextUnit(12f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    color = VoxTextSubtitle
+                )
+            }
+            if (totalPages > 1) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { if (currentPage > 0) currentPage-- },
+                        enabled = currentPage > 0
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Page")
+                    }
+                    Text("${currentPage + 1} / $totalPages", fontWeight = FontWeight.Bold)
+                    IconButton(
+                        onClick = { if (currentPage < totalPages - 1) currentPage++ },
+                        enabled = currentPage < totalPages - 1
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Page")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = "Original Score Page",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                )
+            } else if (errorMessage != null) {
+                Text(errorMessage!!, color = Color.Gray)
+            } else {
+                CircularProgressIndicator(color = VoxPurplePrimary)
+            }
+        }
+    }
 }

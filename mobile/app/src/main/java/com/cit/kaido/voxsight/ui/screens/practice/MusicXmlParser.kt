@@ -493,6 +493,8 @@ fun parseMusicXmlScoreFromText(
     var beam: String? = null
     var beam2: String? = null
     var beam3: String? = null
+    var noteOttavaShift = 0
+    var activeOctaveShift = 0
     // Track the most recent duration for chord inheritance
     var lastDuration = 0
 
@@ -545,6 +547,7 @@ fun parseMusicXmlScoreFromText(
                             } else {
                                 currentPartIndex++
                             }
+                            activeOctaveShift = 0
                         }
                         "measure" -> {
                             currentMeasureNumber = parser.getAttributeValue(null, "number")?.toIntOrNull() ?: 1
@@ -583,6 +586,19 @@ fun parseMusicXmlScoreFromText(
                                 partHasFClefMap[currentPartIndex] = true
                             }
                         }
+                        "octave-shift" -> {
+                            val shiftType = parser.getAttributeValue(null, "type")?.trim()?.lowercase()
+                            val shiftSize = parser.getAttributeValue(null, "size")?.trim()?.toIntOrNull() ?: 8
+                            val octaves = if (shiftSize >= 15) 2 else 1
+                            activeOctaveShift = when (shiftType) {
+                                // MusicXML: type="down" means written notes are shifted down from sounding pitch (8va -> +1 octave)
+                                "down" -> octaves
+                                // MusicXML: type="up" means written notes are shifted up from sounding pitch (8vb -> -1 octave)
+                                "up" -> -octaves
+                                "stop", "continue" -> 0
+                                else -> activeOctaveShift
+                            }
+                        }
                         "note" -> {
                             inNote = true
                             isRest = false
@@ -594,6 +610,14 @@ fun parseMusicXmlScoreFromText(
                             duration = null
                             voice = null
                             sourceNoteId = parser.getAttributeValue(null, "data-vx-id")?.trim()?.toIntOrNull()
+                            val ottavaAttr = parser.getAttributeValue(null, "data-vx-ottava")?.trim()?.lowercase()
+                            noteOttavaShift = when (ottavaAttr) {
+                                "8va", "+8", "1" -> 1
+                                "8vb", "8ba", "-8", "-1" -> -1
+                                "15ma", "+15", "2" -> 2
+                                "15mb", "-15", "-2" -> -2
+                                else -> 0
+                            }
                             customVoiceStr = parser.getAttributeValue(null, "data-vx-voice")
                                 ?.trim()
                                 ?.takeIf { it.isNotEmpty() && !it.equals("UNKNOWN", ignoreCase = true) }
@@ -742,7 +766,8 @@ fun parseMusicXmlScoreFromText(
                                     else -> step!!
                                 }
                             }
-                            val resolvedOctave = if (isRest) 0 else octave!!
+                            val effectiveOctaveShift = if (noteOttavaShift != 0) noteOttavaShift else activeOctaveShift
+                            val resolvedOctave = if (isRest) 0 else (octave!! + effectiveOctaveShift).coerceIn(1, 8)
 
                             val actualVoice = when {
                                 customVoice != null && customVoice in 1..6 -> customVoice

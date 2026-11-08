@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <title>VoxSight OMR Editor</title>
     <style>
         * {
@@ -37,17 +37,921 @@
             min-height: 200px;
         }
 
-        /* Floating Selection Ring Overlay */
+        /* Selection Ring Overlay (Restrained, professional) */
         #selection-indicator {
             position: absolute;
-            border: 2.5px solid #5B2D8E;
-            background: rgba(91, 45, 142, 0.14);
-            border-radius: 8px;
-            pointer-events: none;
-            transition: all 0.1s ease;
+            border: 2px solid #5B2D8E;
+            background: rgba(91, 45, 142, 0.08);
+            border-radius: 4px;
+            pointer-events: auto;
+            cursor: grab;
+            touch-action: none;
+            transition: border-color 0.15s ease, background 0.15s ease;
             display: none;
-            z-index: 100;
-            box-shadow: 0 0 10px rgba(91, 45, 142, 0.35);
+            z-index: 150;
+            box-shadow: none;
+        }
+
+        #selection-indicator.dragging {
+            cursor: grabbing;
+            border-color: #5B2D8E;
+            background: rgba(91, 45, 142, 0.16);
+            box-shadow: none;
+            transition: none !important;
+        }
+
+        /* Drag Handle on Selection Ring */
+        .selection-drag-handle {
+            position: absolute;
+            right: -11px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 22px;
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: ns-resize;
+            font-size: 10px;
+            font-weight: 700;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+            pointer-events: auto;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .selection-drag-handle:active, #selection-indicator.dragging .selection-drag-handle {
+            background: #4C2278;
+            transform: translateY(-50%) scale(1.05);
+        }
+
+        /* ─── Note Micro-HUD (Hidden: All operations are housed in the unified bottom editing deck) ─── */
+        .note-micro-hud,
+        .note-micro-hud.visible {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            opacity: 0 !important;
+        }
+
+        .hud-btn { display: none !important; }
+        .hud-divider { display: none !important; }
+        .hud-note-badge { display: none !important; }
+
+        /* ─── Floating Pitch Drag Badge (Prevent Fat-Finger Occlusion) ─── */
+        .drag-pitch-badge {
+            position: fixed;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-radius: 999px;
+            box-shadow: 0 6px 24px rgba(91, 45, 142, 0.45);
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 400;
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            white-space: nowrap;
+            transition: background 0.15s ease;
+        }
+
+        .drag-pitch-badge.visible {
+            display: flex;
+        }
+
+        .drag-pitch-badge.danger {
+            background: #DC2626 !important;
+            box-shadow: 0 6px 24px rgba(220, 38, 38, 0.55) !important;
+        }
+
+        .drag-pitch-voice {
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.25);
+            padding: 1px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        /* ─── Drag-to-Trash Drop Zone (Glowing Bottom Target) ─── */
+        .trash-drop-zone {
+            position: fixed;
+            bottom: 74px;
+            left: 50%;
+            transform: translateX(-50%) translateY(24px);
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 20px;
+            background: rgba(254, 242, 242, 0.96);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 2px dashed #EF4444;
+            border-radius: 999px;
+            color: #DC2626;
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 450;
+            box-shadow: 0 4px 18px rgba(239, 68, 68, 0.2);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .trash-drop-zone.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .trash-drop-zone.active-hover {
+            background: #DC2626;
+            color: #FFFFFF;
+            border-style: solid;
+            box-shadow: 0 0 28px rgba(220, 38, 38, 0.6);
+            transform: translateX(-50%) scale(1.08);
+        }
+
+        /* ─── Soundslice-Inspired Music Editing Deck (Docked at Bottom) ─── */
+        .soundslice-deck {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #FFFFFF;
+            border-top: 1px solid #E5E7EB;
+            box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+            z-index: 500;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(110%);
+            transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            user-select: none;
+            -webkit-user-select: none;
+            padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+        }
+
+        .soundslice-deck.visible {
+            transform: translateY(0);
+        }
+
+        /* Row 1: Note Context & Sequential Navigation Bar */
+        .deck-nav-group-left {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .deck-nav-group-right {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .deck-nav-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            background: #F9FAFB;
+            border-bottom: 1px solid #F3F4F6;
+            gap: 4px;
+        }
+
+        .deck-nav-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            height: 32px;
+            min-width: 32px;
+            padding: 0 6px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            flex-shrink: 0;
+            touch-action: manipulation;
+        }
+
+        .deck-nav-btn:hover {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+            color: #111827;
+        }
+
+        .deck-nav-btn:active {
+            background: #E5E7EB;
+            transform: scale(0.96);
+        }
+
+        .deck-note-info {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .deck-pitch-badge {
+            font-size: 12px;
+            font-weight: 700;
+            color: #FFFFFF;
+            background: #5B2D8E;
+            padding: 3px 8px;
+            border-radius: 5px;
+            letter-spacing: 0.2px;
+            min-width: 32px;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .deck-meas-badge {
+            font-size: 10px;
+            font-weight: 600;
+            color: #4B5563;
+            background: #F3F4F6;
+            border: 1px solid #E5E7EB;
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+
+        .deck-voice-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .deck-voice-badge.voice-s { background: #FFE4E6; color: #E11D48; border: 1px solid #FECDD3; }
+        .deck-voice-badge.voice-s1 { background: #FFE4E6; color: #FB7185; border: 1px solid #FECDD3; }
+        .deck-voice-badge.voice-s2 { background: #FFE4E6; color: #881337; border: 1px solid #FDA4AF; }
+        .deck-voice-badge.voice-a { background: #F3E8FF; color: #8E24AA; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-a1 { background: #F3E8FF; color: #9333EA; border: 1px solid #E9D5FF; }
+        .deck-voice-badge.voice-a2 { background: #EDE9FE; color: #4C1D95; border: 1px solid #DDD6FE; }
+        .deck-voice-badge.voice-t { background: #DBEAFE; color: #2563EB; border: 1px solid #BFDBFE; }
+        .deck-voice-badge.voice-t1 { background: #E0F2FE; color: #0284C7; border: 1px solid #BAE6FD; }
+        .deck-voice-badge.voice-t2 { background: #DBEAFE; color: #1E3A8A; border: 1px solid #93C5FD; }
+        .deck-voice-badge.voice-b { background: #DCFCE7; color: #16A34A; border: 1px solid #BBF7D0; }
+        .deck-voice-badge.voice-b1 { background: #ECFCCB; color: #65A30D; border: 1px solid #D9F99D; }
+        .deck-voice-badge.voice-b2 { background: #DCFCE7; color: #064E3B; border: 1px solid #86EFAC; }
+        .deck-voice-badge.voice-solo { background: #FFF7ED; color: #FF6D00; border: 1px solid #FED7AA; }
+        .deck-voice-badge.voice-sa { background: #E0E7FF; color: #4F46E5; border: 1px solid #C7D2FE; }
+        .deck-voice-badge.voice-tb { background: #CCFBF1; color: #0D9488; border: 1px solid #99F6E4; }
+        .deck-voice-badge.voice-tutti { background: #FEF9C3; color: #CA8A04; border: 1px solid #FDE047; }
+        .deck-voice-badge.voice-other { background: #F1F5F9; color: #546E7A; border: 1px solid #CBD5E1; }
+
+        .deck-oct-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        .deck-oct-btn {
+            height: 32px;
+            padding: 0 6px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .deck-oct-btn:hover {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+        }
+
+        .deck-oct-btn:active {
+            background: #E5E7EB;
+        }
+
+        .deck-piano-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 32px;
+            padding: 0 7px;
+            background: #FFFFFF;
+            color: #374151;
+            border: 1px solid #E5E7EB;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .deck-piano-toggle:hover {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+        }
+
+        .deck-piano-toggle.active {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-color: #5B2D8E;
+        }
+
+        .deck-close-btn {
+            background: transparent;
+            color: #6B7280;
+            border: none;
+            width: 30px;
+            height: 32px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .deck-close-btn:hover {
+            background: #F3F4F6;
+            color: #111827;
+        }
+
+        /* Row 1b: Expandable Visual Mini-Piano Strip */
+        .soundslice-piano-strip {
+            display: none;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 6px 12px;
+            background: #1F2937;
+            border-bottom: 1px solid #374151;
+        }
+
+        .soundslice-piano-strip.open {
+            display: block;
+        }
+
+        .piano-keys-track {
+            display: inline-flex;
+            position: relative;
+            height: 64px;
+            padding: 0;
+            margin: 0 auto;
+        }
+
+        .piano-white-key {
+            width: 26px;
+            height: 64px;
+            background: #FFFFFF;
+            border: 1px solid #D1D5DB;
+            border-radius: 0 0 3px 3px;
+            position: relative;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            color: #6B7280;
+            cursor: pointer;
+            box-shadow: inset 0 -2px 0 #E5E7EB;
+        }
+
+        .piano-white-key:active, .piano-white-key.active-press {
+            background: #EDE9FE;
+            color: #5B2D8E;
+        }
+
+        .piano-black-key {
+            width: 18px;
+            height: 40px;
+            background: #111827;
+            border-radius: 0 0 2px 2px;
+            position: absolute;
+            top: 0;
+            z-index: 10;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .piano-black-key:active, .piano-black-key.active-press {
+            background: #5B2D8E;
+        }
+
+        /* Row 2: Musical Glyph Editing Toolbar */
+        .deck-toolbar-scroll {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            background: #FFFFFF;
+        }
+
+        .deck-toolbar-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Adaptive Toolbar Density & Settings Profiles */
+        body.density-comfortable         /* --- Add Note & Rest Toolbar Controls --- */
+        .deck-add-btn {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1px;
+            color: #5B2D8E;
+            font-weight: 700;
+        }
+
+        .deck-add-btn .glyph-sublabel {
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1;
+            color: #5B2D8E;
+            letter-spacing: -0.2px;
+        }
+
+        .deck-nav-btn-add {
+            color: #5B2D8E !important;
+            font-weight: 700 !important;
+            border-color: rgba(91, 45, 142, 0.3) !important;
+            background: rgba(91, 45, 142, 0.04) !important;
+        }
+
+        .deck-nav-btn-add:active {
+            background: rgba(91, 45, 142, 0.12) !important;
+        }
+
+        .deck-glyph-btn {
+            min-width: 44px;
+            height: 44px;
+            font-size: 20px;
+        }
+
+        body.density-comfortable .deck-voice-chip {
+            min-width: 36px;
+            height: 40px;
+            padding: 0 8px;
+            font-size: 13px;
+        }
+
+        body.density-comfortable .deck-action-btn {
+            height: 44px;
+            padding: 0 12px;
+            font-size: 13px;
+        }
+
+        body.density-comfortable .deck-nav-btn {
+            width: 38px;
+            height: 38px;
+        }
+
+        body.density-comfortable .deck-note-badge {
+            height: 38px;
+            padding: 0 12px;
+            font-size: 14px;
+        }
+
+        body.density-compact .deck-glyph-btn {
+            min-width: 34px;
+            height: 34px;
+            font-size: 16px;
+        }
+
+        body.density-compact .deck-voice-chip {
+            min-width: 28px;
+            height: 32px;
+            padding: 0 5px;
+            font-size: 11px;
+        }
+
+        body.density-compact .deck-action-btn {
+            height: 34px;
+            padding: 0 7px;
+            font-size: 11px;
+        }
+
+        /* Tool Labels Toggle */
+        body.hide-tool-labels .deck-group-label {
+            display: none !important;
+        }
+
+        body.hide-tool-labels .deck-action-btn span {
+            display: none !important;
+        }
+
+        /* Notation Display Toggles (Zero OSMD re-render required) */
+        body.hide-lyrics .vf-lyric {
+            display: none !important;
+        }
+
+        body.hide-voice-labels .deck-voice-badge {
+            display: none !important;
+        }
+
+        body.hide-measure-numbers .vf-measure-number {
+            display: none !important;
+        }
+
+        /* Performance Profile Optimizations */
+        body.performance-mode * {
+            transition: none !important;
+            animation: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        body.performance-mode #score-container {
+            scroll-behavior: auto !important;
+        }
+
+        .deck-tool-group {
+            align-items: center;
+            gap: 3px;
+            background: #F9FAFB;
+            padding: 2px 4px;
+            border-radius: 6px;
+            border: 1px solid #F3F4F6;
+            flex-shrink: 0;
+        }
+
+        .deck-group-label {
+            font-size: 8.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #9CA3AF;
+            padding: 0 4px;
+        }
+
+        .deck-glyph-btn,
+        .deck-nav-btn,
+        .deck-voice-chip,
+        .deck-action-btn {
+            position: relative;
+        }
+
+        /* 44-48dp Accessible Hit Target Expansion without visual toolbar bloat */
+        .deck-glyph-btn::after,
+        .deck-nav-btn::after,
+        .deck-voice-chip::after,
+        .deck-action-btn::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            bottom: -6px;
+            left: -1px;
+            right: -1px;
+            z-index: 1;
+        }
+
+        .deck-glyph-btn {
+            min-width: 36px;
+            height: 36px;
+            padding: 0 4px;
+            background: #FFFFFF;
+            color: #1F2937;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            touch-action: manipulation;
+        }
+
+        .deck-glyph-btn:hover {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+            color: #111827;
+        }
+
+        .deck-glyph-btn.active {
+            background: #5B2D8E;
+            border-color: #5B2D8E;
+            color: #FFFFFF;
+        }
+
+        .deck-glyph-btn:active {
+            transform: scale(0.95);
+        }
+
+        .deck-voice-chips-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .deck-voice-chip {
+            min-width: 30px;
+            height: 34px;
+            padding: 0 6px;
+            background: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #374151;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .deck-voice-chip:hover {
+            background: #F3F4F6;
+        }
+
+        .deck-voice-chip.v-s { color: #E11D48; border-color: #FECDD3; }
+        .deck-voice-chip.v-s:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s.active { background: #E11D48; color: #FFFFFF; border-color: #E11D48; }
+
+        .deck-voice-chip.v-s1 { color: #FB7185; border-color: #FECDD3; }
+        .deck-voice-chip.v-s1:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s1.active { background: #FB7185; color: #FFFFFF; border-color: #FB7185; }
+
+        .deck-voice-chip.v-s2 { color: #881337; border-color: #FDA4AF; }
+        .deck-voice-chip.v-s2:hover { background: #FFE4E6; }
+        .deck-voice-chip.v-s2.active { background: #881337; color: #FFFFFF; border-color: #881337; }
+
+        .deck-voice-chip.v-a { color: #8E24AA; border-color: #E9D5FF; }
+        .deck-voice-chip.v-a:hover { background: #F3E8FF; }
+        .deck-voice-chip.v-a.active { background: #8E24AA; color: #FFFFFF; border-color: #8E24AA; }
+
+        .deck-voice-chip.v-a1 { color: #9333EA; border-color: #E9D5FF; }
+        .deck-voice-chip.v-a1:hover { background: #F3E8FF; }
+        .deck-voice-chip.v-a1.active { background: #C084FC; color: #FFFFFF; border-color: #C084FC; }
+
+        .deck-voice-chip.v-a2 { color: #4C1D95; border-color: #DDD6FE; }
+        .deck-voice-chip.v-a2:hover { background: #EDE9FE; }
+        .deck-voice-chip.v-a2.active { background: #4C1D95; color: #FFFFFF; border-color: #4C1D95; }
+
+        .deck-voice-chip.v-t { color: #2563EB; border-color: #BFDBFE; }
+        .deck-voice-chip.v-t:hover { background: #DBEAFE; }
+        .deck-voice-chip.v-t.active { background: #2563EB; color: #FFFFFF; border-color: #2563EB; }
+
+        .deck-voice-chip.v-t1 { color: #0284C7; border-color: #BAE6FD; }
+        .deck-voice-chip.v-t1:hover { background: #E0F2FE; }
+        .deck-voice-chip.v-t1.active { background: #0284C7; color: #FFFFFF; border-color: #0284C7; }
+
+        .deck-voice-chip.v-t2 { color: #1E3A8A; border-color: #93C5FD; }
+        .deck-voice-chip.v-t2:hover { background: #DBEAFE; }
+        .deck-voice-chip.v-t2.active { background: #1E3A8A; color: #FFFFFF; border-color: #1E3A8A; }
+
+        .deck-voice-chip.v-b { color: #16A34A; border-color: #BBF7D0; }
+        .deck-voice-chip.v-b:hover { background: #DCFCE7; }
+        .deck-voice-chip.v-b.active { background: #16A34A; color: #FFFFFF; border-color: #16A34A; }
+
+        .deck-voice-chip.v-b1 { color: #65A30D; border-color: #D9F99D; }
+        .deck-voice-chip.v-b1:hover { background: #ECFCCB; }
+        .deck-voice-chip.v-b1.active { background: #65A30D; color: #FFFFFF; border-color: #65A30D; }
+
+        .deck-voice-chip.v-b2 { color: #064E3B; border-color: #86EFAC; }
+        .deck-voice-chip.v-b2:hover { background: #DCFCE7; }
+        .deck-voice-chip.v-b2.active { background: #064E3B; color: #FFFFFF; border-color: #064E3B; }
+
+        .deck-voice-chip.v-solo { color: #FF6D00; border-color: #FED7AA; }
+        .deck-voice-chip.v-solo:hover { background: #FFF7ED; }
+        .deck-voice-chip.v-solo.active { background: #FF6D00; color: #FFFFFF; border-color: #FF6D00; }
+
+        .deck-voice-chip.v-sa { color: #4F46E5; border-color: #C7D2FE; }
+        .deck-voice-chip.v-sa:hover { background: #E0E7FF; }
+        .deck-voice-chip.v-sa.active { background: #4F46E5; color: #FFFFFF; border-color: #4F46E5; }
+
+        .deck-voice-chip.v-tb { color: #0D9488; border-color: #99F6E4; }
+        .deck-voice-chip.v-tb:hover { background: #CCFBF1; }
+        .deck-voice-chip.v-tb.active { background: #0D9488; color: #FFFFFF; border-color: #0D9488; }
+
+        .deck-voice-chip.v-tutti { color: #CA8A04; border-color: #FDE047; }
+        .deck-voice-chip.v-tutti:hover { background: #FEF9C3; }
+        .deck-voice-chip.v-tutti.active { background: #CA8A04; color: #FFFFFF; border-color: #CA8A04; }
+
+        .deck-voice-chip.v-other { color: #546E7A; border-color: #CBD5E1; }
+        .deck-voice-chip.v-other:hover { background: #F1F5F9; }
+        .deck-voice-chip.v-other.active { background: #546E7A; color: #FFFFFF; border-color: #546E7A; }
+
+        .deck-voice-chip.v-more {
+            color: #5B2D8E;
+            border-color: #DDD6FE;
+            background: #F5F3FF;
+            font-size: 10.5px;
+        }
+        .deck-voice-chip.v-more.active {
+            background: #5B2D8E;
+            color: #FFFFFF;
+            border-color: #5B2D8E;
+        }
+
+        /* Row 1c: Expandable Full Voice / Score Part Assignment Strip */
+        .soundslice-voice-strip {
+            display: none;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 6px 12px;
+            background: #F8FAFC;
+            border-bottom: 1px solid #E2E8F0;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .soundslice-voice-strip.open {
+            display: flex;
+        }
+
+        .voice-strip-section {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding-right: 6px;
+            border-right: 1px solid #E2E8F0;
+            flex-shrink: 0;
+        }
+
+        .voice-strip-section:last-child {
+            border-right: none;
+            padding-right: 0;
+        }
+
+        .voice-strip-label {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #64748B;
+            letter-spacing: 0.3px;
+            margin-right: 2px;
+        }
+
+        .deck-action-btn {
+            height: 36px;
+            padding: 0 10px;
+            background: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #374151;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .deck-action-btn:hover {
+            background: #F3F4F6;
+            color: #111827;
+        }
+
+        .deck-action-btn.btn-delete {
+            background: #FEF2F2;
+            border-color: #FECACA;
+            color: #DC2626;
+            padding: 0 10px;
+        }
+
+        .deck-action-btn.btn-delete:hover {
+            background: #DC2626;
+            color: #FFFFFF;
+            border-color: #DC2626;
+        }
+
+        .deck-divider {
+            width: 1px;
+            height: 22px;
+            background: #E5E7EB;
+            flex-shrink: 0;
+            margin: 0 2px;
+        }
+
+        /* ─── Desktop Optimization (@media min-width: 768px) ─── */
+        @media (min-width: 768px) {
+            .soundslice-deck {
+                max-width: 820px;
+                left: 50%;
+                right: auto;
+                transform: translate(-50%, 110%);
+                border-radius: 8px 8px 0 0;
+                border: 1px solid #E5E7EB;
+                border-bottom: none;
+            }
+
+            .soundslice-deck.visible {
+                transform: translate(-50%, 0);
+            }
+        }
+        /* Mobile Responsive Support (Mobile Phones & Tablets <= 767px) */
+        @media (max-width: 767px) {
+            .deck-nav-row {
+                padding: 6px 8px;
+                gap: 4px;
+                flex-wrap: nowrap;
+            }
+            .deck-nav-btn {
+                padding: 0 8px;
+                min-width: 34px;
+                height: 32px;
+                flex-shrink: 0;
+            }
+            .deck-nav-btn .nav-label {
+                display: none !important;
+            }
+            .deck-oct-controls {
+                gap: 2px;
+                flex-shrink: 0;
+            }
+            .deck-oct-btn {
+                padding: 0 5px;
+                height: 32px;
+                font-size: 10px;
+                gap: 2px;
+                flex-shrink: 0;
+            }
+            .deck-piano-toggle {
+                padding: 0 8px;
+                height: 32px;
+                min-width: 34px;
+                flex-shrink: 0;
+            }
+            .deck-piano-toggle span:last-child {
+                display: none !important;
+            }
+            .deck-pitch-badge {
+                font-size: 12px;
+                padding: 3px 6px;
+                min-width: 28px;
+            }
+            .deck-meas-badge {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+            .deck-voice-badge {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+            .deck-glyph-btn {
+                min-width: 34px;
+                height: 34px;
+            }
+            .deck-action-btn {
+                padding: 0 8px;
+                height: 34px;
+                font-size: 11px;
+            }
+        }
+        
+        .palette-drag-ghost {
+            position: fixed;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #7C3AED;
+            color: #FFFFFF;
+            border-radius: 999px;
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
+            font-size: 13px;
+            font-weight: 800;
+            z-index: 450;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            white-space: nowrap;
+        }
+
+        .palette-drag-ghost.visible {
+            display: flex;
         }
 
         /* Canvas overlay for selected note highlighting */
@@ -63,21 +967,7 @@
 
         /* Status Bar at Bottom */
         #status-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 28px;
-            background: rgba(255, 255, 255, 0.95);
-            border-top: 1px solid #E0D4ED;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 16px;
-            font-size: 11px;
-            color: #6B6B80;
-            z-index: 200;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: none !important;
         }
 
         #status-bar .status-accent {
@@ -423,8 +1313,357 @@
 
     <div id="score-container">
         <div id="osmd-render"></div>
-        <div id="selection-indicator"></div>
+        <div id="selection-indicator">
+            <div id="selection-drag-handle" class="selection-drag-handle" title="Drag vertically to change pitch">↕</div>
+        </div>
+        <div id="note-micro-hud" class="note-micro-hud">
+            <button id="hud-btn-delete" class="hud-btn hud-btn-delete" title="Delete Element" onclick="deleteSelectedNote()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+            </button>
+            <button id="hud-btn-rest" class="hud-btn" title="Toggle Note / Rest" onclick="toggleSelectedNoteRest()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M10.2 2.5C10.6 2.2 11.2 2.3 11.5 2.7L15.2 7.3C15.6 7.8 15.5 8.4 15.0 8.8C13.4 10.1 12.3 11.3 12.3 12.3C12.3 13.1 13.1 13.9 14.5 15.0C14.9 15.3 14.9 15.9 14.4 16.1C13.4 16.5 12.1 16.2 11.1 16.7C10.1 17.2 9.8 18.3 10.6 19.6C11.0 20.2 11.7 20.6 12.3 20.8C12.6 20.9 12.6 21.4 12.2 21.5C10.5 21.8 8.3 20.6 7.7 18.7C7.1 16.9 8.1 14.9 10.3 14.3C11.1 14.1 11.8 14.2 12.4 14.4L8.8 10.4C8.4 9.9 8.5 9.2 9.0 8.8C10.6 7.5 11.6 6.4 11.6 5.4C11.6 4.7 11.0 3.9 10.0 3.2C9.7 2.9 9.8 2.7 10.2 2.5Z" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="hud-btn-accidental" class="hud-btn" title="Cycle Accidental (♯ / ♭ / ♮)" onclick="cycleSelectedNoteAccidental()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M9.5 3.5V8.4L6.5 9.3V11.6L9.5 10.7V14.5L6.5 15.4V17.7L9.5 16.8V21H11.1V16.3L12.9 15.8V20.5H14.5V15.3L17.5 14.4V12.1L14.5 13V9.2L17.5 8.3V6L14.5 6.9V2.8H12.9V7.4L11.1 7.9V3.5H9.5ZM11.1 10.2L12.9 9.7V13.5L11.1 14V10.2Z" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="hud-btn-dot" class="hud-btn" title="Toggle Dot" onclick="toggleSelectedNoteDot()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="hud-btn-details" class="hud-btn" title="Edit Details & Lyrics" onclick="openNoteDetails()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+            </button>
+            <div class="hud-divider"></div>
+            <div id="hud-note-badge" class="hud-note-badge">G4</div>
+            <div class="hud-divider"></div>
+            <button id="hud-btn-close" class="hud-btn hud-btn-close" title="Deselect" onclick="deselectNote()">✕</button>
+        </div>
         <canvas id="highlight-canvas"></canvas>
+    </div>
+
+    <!-- Floating Pitch Drag Badge -->
+    <div id="drag-pitch-badge" class="drag-pitch-badge">
+        <span id="drag-pitch-name">G4</span>
+        <span id="drag-pitch-voice" class="drag-pitch-voice">Tenor</span>
+    </div>
+
+    <!-- Drag-to-Trash Drop Zone -->
+    <div id="trash-drop-zone" class="trash-drop-zone">
+        <svg class="trash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        <span id="trash-label" class="trash-label">Drop here to Delete</span>
+    </div>
+
+    <!-- Floating Palette Drag Ghost -->
+    <div id="palette-drag-ghost" class="palette-drag-ghost">
+        <span id="palette-ghost-glyph">𝅘</span>
+        <span id="palette-ghost-type">Quarter</span>
+    </div>
+
+    <!-- Soundslice-Inspired Music Editing Deck (Docked at Bottom) -->
+    <div id="soundslice-deck" class="soundslice-deck">
+        <!-- Row 1: Note Selection & Sequential Navigation Bar -->
+        <div class="deck-nav-row">
+            <div class="deck-nav-group-left">
+                <button id="deck-btn-prev" class="deck-nav-btn" onclick="stepNote(-1)" title="Previous Note">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    <span class="nav-label">Prev</span>
+                </button>
+
+                <div class="deck-note-info">
+                    <span id="deck-note-pitch" class="deck-pitch-badge" onclick="cycleSelectedNoteAccidental()" title="Selected Pitch">--</span>
+                    <span id="deck-note-meas" class="deck-meas-badge">M.1</span>
+                    <span id="deck-note-voice" class="deck-voice-badge voice-s" onclick="toggleVoiceStrip()" title="Tap to change Voice / Score Part">S</span>
+                </div>
+
+                <button id="deck-btn-next" class="deck-nav-btn" onclick="stepNote(1)" title="Next Note">
+                    <span class="nav-label">Next</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
+
+                <button id="deck-btn-add-quick" class="deck-nav-btn deck-nav-btn-add" onclick="insertNoteAfterSelected()" title="Add Note After Selected">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span class="nav-label">+Note</span>
+                </button>
+            </div>
+
+            <div class="deck-nav-group-right">
+                <div class="deck-oct-controls">
+                    <button id="deck-btn-oct-down" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(-1)" title="Lower Octave (-8va)">-8va</button>
+                    <button id="deck-btn-oct-up" class="deck-oct-btn" onclick="shiftSelectedNoteOctave(1)" title="Higher Octave (+8va)">+8va</button>
+                </div>
+
+                <button id="deck-btn-piano" class="deck-piano-toggle" onclick="togglePianoStrip()" title="Toggle Visual Piano Strip">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                        <line x1="6" y1="4" x2="6" y2="12"></line>
+                        <line x1="10" y1="4" x2="10" y2="12"></line>
+                        <line x1="14" y1="4" x2="14" y2="12"></line>
+                        <line x1="18" y1="4" x2="18" y2="12"></line>
+                    </svg>
+                    <span>Piano</span>
+                </button>
+
+                <button id="deck-btn-close" class="deck-close-btn" onclick="deselectNote()" title="Deselect Note (Esc)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Row 1b: Expandable Visual Mini-Piano Strip -->
+        <div id="soundslice-piano-strip" class="soundslice-piano-strip">
+            <div id="piano-keys-track" class="piano-keys-track">
+                <!-- Dynamically generated 2-octave piano keys -->
+            </div>
+        </div>
+
+        <!-- Row 1c: Expandable Full Voice / Score Part Assignment Strip -->
+        <div id="soundslice-voice-strip" class="soundslice-voice-strip">
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Core &amp; Solo</span>
+                <button class="deck-voice-chip v-solo" data-voice="SOLO" onclick="applyVoiceTool('SOLO')" title="Solo / Cantor / Descant">Solo</button>
+                <button class="deck-voice-chip v-s" data-voice="S" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                <button class="deck-voice-chip v-a" data-voice="A" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                <button class="deck-voice-chip v-t" data-voice="T" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                <button class="deck-voice-chip v-b" data-voice="B" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                <button class="deck-voice-chip v-other" data-voice="OTHERS" onclick="applyVoiceTool('OTHERS')" title="Accompaniment / Other">Other</button>
+            </div>
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Divisi</span>
+                <button class="deck-voice-chip v-s1" data-voice="S1" onclick="applyVoiceTool('S1')" title="Soprano 1">S1</button>
+                <button class="deck-voice-chip v-s2" data-voice="S2" onclick="applyVoiceTool('S2')" title="Soprano 2">S2</button>
+                <button class="deck-voice-chip v-a1" data-voice="A1" onclick="applyVoiceTool('A1')" title="Alto 1">A1</button>
+                <button class="deck-voice-chip v-a2" data-voice="A2" onclick="applyVoiceTool('A2')" title="Alto 2">A2</button>
+                <button class="deck-voice-chip v-t1" data-voice="T1" onclick="applyVoiceTool('T1')" title="Tenor 1">T1</button>
+                <button class="deck-voice-chip v-t2" data-voice="T2" onclick="applyVoiceTool('T2')" title="Tenor 2">T2</button>
+                <button class="deck-voice-chip v-b1" data-voice="B1" onclick="applyVoiceTool('B1')" title="Bass 1">B1</button>
+                <button class="deck-voice-chip v-b2" data-voice="B2" onclick="applyVoiceTool('B2')" title="Bass 2">B2</button>
+            </div>
+            <div class="voice-strip-section">
+                <span class="voice-strip-label">Unison</span>
+                <button class="deck-voice-chip v-sa" data-voice="UNISON_SA" onclick="applyVoiceTool('UNISON_SA')" title="Soprano / Alto Unison">S/A</button>
+                <button class="deck-voice-chip v-tb" data-voice="UNISON_TB" onclick="applyVoiceTool('UNISON_TB')" title="Tenor / Bass Unison">T/B</button>
+                <button class="deck-voice-chip v-tutti" data-voice="TUTTI" onclick="applyVoiceTool('TUTTI')" title="Tutti (All Voices)">Tutti</button>
+            </div>
+        </div>
+
+        <!-- Row 2: Musical Glyph Editing Toolbar -->
+        <div class="deck-toolbar-scroll">
+            <!-- Group 0: Add Elements (Soundslice-style Quick Insert) -->
+            <div id="deck-group-add" class="deck-tool-group">
+                <span class="deck-group-label">Add</span>
+                <button id="deck-btn-add-note" class="deck-glyph-btn deck-add-btn" onclick="insertNoteAfterSelected()" title="Insert Note After Selected">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M11.6 3.5C11.6 3.1 11.9 2.8 12.3 2.8C12.7 2.8 13.0 3.1 13.0 3.5V14.4C13.0 16.3 10.8 18.2 8.0 18.8C5.4 19.4 3.3 18.4 2.9 16.6C2.5 14.8 4.6 12.7 7.4 12.1C9.3 11.7 10.8 12.0 11.6 12.7V3.5Z" fill="currentColor"/>
+                        <path d="M18.2 3.8V9.2M15.5 6.5H20.9" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+                    </svg>
+                    <span class="glyph-sublabel">+Note</span>
+                </button>
+                <button id="deck-btn-add-rest" class="deck-glyph-btn deck-add-btn" onclick="insertRestAfterSelected()" title="Insert Rest After Selected">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M8.8 3.0C9.2 2.7 9.7 2.8 10.0 3.2L13.3 7.3C13.7 7.8 13.6 8.3 13.1 8.7C11.7 9.9 10.7 11.0 10.7 11.9C10.7 12.6 11.4 13.3 12.7 14.3C13.0 14.6 13.0 15.1 12.6 15.3C11.7 15.7 10.5 15.4 9.6 15.8C8.7 16.3 8.4 17.3 9.2 18.5C9.5 19.0 10.1 19.4 10.7 19.6C11.0 19.7 11.0 20.1 10.6 20.2C9.1 20.5 7.1 19.4 6.5 17.7C6.0 16.1 6.9 14.2 8.9 13.7C9.6 13.5 10.2 13.6 10.8 13.8L7.5 10.2C7.2 9.7 7.3 9.1 7.7 8.7C9.2 7.5 10.1 6.5 10.1 5.6C10.1 5.0 9.5 4.3 8.6 3.6C8.3 3.4 8.4 3.2 8.8 3.0Z" fill="currentColor"/>
+                        <path d="M18.2 3.8V9.2M15.5 6.5H20.9" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+                    </svg>
+                    <span class="glyph-sublabel">+Rest</span>
+                </button>
+            </div>
+
+            <div id="deck-divider-add" class="deck-divider"></div>
+
+            <!-- Group 1: Note Values (SMuFL / Bravura Engraved Vector Notation SVGs) -->
+            <div id="deck-group-notes" class="deck-tool-group">
+                <span class="deck-group-label">Notes</span>
+                <button class="deck-glyph-btn" data-type="whole" onclick="applyDurationTool('whole', false)" title="Whole Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M12 7.5C7.6 7.5 4.5 9.4 4.5 12C4.5 14.6 7.6 16.5 12 16.5C16.4 16.5 19.5 14.6 19.5 12C19.5 9.4 16.4 7.5 12 7.5ZM10.8 9.2C8.9 9.7 8.1 11.4 8.9 13.1C9.7 14.7 11.8 15.3 13.5 14.7C15.3 14.1 16.0 12.4 15.2 10.8C14.4 9.2 12.5 8.7 10.8 9.2Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="half" onclick="applyDurationTool('half', false)" title="Half Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2ZM8.8 14.1C6.8 14.8 5.6 16.1 5.9 17.1C6.2 18.0 8.0 18.2 10.0 17.5C12.0 16.8 13.2 15.5 12.9 14.5C12.6 13.6 10.8 13.4 8.8 14.1Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="eighth" onclick="applyDurationTool('eighth', false)" title="8th Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M12.2 3.0C12.2 2.6 12.5 2.3 12.9 2.3C13.3 2.3 13.5 2.5 13.7 2.9C14.4 4.4 16.2 5.6 17.8 7.1C19.3 8.5 19.9 10.5 19.2 12.6C18.9 13.5 18.3 14.2 17.9 14.0C17.6 13.8 17.9 13.1 18.1 12.3C18.6 10.5 17.9 8.9 16.3 7.7C15.2 6.9 14.2 6.3 13.6 5.8V15.0C13.6 17.0 11.3 19.0 8.5 19.6C5.8 20.2 3.6 19.1 3.2 17.3C2.8 15.4 4.9 13.2 7.9 12.6C9.8 12.2 11.4 12.5 12.2 13.2V3.0Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" data-type="16th" onclick="applyDurationTool('16th', false)" title="16th Note">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M12.0 2.6C12.0 2.2 12.3 2.0 12.7 2.0C13.1 2.0 13.3 2.2 13.5 2.5C14.2 3.8 16.0 4.9 17.6 6.2C18.9 7.3 19.6 8.9 19.1 10.7C18.9 11.3 18.4 11.8 18.1 11.6C17.8 11.5 18.0 10.9 18.2 10.3C18.5 9.0 17.8 7.8 16.3 6.8C15.2 6.1 14.1 5.6 13.4 5.1V6.8C14.2 7.8 15.9 8.9 17.5 10.1C18.9 11.3 19.5 13.0 18.9 14.9C18.6 15.6 18.1 16.1 17.8 15.9C17.5 15.8 17.7 15.2 17.9 14.5C18.3 13.1 17.6 11.8 16.1 10.8C15.0 10.0 14.0 9.5 13.4 9.0V15.2C13.4 17.1 11.1 19.1 8.3 19.7C5.6 20.3 3.5 19.2 3.1 17.4C2.7 15.5 4.8 13.4 7.7 12.8C9.6 12.4 11.2 12.7 12.0 13.4V2.6Z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="deck-divider-notes" class="deck-divider"></div>
+
+            <!-- Group 2: Rests (SMuFL / Bravura Engraved Vector Notation SVGs) -->
+            <div id="deck-group-rests" class="deck-tool-group">
+                <span class="deck-group-label">Rests</span>
+                <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <line x1="3" y1="8.5" x2="21" y2="8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        <rect x="6.5" y="8.5" width="11" height="5.5" rx="0.8" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <line x1="3" y1="15.5" x2="21" y2="15.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        <rect x="6.5" y="10" width="11" height="5.5" rx="0.8" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M10.2 2.5C10.6 2.2 11.2 2.3 11.5 2.7L15.2 7.3C15.6 7.8 15.5 8.4 15.0 8.8C13.4 10.1 12.3 11.3 12.3 12.3C12.3 13.1 13.1 13.9 14.5 15.0C14.9 15.3 14.9 15.9 14.4 16.1C13.4 16.5 12.1 16.2 11.1 16.7C10.1 17.2 9.8 18.3 10.6 19.6C11.0 20.2 11.7 20.6 12.3 20.8C12.6 20.9 12.6 21.4 12.2 21.5C10.5 21.8 8.3 20.6 7.7 18.7C7.1 16.9 8.1 14.9 10.3 14.3C11.1 14.1 11.8 14.2 12.4 14.4L8.8 10.4C8.4 9.9 8.5 9.2 9.0 8.8C10.6 7.5 11.6 6.4 11.6 5.4C11.6 4.7 11.0 3.9 10.0 3.2C9.7 2.9 9.8 2.7 10.2 2.5Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M9.6 6.2C10.9 6.2 11.9 7.1 12.0 8.3C12.1 9.0 12.6 9.3 13.3 9.1C14.0 8.9 14.7 8.2 15.1 7.3C15.3 6.9 15.9 6.9 16.1 7.3C16.3 7.7 16.2 8.2 16.0 8.8L11.3 20.2C11.1 20.7 10.5 20.9 10.0 20.7C9.5 20.5 9.3 19.9 9.5 19.4L13.4 10.4C12.3 10.9 11.0 11.0 9.8 10.6C8.3 10.1 7.4 8.7 7.7 7.4C7.9 6.6 8.7 6.2 9.6 6.2Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="deck-glyph-btn" onclick="applyRestDurationTool('16th')" title="16th Rest">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M10.4 4.5C11.5 4.5 12.4 5.3 12.5 6.3C12.6 6.9 13.1 7.2 13.7 7.0C14.3 6.8 14.9 6.2 15.3 5.4C15.5 5.0 16.1 5.0 16.3 5.4C16.5 5.7 16.4 6.2 16.2 6.8L10.6 20.5C10.4 21.0 9.8 21.2 9.4 21.0C8.9 20.8 8.7 20.2 8.9 19.8L11.2 14.2C10.2 14.6 9.0 14.6 8.0 14.2C6.7 13.7 5.9 12.5 6.2 11.3C6.4 10.5 7.2 10.0 8.1 10.0C9.2 10.0 10.1 10.8 10.2 11.8C10.3 12.4 10.8 12.7 11.5 12.5C11.8 12.4 12.1 12.1 12.4 11.8L13.7 8.5C12.7 8.9 11.5 8.9 10.5 8.5C9.2 8.0 8.4 6.8 8.7 5.6C8.9 4.9 9.6 4.5 10.4 4.5Z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="deck-divider-rests" class="deck-divider"></div>
+
+            <!-- Group 3: Accidentals & Augmentation Dot (SMuFL Engraved Vector SVGs) -->
+            <div id="deck-group-mod" class="deck-tool-group">
+                <span class="deck-group-label">Mod</span>
+                <button id="deck-btn-sharp" class="deck-glyph-btn" onclick="applyAccidentalTool(1)" title="Sharp Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M9.5 3.5V8.4L6.5 9.3V11.6L9.5 10.7V14.5L6.5 15.4V17.7L9.5 16.8V21H11.1V16.3L12.9 15.8V20.5H14.5V15.3L17.5 14.4V12.1L14.5 13V9.2L17.5 8.3V6L14.5 6.9V2.8H12.9V7.4L11.1 7.9V3.5H9.5ZM11.1 10.2L12.9 9.7V13.5L11.1 14V10.2Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-flat" class="deck-glyph-btn" onclick="applyAccidentalTool(-1)" title="Flat Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M8.5 3.0C8.5 2.5 8.9 2.2 9.3 2.2C9.8 2.2 10.2 2.5 10.2 3.0V11.2C11.3 10.2 12.8 9.7 14.2 10.0C16.1 10.4 17.1 12.1 16.5 14.2C15.9 16.3 13.7 18.2 10.0 20.4C9.3 20.8 8.5 20.3 8.5 19.5V3.0ZM10.2 13.1V18.0C12.5 16.6 14.0 15.1 14.4 13.7C14.7 12.5 14.1 11.7 13.0 11.6C12.0 11.5 10.9 12.1 10.2 13.1Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-natural" class="deck-glyph-btn" onclick="applyAccidentalTool(0)" title="Natural Accidental">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M8.5 3.2H10.2V8.5L15.5 6.9V19.8H13.8V14.5L8.5 16.1V3.2ZM10.2 10.8V13.4L13.8 12.3V9.7L10.2 10.8Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-dot" class="deck-glyph-btn" onclick="applyDotTool()" title="Toggle Augmentation Dot">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M10.4 5.5C10.4 5.1 10.7 4.8 11.1 4.8C11.5 4.8 11.8 5.1 11.8 5.5V14.8C11.8 16.5 9.8 18.2 7.3 18.8C5.0 19.3 3.1 18.4 2.7 16.8C2.4 15.2 4.2 13.3 6.8 12.7C8.4 12.4 9.7 12.6 10.4 13.3V5.5Z" fill="currentColor"/>
+                        <circle cx="16.8" cy="14.5" r="2.3" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="deck-divider-mod" class="deck-divider"></div>
+
+            <!-- Group 4: Curves, Phrasing & Ottava (Slurs, Ties, 8va, 8vb) -->
+            <div id="deck-group-curves" class="deck-tool-group">
+                <span class="deck-group-label">Curve</span>
+                <button id="deck-btn-slur" class="deck-glyph-btn" onclick="applySlurTool()" title="Slur Curve (Phrasing)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 15 C7.5 5.5, 16.5 5.5, 21 15 C16.2 8.5, 7.8 8.5, 3 15 Z" fill="currentColor"/>
+                        <ellipse cx="5.5" cy="17.2" rx="2.3" ry="1.6" transform="rotate(-18 5.5 17.2)" fill="currentColor"/>
+                        <ellipse cx="18.5" cy="17.2" rx="2.3" ry="1.6" transform="rotate(-18 18.5 17.2)" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-tie" class="deck-glyph-btn" onclick="applyTieTool()" title="Tie Curve (Hold Pitch)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <ellipse cx="5.5" cy="9.2" rx="2.3" ry="1.6" transform="rotate(-18 5.5 9.2)" fill="currentColor"/>
+                        <ellipse cx="18.5" cy="9.2" rx="2.3" ry="1.6" transform="rotate(-18 18.5 9.2)" fill="currentColor"/>
+                        <path d="M4.5 12 C8.5 19.5, 15.5 19.5, 19.5 12 C15.2 16.8, 8.8 16.8, 4.5 12 Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-8va" class="deck-glyph-btn" onclick="applyOctaveShiftTool('8va')" title="8va Ottava Alta (Play 1 Octave Higher)">
+                    <svg width="24" height="20" viewBox="0 0 28 24" fill="none">
+                        <text x="1" y="16" fill="currentColor" font-family="Georgia, serif" font-style="italic" font-weight="bold" font-size="11">8va</text>
+                        <path d="M18 6H26V11" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="deck-btn-8vb" class="deck-glyph-btn" onclick="applyOctaveShiftTool('8vb')" title="8vb Ottava Bassa (Play 1 Octave Lower)">
+                    <svg width="24" height="20" viewBox="0 0 28 24" fill="none">
+                        <text x="1" y="15" fill="currentColor" font-family="Georgia, serif" font-style="italic" font-weight="bold" font-size="11">8vb</text>
+                        <path d="M18 18H26V13" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="deck-divider-curves" class="deck-divider"></div>
+
+            <!-- Group 5: Voice & Score Part Assignment -->
+            <div id="deck-group-voice" class="deck-tool-group">
+                <span class="deck-group-label">Voice</span>
+                <div id="deck-voice-chips-container" class="deck-voice-chips-container">
+                    <button class="deck-voice-chip v-solo" data-voice="SOLO" onclick="applyVoiceTool('SOLO')" title="Solo / Cantor">Solo</button>
+                    <button class="deck-voice-chip v-s" data-voice="S" onclick="applyVoiceTool('S')" title="Soprano">S</button>
+                    <button class="deck-voice-chip v-a" data-voice="A" onclick="applyVoiceTool('A')" title="Alto">A</button>
+                    <button class="deck-voice-chip v-t" data-voice="T" onclick="applyVoiceTool('T')" title="Tenor">T</button>
+                    <button class="deck-voice-chip v-b" data-voice="B" onclick="applyVoiceTool('B')" title="Bass">B</button>
+                </div>
+                <button id="deck-btn-voice-more" class="deck-voice-chip v-more" onclick="toggleVoiceStrip()" title="All Score Parts &amp; Divisi">+Part</button>
+            </div>
+
+            <div id="deck-divider-voice" class="deck-divider"></div>
+
+            <!-- Group 6: Actions (Lucide SVG Icons, No Emojis) -->
+            <div id="deck-group-actions" class="deck-tool-group">
+                <button class="deck-action-btn" onclick="openNoteDetails()" title="Edit Lyrics and Syllables">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9"></path>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                    </svg>
+                    <span>Lyrics</span>
+                </button>
+                <button class="deck-action-btn btn-delete" onclick="deleteSelectedNote()" title="Delete Element">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+                <button class="deck-action-btn" onclick="undo()" id="deck-btn-undo" title="Undo (Ctrl+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 14 4 9 9 4"></polyline>
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                    </svg>
+                </button>
+                <button class="deck-action-btn" onclick="redo()" id="deck-btn-redo" title="Redo (Ctrl+Y)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 14 20 9 15 4"></polyline>
+                        <path d="M4 20v-7a4 4 0 0 1 4-4h12"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Multimeasure Rest Stepper (Versatile Floating Capsule) -->
@@ -465,6 +1704,7 @@
     </div>
 
     <script src="opensheetmusicdisplay.min.js"></script>
+    <script src="Tone.min.js"></script>
 
     <script>
         // ─── Globals ───────────────────────────────────────────────────────────
@@ -483,14 +1723,149 @@
         let selectedNoteId = null;
         let currentTpq = 960;
 
+        // ─── Tone.js Audio Synth (Interactive Pitch Preview) ──────────────────
+        let synth = null;
+        let synthStarted = false;
+
+        function ensureAudio() {
+            if (typeof Tone === 'undefined') return;
+            if (!synthStarted) {
+                try {
+                    Tone.start();
+                    if (Tone.context) {
+                        Tone.context.lookAhead = 0.25;
+                    }
+                    var limiter = null;
+                    if (typeof Tone.Limiter === 'function') {
+                        limiter = new Tone.Limiter(-1.0).toDestination();
+                    }
+                    if (typeof Tone.PolySynth === 'function') {
+                        synth = new Tone.PolySynth(Tone.Synth, {
+                            maxPolyphony: 8,
+                            oscillator: { type: 'triangle' },
+                            envelope: { attack: 0.015, decay: 0.2, sustain: 0.25, release: 0.35 }
+                        });
+                        if (limiter) synth.connect(limiter);
+                        else synth.toDestination();
+                        if (synth.volume) synth.volume.value = -4;
+                    }
+                    synthStarted = true;
+                } catch (e) {
+                    console.warn('[VoxSight Editor] Audio init note:', e);
+                }
+            }
+            if (typeof Tone !== 'undefined' && Tone.context && Tone.context.state !== 'running') {
+                try { Tone.context.resume(); } catch (e) {}
+            }
+        }
+
+        function playNotePreview(midiNote, durationMs) {
+            if (window.editorPreferences && window.editorPreferences.audioPreview === false) return;
+            if (midiNote === undefined || midiNote === null || midiNote < 0) return;
+            ensureAudio();
+            if (!synth || typeof Tone === 'undefined') return;
+            try {
+                var freq = Tone.Frequency(midiNote, 'midi').toFrequency();
+                var dur = Math.max(0.08, (durationMs || 150) / 1000.0);
+                synth.triggerAttackRelease(freq, dur, Tone.now(), 0.85);
+            } catch (e) {
+                console.warn('[VoxSight Editor] playNotePreview notice:', e);
+            }
+        }
+
+        // ─── History Stack (Undo / Redo) ────────────────────────────────────
+        var undoStack = [];
+        var redoStack = [];
+        var MAX_UNDO = 30;
+
+        function pushUndoSnapshot() {
+            if (!xmlDoc) return;
+            try {
+                var serializer = new XMLSerializer();
+                var rawXml = serializer.serializeToString(xmlDoc);
+                var clean = sanitizeMusicXmlString(rawXml);
+                if (clean && clean.indexOf('<score-partwise') !== -1) {
+                    undoStack.push(clean);
+                    if (undoStack.length > MAX_UNDO) undoStack.shift();
+                    redoStack = [];
+                    updateUndoRedoUI();
+                }
+            } catch (e) {
+                console.warn('[VoxSight Editor] pushUndoSnapshot notice:', e);
+            }
+        }
+
+        function undo() {
+            if (undoStack.length === 0) return;
+            try {
+                var serializer = new XMLSerializer();
+                var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
+                redoStack.push(currentXml);
+                var prevXml = undoStack.pop();
+                window.isScoreEdited = true;
+                loadScore(prevXml, currentTpq, false);
+                updateUndoRedoUI();
+                updateStatus('Undid last action');
+            } catch (e) {
+                console.error('[VoxSight Editor] undo error:', e);
+            }
+        }
+
+        function redo() {
+            if (redoStack.length === 0) return;
+            try {
+                var serializer = new XMLSerializer();
+                var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
+                undoStack.push(currentXml);
+                var nextXml = redoStack.pop();
+                window.isScoreEdited = true;
+                loadScore(nextXml, currentTpq, false);
+                updateUndoRedoUI();
+                updateStatus('Redid last action');
+            } catch (e) {
+                console.error('[VoxSight Editor] redo error:', e);
+            }
+        }
+
+        function updateUndoRedoUI() {
+            var canUndo = undoStack.length > 0;
+            var canRedo = redoStack.length > 0;
+            var undoBtn = document.getElementById('btn-undo');
+            var redoBtn = document.getElementById('btn-redo');
+            if (undoBtn) undoBtn.disabled = !canUndo;
+            if (redoBtn) redoBtn.disabled = !canRedo;
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onHistoryChanged === 'function') {
+                try {
+                    window.VoxSightBridge.onHistoryChanged(canUndo, canRedo);
+                } catch (e) {}
+            }
+        }
+
+        window.undo = undo;
+        window.redo = redo;
+        window.canUndo = function() { return undoStack.length > 0; };
+        window.canRedo = function() { return redoStack.length > 0; };
+
         function calculateFitToWidthZoom() {
             var container = document.getElementById('score-container') || document.getElementById('osmd-render');
-            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || document.documentElement.clientWidth || 360);
+            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 360);
             var targetWidth = Math.max(240, vpWidth - 16);
             // 50% zoomed-out full-system mobile view (~0.32 on 360px portrait mobile)
             var optimalZoom = (targetWidth / 360.0) * 0.33;
             return Math.max(0.28, Math.min(0.65, Math.round(optimalZoom * 100) / 100));
         }
+
+        function calculateFitToPageZoom() {
+            var container = document.getElementById('score-container') || document.getElementById('osmd-render');
+            var vpWidth = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 360);
+            var vpHeight = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 600);
+            var wZoom = ((vpWidth - 24) / 750.0) * 0.35;
+            var hZoom = ((vpHeight - 48) / 1050.0) * 0.40;
+            var pageZoom = Math.min(wZoom, hZoom);
+            return Math.max(0.24, Math.min(0.60, Math.round(pageZoom * 100) / 100));
+        }
+        window.calculateFitToPageZoom = calculateFitToPageZoom;
+        window.calculateFitToWidthZoom = calculateFitToWidthZoom;
 
         var currentZoom = calculateFitToWidthZoom();
 
@@ -1216,10 +2591,11 @@
         function loadScoreBase64(b64, tpq = 960) {
             try {
                 const xmlStr = decodeBase64ToXml(b64);
-                loadScore(xmlStr, tpq);
+                return loadScore(xmlStr, tpq);
             } catch (e) {
                 console.error('Base64 decoding failed:', e);
                 updateStatus('Error decoding MusicXML');
+                return Promise.reject(e);
             }
         }
 
@@ -2331,6 +3707,9 @@
                     var coord = { id: vxId, x: sx, y: sy, w: sw, h: sh, cx: cx, cy: cy };
                     noteCoordinates.push(coord);
 
+                    // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
+                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
+
                     // Store stable 1:1 mapping
                     gNote.__vx_id = vxId;
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
@@ -2340,15 +3719,15 @@
                         xmlNote: xn.el,
                         coord: coord,
                         staffIdx: gn.staffIdx,
+                        partIdx: xn.partIdx,
                         measureIdx: mIdx,
                         measureNum: gn.mNum,
                         voiceNum: xn.voice,
                         chordPos: xn.chordPos,
-                        customVoice: xn.customVoice
+                        isDivisiChord: xn.isDivisiChord,
+                        customVoice: xn.customVoice,
+                        voiceColor: voiceColor
                     });
-
-                    // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
-                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
 
                     if (domEls.length > 0) {
                         for (let d = 0; d < domEls.length; d++) {
@@ -2370,6 +3749,11 @@
 
             // Step 5b: Map Multimeasure Rests for stepper editing
             buildMultiRestMap();
+
+            // Step 5c: Refresh dynamic Voice & Score Part Assignment toolbar from detected score parts
+            if (typeof renderVoiceAssignmentToolbar === 'function') {
+                renderVoiceAssignmentToolbar();
+            }
 
             // Step 6: Attach click handlers
             setupClickListeners();
@@ -2674,6 +4058,7 @@
         })();
 
         window.adjustMultiRestCount = function (delta) {
+            pushUndoSnapshot();
             if (!selectedMultiRest || !xmlDoc) return;
             var mr = selectedMultiRest;
             var oldCount = mr.count;
@@ -2778,20 +4163,110 @@
             }, 300);
         };
 
+        // ─── Deselect & Open Details API ────────────────────────────────
+        function deselectNote() {
+            clearHighlights();
+            selectedNoteId = null;
+            updateDeckUI(null);
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onNoteDeselected === 'function') {
+                window.VoxSightBridge.onNoteDeselected();
+            }
+        }
+        window.deselectNote = deselectNote;
+
+        function openNoteDetails() {
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onOpenNoteDetails === 'function') {
+                window.VoxSightBridge.onOpenNoteDetails();
+            }
+        }
+        window.openNoteDetails = openNoteDetails;
+
+        // ─── Proximity & Layer Hit Testing ──────────────────────────────
+        function findNoteAtPoint(clientX, clientY) {
+            var clickTarget = document.getElementById('score-container');
+            if (!clickTarget) return null;
+            var containerRect = clickTarget.getBoundingClientRect();
+            var clickX = clientX - containerRect.left + clickTarget.scrollLeft;
+            var clickY = clientY - containerRect.top + clickTarget.scrollTop;
+
+            var candidates = [];
+            function addCandidate(id) {
+                if (!isNaN(id) && noteMap.has(id) && candidates.indexOf(id) === -1) {
+                    candidates.push(id);
+                }
+            }
+
+            // 1. Direct SVG element from point layers
+            if (typeof document.elementsFromPoint === 'function') {
+                var elements = document.elementsFromPoint(clientX, clientY);
+                for (let i = 0; i < elements.length; i++) {
+                    var el = elements[i];
+                    var matchEl = el.closest ? el.closest('[data-vx-id]') : null;
+                    if (matchEl && matchEl.hasAttribute('data-vx-id')) {
+                        addCandidate(parseInt(matchEl.getAttribute('data-vx-id'), 10));
+                    }
+                }
+            }
+
+            // 2. Proximity search within 42px
+            for (let i = 0; i < noteCoordinates.length; i++) {
+                var nc = noteCoordinates[i];
+                var dx = nc.cx - clickX;
+                var dy = nc.cy - clickY;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 42) {
+                    addCandidate(nc.id);
+                }
+            }
+
+            if (candidates.length > 0) {
+                var bestId = candidates[0];
+                var bestDist = Infinity;
+                for (let i = 0; i < candidates.length; i++) {
+                    var cId = candidates[i];
+                    var entry = noteMap.get(cId);
+                    if (entry && entry.coord) {
+                        var dx = entry.coord.cx - clickX;
+                        var dy = entry.coord.cy - clickY;
+                        var d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            bestId = cId;
+                        }
+                    }
+                }
+                return bestId;
+            }
+            return null;
+        }
+        window.findNoteAtPoint = findNoteAtPoint;
+
         // ─── Click Handlers ─────────────────────────────────────────────
         function setupClickListeners() {
             var clickTarget = document.getElementById('score-container');
             if (clickTarget) {
                 clickTarget.onclick = function (e) {
+                    // Suppress click immediately following drag-and-drop
+                    if (Date.now() - lastPitchDragEndTime < 350) return;
+
+                    var targetEl = e.target;
+                    // Ignore clicks on micro-HUD, palette dock, or floating stepper
+                    if (targetEl && targetEl.closest && (
+                        targetEl.closest('#note-micro-hud') ||
+                        targetEl.closest('#soundslice-deck') ||
+                        targetEl.closest('#multirest-stepper-panel') ||
+                        targetEl.closest('#zoom-controls') ||
+                        targetEl.closest('#palette-drag-ghost')
+                    )) {
+                        return;
+                    }
+
                     var containerRect = clickTarget.getBoundingClientRect();
                     var clickX = e.clientX - containerRect.left + clickTarget.scrollLeft;
                     var clickY = e.clientY - containerRect.top + clickTarget.scrollTop;
 
                     // 0. Multimeasure Rest Hit Test (Staff-Specific Precision)
-                    // Check direct SVG target first
-                    var clickedTargetEl = e.target;
-                    var clickedMrSvg = clickedTargetEl ? (clickedTargetEl.closest ? clickedTargetEl.closest('.multirest, g[id*="vf-multi"]') : null) : null;
-
+                    var clickedMrSvg = targetEl ? (targetEl.closest ? targetEl.closest('.multirest, g[id*="vf-multi"]') : null) : null;
                     var matchedMrItem = null;
                     if (clickedMrSvg) {
                         matchedMrItem = multiRestMeasures.find(function (item) {
@@ -2799,7 +4274,6 @@
                         });
                     }
 
-                    // Fallback to bounding box hit test per staff
                     if (!matchedMrItem) {
                         var bestDist = 9999;
                         for (var mri = 0; mri < multiRestMeasures.length; mri++) {
@@ -2823,63 +4297,13 @@
                     // If clicked outside of multirest, close stepper panel
                     closeMultiRestPanel();
 
-                    var candidates = [];
-                    function addCandidate(id) {
-                        if (!isNaN(id) && noteMap.has(id) && candidates.indexOf(id) === -1) {
-                            candidates.push(id);
-                        }
-                    }
-
-                    // 1. Direct SVG target
-                    var targetEl = e.target;
-                    if (targetEl) {
-                        var noteEl = targetEl.closest ? targetEl.closest('[data-vx-id]') : null;
-                        if (noteEl && noteEl.hasAttribute('data-vx-id')) {
-                            addCandidate(parseInt(noteEl.getAttribute('data-vx-id'), 10));
-                        }
-                    }
-
-                    // 2. Multi-element point hit test (all overlapping SVG layers)
-                    if (typeof document.elementsFromPoint === 'function') {
-                        var elements = document.elementsFromPoint(e.clientX, e.clientY);
-                        for (let i = 0; i < elements.length; i++) {
-                            var el = elements[i];
-                            var matchEl = el.closest ? el.closest('[data-vx-id]') : null;
-                            if (matchEl && matchEl.hasAttribute('data-vx-id')) {
-                                addCandidate(parseInt(matchEl.getAttribute('data-vx-id'), 10));
-                            }
-                        }
-                    }
-
-                    // 3. Proximity search from noteCoordinates within 45px radius
-                    for (let i = 0; i < noteCoordinates.length; i++) {
-                        var nc = noteCoordinates[i];
-                        var dx = nc.cx - clickX;
-                        var dy = nc.cy - clickY;
-                        var dist = Math.sqrt(dx * dx + dy * dy);
-                        if (dist < 45) {
-                            addCandidate(nc.id);
-                        }
-                    }
-
-                    // 4. Distance-weighted selection: pick candidate closest to tap coordinate
-                    if (candidates.length > 0) {
-                        var bestId = candidates[0];
-                        var bestDist = Infinity;
-                        for (let i = 0; i < candidates.length; i++) {
-                            var cId = candidates[i];
-                            var entry = noteMap.get(cId);
-                            if (entry && entry.coord) {
-                                var dx = entry.coord.cx - clickX;
-                                var dy = entry.coord.cy - clickY;
-                                var d = Math.sqrt(dx * dx + dy * dy);
-                                if (d < bestDist) {
-                                    bestDist = d;
-                                    bestId = cId;
-                                }
-                            }
-                        }
+                    // 1. Proximity & layer lookup for note selection
+                    var bestId = findNoteAtPoint(e.clientX, e.clientY);
+                    if (bestId !== null) {
                         selectNote(bestId);
+                    } else {
+                        // Tapped on empty score whitespace: DESELECT immediately!
+                        deselectNote();
                     }
                 };
             }
@@ -2888,7 +4312,14 @@
         // ─── Direct Notehead Highlight System ────────────────────────────
         function clearHighlights() {
             var ind = document.getElementById('selection-indicator');
-            if (ind) ind.style.display = 'none';
+            if (ind) {
+                ind.style.display = 'none';
+                ind.classList.remove('dragging');
+                ind.style.transform = 'none';
+            }
+
+            var hud = document.getElementById('note-micro-hud');
+            if (hud) hud.classList.remove('visible');
 
             var oldMultiIndicators = document.querySelectorAll('.voxsight-multirest-indicator');
             for (var m = 0; m < oldMultiIndicators.length; m++) {
@@ -2961,7 +4392,230 @@
                 ind.style.height = (entry.coord.h + 10) + 'px';
                 ind.style.display = 'block';
             }
+
+            // Position and update Floating Micro-HUD right above selected element
+            var hud = document.getElementById('note-micro-hud');
+            if (hud && ind && ind.style.display !== 'none') {
+                var indLeft = parseFloat(ind.style.left) || 0;
+                var indTop = parseFloat(ind.style.top) || 0;
+                var indWidth = parseFloat(ind.style.width) || 20;
+
+                var hudDesiredX = indLeft + indWidth / 2;
+                var containerW = (scoreContainer ? scoreContainer.clientWidth : window.innerWidth) || window.innerWidth;
+                var minX = 85;
+                var maxX = Math.max(minX, containerW - 85);
+                var clampedX = Math.max(minX, Math.min(maxX, hudDesiredX));
+
+                hud.style.left = clampedX + 'px';
+                hud.style.top = (indTop - 6) + 'px';
+                hud.classList.add('visible');
+
+                var xmlNote = getXmlNoteElement(vxId);
+                var hudBadge = document.getElementById('hud-note-badge');
+                if (hudBadge && xmlNote) {
+                    var isR = (xmlNote.getElementsByTagName('rest').length > 0);
+                    if (isR) {
+                        hudBadge.textContent = 'Rest';
+                    } else {
+                        var pEl = xmlNote.getElementsByTagName('pitch')[0];
+                        var step = pEl && pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C';
+                        var oct = pEl && pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4';
+                        var altEl = pEl ? pEl.getElementsByTagName('alter')[0] : null;
+                        var alt = altEl ? parseInt(altEl.textContent.trim(), 10) : 0;
+                        var altSign = (alt > 0) ? '♯' : ((alt < 0) ? '♭' : '');
+                        hudBadge.textContent = step + altSign + oct;
+                    }
+                }
+            }
         }
+
+        // ─── Score-Aware Voice & Part Resolution Helper ──────────────────────
+        function resolveNoteVoiceInfo(noteEl, entry) {
+            var parsedVoice = 1;
+            var customVoiceStr = null;
+            if (noteEl) {
+                var vEl = noteEl.getElementsByTagName('voice')[0];
+                if (vEl && vEl.textContent) {
+                    parsedVoice = parseInt(vEl.textContent.trim(), 10) || 1;
+                }
+                customVoiceStr = noteEl.getAttribute('data-vx-voice');
+            } else if (entry && typeof entry.voiceNum === 'number') {
+                parsedVoice = entry.voiceNum;
+            }
+
+            if (customVoiceStr && customVoiceStr.trim() !== '') {
+                var cu = customVoiceStr.trim().toUpperCase();
+                if (cu === '1' || cu === 'S' || cu === 'SOPRANO') return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+                if (cu === 'S1' || cu === 'SOPRANO 1' || cu === 'SOPRANO1') return { voiceCode: 'S1', voiceId: 1, voiceLabel: 'S1', badgeClass: 'voice-s1', chipClass: 'v-s1' };
+                if (cu === 'S2' || cu === 'SOPRANO 2' || cu === 'SOPRANO2') return { voiceCode: 'S2', voiceId: 1, voiceLabel: 'S2', badgeClass: 'voice-s2', chipClass: 'v-s2' };
+                if (cu === '2' || cu === 'A' || cu === 'ALTO') return { voiceCode: 'A', voiceId: 2, voiceLabel: 'A', badgeClass: 'voice-a', chipClass: 'v-a' };
+                if (cu === 'A1' || cu === 'ALTO 1' || cu === 'ALTO1') return { voiceCode: 'A1', voiceId: 2, voiceLabel: 'A1', badgeClass: 'voice-a1', chipClass: 'v-a1' };
+                if (cu === 'A2' || cu === 'ALTO 2' || cu === 'ALTO2') return { voiceCode: 'A2', voiceId: 2, voiceLabel: 'A2', badgeClass: 'voice-a2', chipClass: 'v-a2' };
+                if (cu === '3' || cu === 'T' || cu === 'TENOR') return { voiceCode: 'T', voiceId: 3, voiceLabel: 'T', badgeClass: 'voice-t', chipClass: 'v-t' };
+                if (cu === 'T1' || cu === 'TENOR 1' || cu === 'TENOR1') return { voiceCode: 'T1', voiceId: 3, voiceLabel: 'T1', badgeClass: 'voice-t1', chipClass: 'v-t1' };
+                if (cu === 'T2' || cu === 'TENOR 2' || cu === 'TENOR2') return { voiceCode: 'T2', voiceId: 3, voiceLabel: 'T2', badgeClass: 'voice-t2', chipClass: 'v-t2' };
+                if (cu === '4' || cu === 'B' || cu === 'BASS') return { voiceCode: 'B', voiceId: 4, voiceLabel: 'B', badgeClass: 'voice-b', chipClass: 'v-b' };
+                if (cu === 'B1' || cu === 'BASS 1' || cu === 'BASS1') return { voiceCode: 'B1', voiceId: 4, voiceLabel: 'B1', badgeClass: 'voice-b1', chipClass: 'v-b1' };
+                if (cu === 'B2' || cu === 'BASS 2' || cu === 'BASS2') return { voiceCode: 'B2', voiceId: 4, voiceLabel: 'B2', badgeClass: 'voice-b2', chipClass: 'v-b2' };
+                if (cu === '5' || cu === 'SOLO' || cu.indexOf('SOLO') !== -1 || cu === 'BARITONE') return { voiceCode: 'SOLO', voiceId: 5, voiceLabel: 'SOLO', badgeClass: 'voice-solo', chipClass: 'v-solo' };
+                if (cu === 'UNISON_SA' || cu === 'SA') return { voiceCode: 'UNISON_SA', voiceId: 1, voiceLabel: 'S/A', badgeClass: 'voice-sa', chipClass: 'v-sa' };
+                if (cu === 'UNISON_TB' || cu === 'TB') return { voiceCode: 'UNISON_TB', voiceId: 3, voiceLabel: 'T/B', badgeClass: 'voice-tb', chipClass: 'v-tb' };
+                if (cu === 'TUTTI' || cu === 'UNISON_ALL' || cu === 'ALL') return { voiceCode: 'TUTTI', voiceId: 1, voiceLabel: 'TUTTI', badgeClass: 'voice-tutti', chipClass: 'v-tutti' };
+                if (cu === '6' || cu === 'OTHERS' || cu === 'OTHER') return { voiceCode: 'OTHERS', voiceId: 6, voiceLabel: 'OTHER', badgeClass: 'voice-other', chipClass: 'v-other' };
+            }
+
+            // Resolve partIdx from entry or XML hierarchy
+            var partIdx = (entry && typeof entry.partIdx === 'number') ? entry.partIdx : undefined;
+            var totalParts = 1;
+            if (xmlDoc && typeof xmlDoc.getElementsByTagName === 'function') {
+                var xmlParts = xmlDoc.getElementsByTagName('part');
+                totalParts = xmlParts ? xmlParts.length : 1;
+                if (partIdx === undefined && noteEl) {
+                    var pNode = noteEl.parentNode;
+                    while (pNode && pNode.tagName !== 'part') pNode = pNode.parentNode;
+                    if (pNode && xmlParts) {
+                        for (var pi = 0; pi < xmlParts.length; pi++) {
+                            if (xmlParts[pi] === pNode) {
+                                partIdx = pi;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            var staffIdx = (entry && typeof entry.staffIdx === 'number') ? entry.staffIdx : (typeof partIdx === 'number' ? partIdx : 0);
+            var chordPos = entry ? entry.chordPos : undefined;
+            var isDivisiChord = entry ? entry.isDivisiChord : false;
+            var resolvedColor = (entry && entry.voiceColor)
+                ? entry.voiceColor
+                : getVocalPartColor(parsedVoice, staffIdx, partIdx, totalParts, chordPos, customVoiceStr, isDivisiChord);
+
+            switch (String(resolvedColor || '').toUpperCase()) {
+                case '#E11D48': return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+                case '#FB7185': return { voiceCode: 'S1', voiceId: 1, voiceLabel: 'S1', badgeClass: 'voice-s1', chipClass: 'v-s1' };
+                case '#881337': return { voiceCode: 'S2', voiceId: 1, voiceLabel: 'S2', badgeClass: 'voice-s2', chipClass: 'v-s2' };
+                case '#8E24AA': return { voiceCode: 'A', voiceId: 2, voiceLabel: 'A', badgeClass: 'voice-a', chipClass: 'v-a' };
+                case '#C084FC': return { voiceCode: 'A1', voiceId: 2, voiceLabel: 'A1', badgeClass: 'voice-a1', chipClass: 'v-a1' };
+                case '#4C1D95': return { voiceCode: 'A2', voiceId: 2, voiceLabel: 'A2', badgeClass: 'voice-a2', chipClass: 'v-a2' };
+                case '#2563EB': return { voiceCode: 'T', voiceId: 3, voiceLabel: 'T', badgeClass: 'voice-t', chipClass: 'v-t' };
+                case '#0284C7': return { voiceCode: 'T1', voiceId: 3, voiceLabel: 'T1', badgeClass: 'voice-t1', chipClass: 'v-t1' };
+                case '#1E3A8A': return { voiceCode: 'T2', voiceId: 3, voiceLabel: 'T2', badgeClass: 'voice-t2', chipClass: 'v-t2' };
+                case '#16A34A': return { voiceCode: 'B', voiceId: 4, voiceLabel: 'B', badgeClass: 'voice-b', chipClass: 'v-b' };
+                case '#65A30D': return { voiceCode: 'B1', voiceId: 4, voiceLabel: 'B1', badgeClass: 'voice-b1', chipClass: 'v-b1' };
+                case '#064E3B': return { voiceCode: 'B2', voiceId: 4, voiceLabel: 'B2', badgeClass: 'voice-b2', chipClass: 'v-b2' };
+                case '#FF6D00': return { voiceCode: 'SOLO', voiceId: 5, voiceLabel: 'SOLO', badgeClass: 'voice-solo', chipClass: 'v-solo' };
+                case '#4F46E5': return { voiceCode: 'UNISON_SA', voiceId: 1, voiceLabel: 'S/A', badgeClass: 'voice-sa', chipClass: 'v-sa' };
+                case '#0D9488': return { voiceCode: 'UNISON_TB', voiceId: 3, voiceLabel: 'T/B', badgeClass: 'voice-tb', chipClass: 'v-tb' };
+                case '#CA8A04': return { voiceCode: 'TUTTI', voiceId: 1, voiceLabel: 'TUTTI', badgeClass: 'voice-tutti', chipClass: 'v-tutti' };
+                case '#546E7A': return { voiceCode: 'OTHERS', voiceId: 6, voiceLabel: 'OTHER', badgeClass: 'voice-other', chipClass: 'v-other' };
+                default: return { voiceCode: 'S', voiceId: 1, voiceLabel: 'S', badgeClass: 'voice-s', chipClass: 'v-s' };
+            }
+        }
+        window.resolveNoteVoiceInfo = resolveNoteVoiceInfo;
+
+        var VOICE_OPTION_CATALOG = {
+            'SOLO': { code: 'SOLO', label: 'Solo', title: 'Solo / Cantor / Descant', chipClass: 'v-solo' },
+            'S': { code: 'S', label: 'S', title: 'Soprano', chipClass: 'v-s' },
+            'S1': { code: 'S1', label: 'S1', title: 'Soprano 1', chipClass: 'v-s1' },
+            'S2': { code: 'S2', label: 'S2', title: 'Soprano 2', chipClass: 'v-s2' },
+            'A': { code: 'A', label: 'A', title: 'Alto', chipClass: 'v-a' },
+            'A1': { code: 'A1', label: 'A1', title: 'Alto 1', chipClass: 'v-a1' },
+            'A2': { code: 'A2', label: 'A2', title: 'Alto 2', chipClass: 'v-a2' },
+            'T': { code: 'T', label: 'T', title: 'Tenor', chipClass: 'v-t' },
+            'T1': { code: 'T1', label: 'T1', title: 'Tenor 1', chipClass: 'v-t1' },
+            'T2': { code: 'T2', label: 'T2', title: 'Tenor 2', chipClass: 'v-t2' },
+            'B': { code: 'B', label: 'B', title: 'Bass', chipClass: 'v-b' },
+            'B1': { code: 'B1', label: 'B1', title: 'Bass 1', chipClass: 'v-b1' },
+            'B2': { code: 'B2', label: 'B2', title: 'Bass 2', chipClass: 'v-b2' },
+            'UNISON_SA': { code: 'UNISON_SA', label: 'S/A', title: 'Soprano / Alto Unison', chipClass: 'v-sa' },
+            'UNISON_TB': { code: 'UNISON_TB', label: 'T/B', title: 'Tenor / Bass Unison', chipClass: 'v-tb' },
+            'TUTTI': { code: 'TUTTI', label: 'Tutti', title: 'Tutti (All Voices)', chipClass: 'v-tutti' },
+            'OTHERS': { code: 'OTHERS', label: 'Other', title: 'Accompaniment / Other', chipClass: 'v-other' }
+        };
+
+        function detectAvailableScoreVoiceOptions(doc) {
+            var orderedCodes = [];
+            function addCode(c) {
+                if (c && VOICE_OPTION_CATALOG[c] && orderedCodes.indexOf(c) === -1) {
+                    orderedCodes.push(c);
+                }
+            }
+
+            if (doc && typeof doc.getElementsByTagName === 'function') {
+                var partsList = doc.getElementsByTagName('part');
+                var totalParts = partsList ? partsList.length : 0;
+                var partMap = buildXmlDocVocalPartMap(doc);
+
+                for (var i = 0; i < totalParts; i++) {
+                    var pElem = partsList[i];
+                    var pid = (pElem && typeof pElem.getAttribute === 'function') ? pElem.getAttribute('id') : null;
+                    var sp = (pid && typeof doc.querySelector === 'function') ? doc.querySelector("score-part[id='" + pid + "']") : null;
+                    var pName = (sp && sp.querySelector && sp.querySelector('part-name')) ? (sp.querySelector('part-name').textContent || '').trim().toLowerCase() : '';
+                    var pAbbr = (sp && sp.querySelector && sp.querySelector('part-abbreviation')) ? (sp.querySelector('part-abbreviation').textContent || '').trim().toLowerCase() : '';
+                    var comb = (pName + ' ' + pAbbr).trim();
+
+                    if (comb.indexOf('soprano 1') !== -1 || comb === 's1') addCode('S1');
+                    else if (comb.indexOf('soprano 2') !== -1 || comb === 's2') addCode('S2');
+                    else if (comb.indexOf('alto 1') !== -1 || comb === 'a1') addCode('A1');
+                    else if (comb.indexOf('alto 2') !== -1 || comb === 'a2') addCode('A2');
+                    else if (comb.indexOf('tenor 1') !== -1 || comb === 't1') addCode('T1');
+                    else if (comb.indexOf('tenor 2') !== -1 || comb === 't2') addCode('T2');
+                    else if (comb.indexOf('bass 1') !== -1 || comb === 'b1') addCode('B1');
+                    else if (comb.indexOf('bass 2') !== -1 || comb === 'b2') addCode('B2');
+                    else if (['s/a', 's / a', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return comb.indexOf(w) !== -1; })) {
+                        addCode('S');
+                        addCode('A');
+                        addCode('UNISON_SA');
+                    } else if (['t/b', 't / b', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return comb.indexOf(w) !== -1; })) {
+                        addCode('T');
+                        addCode('B');
+                        addCode('UNISON_TB');
+                    } else if (partMap && partMap[i] && partMap[i].part) {
+                        addCode(partMap[i].part);
+                    }
+                }
+
+                // Also include any in-staff divisi or explicit user-assigned voices present on mapped notes
+                if (noteMap && typeof noteMap.forEach === 'function') {
+                    noteMap.forEach(function(entry) {
+                        var info = resolveNoteVoiceInfo(entry.xmlNote, entry);
+                        if (info && info.voiceCode) {
+                            addCode(info.voiceCode);
+                        }
+                    });
+                }
+            }
+
+            // Ensure core SATB voices remain available for quick reassignment while preserving detected Solo/divisi order
+            ['S', 'A', 'T', 'B'].forEach(addCode);
+
+            return orderedCodes.map(function(code) { return VOICE_OPTION_CATALOG[code]; });
+        }
+        window.detectAvailableScoreVoiceOptions = detectAvailableScoreVoiceOptions;
+
+        function renderVoiceAssignmentToolbar() {
+            var container = document.getElementById('deck-voice-chips-container');
+            if (!container) return;
+            var options = detectAvailableScoreVoiceOptions(xmlDoc);
+            var activeCode = null;
+            if (selectedNoteId !== null && selectedNoteId !== undefined) {
+                var noteEl = getXmlNoteElement(selectedNoteId);
+                var entry = noteMap ? noteMap.get(selectedNoteId) : null;
+                if (noteEl || entry) {
+                    activeCode = resolveNoteVoiceInfo(noteEl, entry).voiceCode;
+                }
+            }
+
+            var html = '';
+            for (var i = 0; i < options.length; i++) {
+                var opt = options[i];
+                var activeCls = (activeCode === opt.code) ? ' active' : '';
+                html += '<button class="deck-voice-chip ' + opt.chipClass + activeCls + '" data-voice="' + opt.code + '" onclick="applyVoiceTool(\'' + opt.code + '\')" title="' + opt.title + '">' + opt.label + '</button>';
+            }
+            container.innerHTML = html;
+        }
+        window.renderVoiceAssignmentToolbar = renderVoiceAssignmentToolbar;
 
         // ─── Note Selection (sends info to Android bridge) ──────────────
         function selectNote(vxId) {
@@ -2974,6 +4628,7 @@
 
             // Draw direct SVG highlight locked to the exact notehead
             drawHighlight(vxId);
+            updateDeckUI(vxId);
 
             // Extract note properties directly from XML DOM (100% ground truth)
             var xmlNoteEl = getXmlNoteElement(vxId);
@@ -3018,50 +4673,9 @@
                     durationType = typeEl.textContent.trim().toLowerCase();
                 }
 
-                var voiceEl = xmlNoteEl.getElementsByTagName('voice')[0];
-                var parsedVoice = voiceEl ? (parseInt(voiceEl.textContent.trim(), 10) || 1) : 1;
-
-                // Check explicit override
-                var customVoiceStr = xmlNoteEl.getAttribute('data-vx-voice');
-                var voiceCode = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim().toUpperCase() : null;
-                if (customVoiceStr) {
-                    var parsedInt = parseInt(customVoiceStr, 10);
-                    if (!isNaN(parsedInt)) {
-                        voiceId = parsedInt;
-                    } else {
-                        var cu = customVoiceStr.trim().toUpperCase();
-                        if (cu.startsWith('S') || cu === 'UNISON_SA' || cu === 'UNISON_S1S2') voiceId = 1;
-                        else if (cu.startsWith('A') || cu === 'UNISON_A1A2') voiceId = 2;
-                        else if (cu.startsWith('T') || cu === 'UNISON_TB' || cu === 'UNISON_T1T2') voiceId = 3;
-                        else if (cu.startsWith('B') || cu === 'UNISON_B1B2') voiceId = 4;
-                        else if (cu.indexOf('BARITONE') !== -1) { voiceId = 5; voiceCode = 'BARITONE SOLO'; }
-                        else if (cu === 'SOLO') { voiceId = 5; voiceCode = 'SOLO'; }
-                        else if (cu === 'OTHERS' || cu === 'OTHER') voiceId = 6;
-                        else voiceId = 1;
-                    }
-                } else if (entry.staffIdx !== undefined) {
-                    // In 2-part scores or staves: determine SATB voice (1=S, 2=A, 3=T, 4=B)
-                    if (entry.staffIdx === 0) {
-                        voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2) ? 2 : 1;
-                        voiceCode = (voiceId === 2) ? 'A' : 'S';
-                    } else if (entry.staffIdx === 1) {
-                        voiceId = (entry.chordPos === 'bottom' || parsedVoice === 2 || parsedVoice === 4 || parsedVoice === 6) ? 4 : 3;
-                        voiceCode = (voiceId === 4) ? 'B' : 'T';
-                    } else {
-                        voiceId = parsedVoice;
-                        voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                    }
-                } else {
-                    voiceId = parsedVoice;
-                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                }
-                if (!voiceCode) {
-                    voiceCode = (voiceId === 1) ? 'S' : (voiceId === 2) ? 'A' : (voiceId === 3) ? 'T' : (voiceId === 4) ? 'B' : (voiceId === 5) ? 'SOLO' : 'OTHERS';
-                }
-                if (voiceId === 5 || voiceCode === 'SOLO') {
-                    voiceCode = 'SOLO';
-                    voiceId = 5;
-                }
+                var resolvedVoice = resolveNoteVoiceInfo(xmlNoteEl, entry);
+                var voiceId = resolvedVoice.voiceId;
+                var voiceCode = resolvedVoice.voiceCode;
 
                 var measEl = xmlNoteEl.parentNode;
                 while (measEl && measEl.tagName !== 'measure') measEl = measEl.parentNode;
@@ -3092,6 +4706,12 @@
             }
 
             console.log('[VoxSight Editor] Note selected: vxId=' + vxId + ' isRest=' + isRest + ' isDotted=' + isDotted + ' pitch=' + pitchStep + alterVal + ' oct=' + octaveVal + ' dur=' + durationType + ' voice=' + voiceId + ' measure=' + measureNum + ' lyric=' + lyricText);
+
+            if (!isRest) {
+                var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+                var midiNote = (octaveVal + 1) * 12 + (stepOffsets[pitchStep] || 0) + alterVal;
+                playNotePreview(midiNote, 160);
+            }
 
             // Send to Android bridge
             if (window.VoxSightBridge) {
@@ -3147,6 +4767,7 @@
         }
 
         window.updateNoteLyric = function (noteId, lyricText) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteLyric: note', noteId, 'not found in XML'); return; }
 
@@ -3172,6 +4793,7 @@
         };
 
         window.updateNoteVoice = function (noteId, newVoice) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteVoice: note', noteId, 'not found in XML'); return; }
 
@@ -3195,7 +4817,7 @@
                 else noteEl.appendChild(voiceEl);
             }
             var numCode = '1';
-            if (token === 'S' || token === 'S1' || token === 'UNISON_SA' || token === 'UNISON_S1S2' || token === 'TUTTI') numCode = '1';
+            if (token === 'S' || token === 'S1' || token === 'S2' || token === 'UNISON_SA' || token === 'UNISON_S1S2' || token === 'TUTTI') numCode = '1';
             else if (token === 'A' || token === 'A1' || token === 'A2' || token === 'UNISON_A1A2') numCode = '2';
             else if (token === 'T' || token === 'T1' || token === 'T2' || token === 'UNISON_TB' || token === 'UNISON_T1T2') numCode = '3';
             else if (token === 'B' || token === 'B1' || token === 'B2' || token === 'UNISON_B1B2') numCode = '4';
@@ -3203,10 +4825,18 @@
             else if (token === 'OTHERS' || token === 'OTHER') numCode = '1';
             voiceEl.textContent = numCode;
 
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onVoiceAssigned === 'function') {
+                window.VoxSightBridge.onVoiceAssigned(token);
+            }
+
             reloadScore();
+            if (selectedNoteId === noteId) {
+                selectNote(noteId);
+            }
         };
 
         window.updateNotePitch = function (noteId, step, alter, octave) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNotePitch: note', noteId, 'not found in XML'); return; }
 
@@ -3243,6 +4873,7 @@
         };
 
         window.updateNoteDuration = function (noteId, typeName, isDotted) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('updateNoteDuration: note', noteId, 'not found in XML'); return; }
 
@@ -3288,6 +4919,7 @@
         };
 
         window.toggleNoteDot = function (noteId, isDotted) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('toggleNoteDot: note', noteId, 'not found in XML'); return; }
 
@@ -3317,6 +4949,7 @@
         };
 
         window.convertToRest = function (noteId) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('convertToRest: note', noteId, 'not found in XML'); return; }
 
@@ -3336,6 +4969,7 @@
         };
 
         window.convertToNote = function (noteId, step, alter, octave) {
+            pushUndoSnapshot();
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('convertToNote: note', noteId, 'not found in XML'); return; }
 
@@ -3378,6 +5012,7 @@
         }
 
         window.addNote = function (targetNoteId, position, step, alter, octave, typeName, isDotted) {
+            pushUndoSnapshot();
             var targetEl = getXmlNoteElement(targetNoteId);
             if (!targetEl || !targetEl.parentNode) { console.warn('addNote: target note', targetNoteId, 'not found'); return; }
 
@@ -3459,6 +5094,7 @@
         };
 
         window.addRest = function (targetNoteId, position, typeName, isDotted) {
+            pushUndoSnapshot();
             var targetEl = getXmlNoteElement(targetNoteId);
             if (!targetEl || !targetEl.parentNode) { console.warn('addRest: target note', targetNoteId, 'not found'); return; }
 
@@ -3522,24 +5158,55 @@
             reloadScore();
         };
 
-        window.deleteNote = function (noteId) {
+        window.deleteNote = function (noteId, preserveRhythm) {
+            if (preserveRhythm === undefined) preserveRhythm = true;
             var noteEl = getXmlNoteElement(noteId);
             if (!noteEl) { console.warn('deleteNote: note', noteId, 'not found in XML'); return; }
 
-            var isBaseNote = (noteEl.getElementsByTagName('chord').length === 0);
+            pushUndoSnapshot();
+
+            var isChord = (noteEl.getElementsByTagName('chord').length > 0);
             var nextNote = noteEl.nextElementSibling;
             while (nextNote && nextNote.tagName !== 'note') {
                 nextNote = nextNote.nextElementSibling;
             }
 
-            // If we delete the base note of a chord, the next note in the chord MUST drop its <chord/> tag
-            // so it becomes a valid standalone base note in MusicXML.
-            if (isBaseNote && nextNote && nextNote.getElementsByTagName('chord').length > 0) {
+            // If deleting base note of a chord, next note becomes base note
+            if (!isChord && nextNote && nextNote.getElementsByTagName('chord').length > 0) {
                 var chordTag = nextNote.getElementsByTagName('chord')[0];
                 if (chordTag) nextNote.removeChild(chordTag);
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+                selectedNoteId = null;
+                reloadScore();
+                return;
             }
 
-            if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+            // If non-base chord note, simply remove it
+            if (isChord) {
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+                selectedNoteId = null;
+                reloadScore();
+                return;
+            }
+
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest || !preserveRhythm) {
+                // If it was already a rest, or rhythm preservation not requested: remove element
+                if (noteEl.parentNode) noteEl.parentNode.removeChild(noteEl);
+            } else {
+                // Auto-balance: Turn standalone pitched note into rest of exact same duration
+                var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+                if (pitchEl) noteEl.removeChild(pitchEl);
+                var lyricEl = noteEl.getElementsByTagName('lyric')[0];
+                if (lyricEl) noteEl.removeChild(lyricEl);
+
+                var restEl = noteEl.getElementsByTagName('rest')[0];
+                if (!restEl) {
+                    restEl = xmlDoc.createElement('rest');
+                    noteEl.insertBefore(restEl, noteEl.firstChild);
+                }
+            }
+
             selectedNoteId = null;
             reloadScore();
         };
@@ -5426,7 +7093,11 @@
         };
 
         window.zoomFit = function () {
-            applyZoom(calculateFitToWidthZoom());
+            if (window.editorPreferences && window.editorPreferences.scoreScaling === 'fit_page') {
+                applyZoom(calculateFitToPageZoom());
+            } else {
+                applyZoom(calculateFitToWidthZoom());
+            }
         };
 
         window.setZoom = function (val) {
@@ -5518,14 +7189,53 @@
 
         window.updateScoreMetadata = function (title, composer, arranger) {
             if (!xmlDoc) return;
-            var workTitle = xmlDoc.querySelector('work > work-title');
-            if (workTitle && title) workTitle.textContent = title;
+            var root = xmlDoc.documentElement;
+            if (title && title.trim() !== '') {
+                var cleanTitle = title.trim();
+                var work = xmlDoc.querySelector('work');
+                if (!work && root) {
+                    work = xmlDoc.createElement('work');
+                    root.insertBefore(work, root.firstChild);
+                }
+                if (work) {
+                    var workTitle = work.querySelector('work-title');
+                    if (!workTitle) {
+                        workTitle = xmlDoc.createElement('work-title');
+                        work.appendChild(workTitle);
+                    }
+                    workTitle.textContent = cleanTitle;
+                }
+                var movTitle = xmlDoc.querySelector('movement-title');
+                if (movTitle) movTitle.textContent = cleanTitle;
+            }
 
-            var comp = xmlDoc.querySelector("identification > creator[type='composer']");
-            if (comp && composer) comp.textContent = composer;
-
-            var arr = xmlDoc.querySelector("identification > creator[type='arranger']");
-            if (arr && arranger) arr.textContent = arranger;
+            if ((composer && composer.trim() !== '') || (arranger && arranger.trim() !== '')) {
+                var ident = xmlDoc.querySelector('identification');
+                if (!ident && root) {
+                    ident = xmlDoc.createElement('identification');
+                    var partList = xmlDoc.querySelector('part-list');
+                    if (partList) root.insertBefore(ident, partList);
+                    else root.appendChild(ident);
+                }
+                if (ident && composer && composer.trim() !== '') {
+                    var comp = ident.querySelector("creator[type='composer']");
+                    if (!comp) {
+                        comp = xmlDoc.createElement('creator');
+                        comp.setAttribute('type', 'composer');
+                        ident.insertBefore(comp, ident.firstChild);
+                    }
+                    comp.textContent = composer.trim();
+                }
+                if (ident && arranger && arranger.trim() !== '') {
+                    var arr = ident.querySelector("creator[type='arranger']");
+                    if (!arr) {
+                        arr = xmlDoc.createElement('creator');
+                        arr.setAttribute('type', 'arranger');
+                        ident.appendChild(arr);
+                    }
+                    arr.textContent = arranger.trim();
+                }
+            }
 
             reloadScore();
         };
@@ -5541,7 +7251,1392 @@
             return JSON.stringify(list);
         };
 
+        // ─── Floating Note Micro-HUD Controller ─────────────────────────────
+        function deleteSelectedNote() {
+            if (selectedNoteId === null) return;
+            var id = selectedNoteId;
+            deleteNote(id, true);
+            updateStatus('Element deleted');
+        }
+
+        function toggleSelectedNoteRest() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest) {
+                convertToNote(selectedNoteId, 'C', 0, 4);
+            } else {
+                convertToRest(selectedNoteId);
+            }
+        }
+
+        function cycleSelectedNoteAccidental() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (isRest) return;
+
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            var altEl = pEl.getElementsByTagName('alter')[0];
+            var alt = altEl ? parseInt(altEl.textContent.trim(), 10) : 0;
+
+            // Cycle: Natural (0) -> Sharp (1) -> Flat (-1) -> Natural (0)
+            var nextAlt = (alt === 0) ? 1 : ((alt === 1) ? -1 : 0);
+            updateNotePitch(selectedNoteId, step, nextAlt, oct);
+        }
+
+        function toggleSelectedNoteDot() {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var isDotted = (noteEl.getElementsByTagName('dot').length > 0);
+            toggleNoteDot(selectedNoteId, !isDotted);
+        }
+
+        window.deleteSelectedNote = deleteSelectedNote;
+        window.toggleSelectedNoteRest = toggleSelectedNoteRest;
+        window.cycleSelectedNoteAccidental = cycleSelectedNoteAccidental;
+        window.toggleSelectedNoteDot = toggleSelectedNoteDot;
+
+        // ─── Tactile Vertical Pitch Dragging & Trash Drop Zone ────────────────
+        let isPitchDragging = false;
+        let pitchDragStartY = 0;
+        let pitchDragStartX = 0;
+        let pitchDragStartStep = 'C';
+        let pitchDragStartAlter = 0;
+        let pitchDragStartOctave = 4;
+        let pitchDragInitialDiatonicIndex = 28;
+        let pitchDragCurrentDiatonicIndex = 28;
+        let pitchDragVoiceCode = '';
+        let isOverTrash = false;
+
+        const DIATONIC_STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+        const STEP_MIDI_OFFSETS = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+
+        let lastPitchDragEndTime = 0;
+
+        function startPitchDrag(noteId, clientX, clientY) {
+            if (noteId === null || noteId === undefined) return;
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl) return;
+
+            selectedNoteId = noteId;
+            drawHighlight(noteId);
+
+            var ind = document.getElementById('selection-indicator');
+            isPitchDragging = true;
+            pitchDragStartX = clientX;
+            pitchDragStartY = clientY;
+            isOverTrash = false;
+
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            var isRest = (noteEl.getElementsByTagName('rest').length > 0);
+            if (pEl && !isRest) {
+                pitchDragStartStep = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                var altEl = pEl.getElementsByTagName('alter')[0];
+                pitchDragStartAlter = altEl ? (parseInt(altEl.textContent.trim(), 10) || 0) : 0;
+                pitchDragStartOctave = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            } else {
+                pitchDragStartStep = 'C';
+                pitchDragStartAlter = 0;
+                pitchDragStartOctave = 4;
+            }
+
+            var stepIdx = DIATONIC_STEPS.indexOf(pitchDragStartStep);
+            if (stepIdx === -1) stepIdx = 0;
+            pitchDragInitialDiatonicIndex = pitchDragStartOctave * 7 + stepIdx;
+            pitchDragCurrentDiatonicIndex = pitchDragInitialDiatonicIndex;
+
+            var vOverride = noteEl.getAttribute('data-vx-voice');
+            pitchDragVoiceCode = vOverride || '';
+
+            if (ind) ind.classList.add('dragging');
+
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            if (badge) {
+                badge.style.left = clientX + 'px';
+                badge.style.top = (clientY - 38) + 'px';
+                var nameEl = document.getElementById('drag-pitch-name');
+                var voiceEl = document.getElementById('drag-pitch-voice');
+                var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                if (nameEl) nameEl.textContent = pitchDragStartStep + altSign + pitchDragStartOctave;
+                if (voiceEl) {
+                    voiceEl.textContent = pitchDragVoiceCode || 'Voice';
+                    voiceEl.style.display = pitchDragVoiceCode ? 'inline-block' : 'none';
+                }
+                badge.classList.remove('danger');
+                badge.classList.add('visible');
+            }
+            if (trashZone) {
+                trashZone.classList.add('visible');
+                trashZone.classList.remove('active-hover');
+            }
+
+            var startMidi = (pitchDragStartOctave + 1) * 12 + (STEP_MIDI_OFFSETS[pitchDragStartStep] || 0) + pitchDragStartAlter;
+            playNotePreview(startMidi, 140);
+
+            window.addEventListener('mousemove', onDragMove, { passive: false });
+            window.addEventListener('mouseup', onDragEnd);
+            window.addEventListener('touchmove', onDragMove, { passive: false });
+            window.addEventListener('touchend', onDragEnd);
+        }
+        window.startPitchDrag = startPitchDrag;
+
+        function onDragMove(e) {
+            if (!isPitchDragging) return;
+            if (e.cancelable) e.preventDefault();
+
+            var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+            var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+            var dy = pitchDragStartY - clientY;
+            var stepPx = Math.max(4.0, 5.0 * (osmd ? osmd.zoom : 1.0));
+            var deltaSteps = Math.round(dy / stepPx);
+
+            var newDiatonicIndex = Math.max(14, Math.min(50, pitchDragInitialDiatonicIndex + deltaSteps));
+            var newOctave = Math.floor(newDiatonicIndex / 7);
+            var newStep = DIATONIC_STEPS[((newDiatonicIndex % 7) + 7) % 7];
+
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            var ind = document.getElementById('selection-indicator');
+
+            if (badge) {
+                badge.style.left = clientX + 'px';
+                badge.style.top = (clientY - 38) + 'px';
+            }
+
+            if (clientY >= window.innerHeight - 80) {
+                isOverTrash = true;
+                if (trashZone) trashZone.classList.add('active-hover');
+                if (badge) {
+                    badge.classList.add('danger');
+                    var nameEl = document.getElementById('drag-pitch-name');
+                    if (nameEl) nameEl.textContent = 'Release to Delete';
+                }
+                if (ind) ind.style.transform = 'none';
+                return;
+            } else {
+                isOverTrash = false;
+                if (trashZone) trashZone.classList.remove('active-hover');
+                if (badge) badge.classList.remove('danger');
+            }
+
+            if (newDiatonicIndex !== pitchDragCurrentDiatonicIndex) {
+                pitchDragCurrentDiatonicIndex = newDiatonicIndex;
+                var altSign = (pitchDragStartAlter > 0) ? '♯' : ((pitchDragStartAlter < 0) ? '♭' : '');
+                var nameEl = document.getElementById('drag-pitch-name');
+                if (nameEl) nameEl.textContent = newStep + altSign + newOctave;
+
+                var newMidi = (newOctave + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + pitchDragStartAlter;
+                playNotePreview(newMidi, 110);
+
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(8); } catch (e) {}
+                }
+            }
+
+            if (ind) ind.style.transform = 'translate3d(0, ' + (-deltaSteps * stepPx) + 'px, 0)';
+        }
+
+        function onDragEnd() {
+            if (!isPitchDragging) return;
+            isPitchDragging = false;
+            lastPitchDragEndTime = Date.now();
+
+            var ind = document.getElementById('selection-indicator');
+            if (ind) {
+                ind.classList.remove('dragging');
+                ind.style.transform = 'none';
+            }
+
+            var badge = document.getElementById('drag-pitch-badge');
+            var trashZone = document.getElementById('trash-drop-zone');
+            if (badge) badge.classList.remove('visible', 'danger');
+            if (trashZone) trashZone.classList.remove('visible', 'active-hover');
+
+            window.removeEventListener('mousemove', onDragMove);
+            window.removeEventListener('mouseup', onDragEnd);
+            window.removeEventListener('touchmove', onDragMove);
+            window.removeEventListener('touchend', onDragEnd);
+
+            if (isOverTrash) {
+                deleteSelectedNote();
+                return;
+            }
+
+            if (pitchDragCurrentDiatonicIndex !== pitchDragInitialDiatonicIndex && selectedNoteId !== null) {
+                var finalOctave = Math.floor(pitchDragCurrentDiatonicIndex / 7);
+                var finalStep = DIATONIC_STEPS[((pitchDragCurrentDiatonicIndex % 7) + 7) % 7];
+                updateNotePitch(selectedNoteId, finalStep, pitchDragStartAlter, finalOctave);
+                updateStatus('Pitch changed to ' + finalStep + finalOctave);
+            }
+        }
+
+        function initPitchDragging() {
+            var ind = document.getElementById('selection-indicator');
+            var scoreContainer = document.getElementById('score-container');
+            if (!scoreContainer) return;
+
+            var touchTrackCandidateId = null;
+            var touchStartX = 0, touchStartY = 0;
+            var isTrackingTouch = false;
+            var didStartPitchDrag = false;
+
+            function onTouchStartScore(e) {
+                var target = e.target;
+                if (target && target.closest && (
+                    target.closest('#note-micro-hud') ||
+                    target.closest('#soundslice-deck') ||
+                    target.closest('#multirest-stepper-panel') ||
+                    target.closest('#zoom-controls') ||
+                    target.closest('#palette-drag-ghost')
+                )) {
+                    return;
+                }
+
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                if (ind && (ind.contains(target) || target === ind) && selectedNoteId !== null) {
+                    touchTrackCandidateId = selectedNoteId;
+                } else {
+                    touchTrackCandidateId = findNoteAtPoint(clientX, clientY);
+                }
+
+                touchStartX = clientX;
+                touchStartY = clientY;
+                isTrackingTouch = true;
+                didStartPitchDrag = false;
+            }
+
+            function onTouchMoveScore(e) {
+                if (!isTrackingTouch || didStartPitchDrag) return;
+                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
+                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
+
+                var dx = clientX - touchStartX;
+                var dy = clientY - touchStartY;
+                var dist = Math.hypot(dx, dy);
+
+                // If user dragged finger vertically more than 7px on a note, start direct drag!
+                if (dist > 7) {
+                    if (touchTrackCandidateId !== null) {
+                        didStartPitchDrag = true;
+                        isTrackingTouch = false;
+                        if (e.cancelable) e.preventDefault();
+                        startPitchDrag(touchTrackCandidateId, clientX, clientY);
+                    } else {
+                        isTrackingTouch = false;
+                    }
+                }
+            }
+
+            function onTouchEndScore(e) {
+                if (!isTrackingTouch) return;
+                isTrackingTouch = false;
+            }
+
+            scoreContainer.addEventListener('mousedown', onTouchStartScore);
+            window.addEventListener('mousemove', onTouchMoveScore, { passive: false });
+            window.addEventListener('mouseup', onTouchEndScore);
+
+            scoreContainer.addEventListener('touchstart', onTouchStartScore, { passive: false });
+            window.addEventListener('touchmove', onTouchMoveScore, { passive: false });
+            window.addEventListener('touchend', onTouchEndScore);
+
+            if (ind) {
+                ind.addEventListener('mousedown', function(e) {
+                    if (selectedNoteId !== null) {
+                        startPitchDrag(selectedNoteId, e.clientX, e.clientY);
+                    }
+                });
+                ind.addEventListener('touchstart', function(e) {
+                    if (selectedNoteId !== null && e.touches && e.touches.length > 0) {
+                        startPitchDrag(selectedNoteId, e.touches[0].clientX, e.touches[0].clientY);
+                    }
+                }, { passive: false });
+            }
+        }
+
+        // ─── Floating Bottom Palette Dock (Tap-to-Set & Drag-and-Drop) ─────────
+        let activePaletteType = 'quarter';
+        let isPaletteDragging = false;
+        let paletteDragGhost = null;
+
+                // ─── Haptic Feedback & Tool Usage Helpers ──────────────────────────
+        function triggerHaptic(durationMs) {
+            if (window.editorPreferences && window.editorPreferences.hapticFeedback === false) return;
+            try {
+                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    navigator.vibrate(durationMs || 10);
+                }
+            } catch (e) {}
+        }
+        window.triggerHaptic = triggerHaptic;
+
+        function reportToolGroupUsage(groupName) {
+            if (!groupName) return;
+            if (window.editorPreferences) {
+                window.editorPreferences.lastSelectedToolGroup = groupName;
+            }
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onToolGroupSelected === 'function') {
+                try {
+                    window.VoxSightBridge.onToolGroupSelected(groupName);
+                } catch (e) {}
+            }
+        }
+        window.reportToolGroupUsage = reportToolGroupUsage;
+
+        // ─── Editor Preferences Application ─────────────────────────────────
+        window.editorPreferences = {
+            performanceProfile: 'automatic',
+            toolbarDensity: 'compact',
+            scoreScaling: 'fit_width',
+            zoomLevel: 1.0,
+            showLyrics: true,
+            showVoiceLabels: true,
+            showMeasureNumbers: true,
+            showPartsLegend: true,
+            showToolLabels: true,
+            autoCollapseDeck: true,
+            autoScrollToNote: true,
+            audioPreview: true,
+            hapticFeedback: true,
+            showAddGroup: true,
+            showNotesGroup: true,
+            showRestsGroup: true,
+            showModGroup: true,
+            showCurvesGroup: true,
+            showVoiceGroup: true,
+            showActionsGroup: true,
+            lastSelectedToolGroup: 'notes'
+        };
+
+        // ─── Audio Cleanup Handler ──────────────────────────────────────────
+        window.cleanupAudio = function () {
+            try {
+                if (synth) {
+                    synth.dispose();
+                    synth = null;
+                }
+                if (typeof Tone !== 'undefined' && Tone.context && typeof Tone.context.close === 'function') {
+                    Tone.context.close();
+                }
+                synthStarted = false;
+            } catch (e) {}
+        };
+
+        window.addEventListener('pagehide', function () {
+            if (typeof window.cleanupAudio === 'function') window.cleanupAudio();
+        });
+
+        window.applyEditorPreferences = function (prefJson) {
+            try {
+                var prefs = typeof prefJson === 'string' ? JSON.parse(prefJson) : prefJson;
+                if (!prefs || typeof prefs !== 'object') return;
+
+                // Defensive normalization of preference inputs
+                if (prefs.performanceProfile && ['automatic', 'performance', 'quality'].indexOf(prefs.performanceProfile) === -1) {
+                    prefs.performanceProfile = 'automatic';
+                }
+                if (prefs.toolbarDensity && ['compact', 'comfortable'].indexOf(prefs.toolbarDensity) === -1) {
+                    prefs.toolbarDensity = 'compact';
+                }
+                if (prefs.scoreScaling && ['fit_width', 'fit_page'].indexOf(prefs.scoreScaling) === -1) {
+                    prefs.scoreScaling = 'fit_width';
+                }
+
+                window.editorPreferences = Object.assign({}, window.editorPreferences, prefs);
+                var body = document.body;
+                if (!body) return;
+
+                // 1. Performance Profile
+                var isPerf = (window.editorPreferences.performanceProfile === 'performance');
+                if (isPerf) {
+                    body.classList.add('performance-mode');
+                } else {
+                    body.classList.remove('performance-mode');
+                }
+
+                // 2. Toolbar Density
+                if (window.editorPreferences.toolbarDensity === 'comfortable') {
+                    body.classList.add('density-comfortable');
+                    body.classList.remove('density-compact');
+                } else {
+                    body.classList.add('density-compact');
+                    body.classList.remove('density-comfortable');
+                }
+
+                // 3. Tool Labels
+                if (window.editorPreferences.showToolLabels === false) {
+                    body.classList.add('hide-tool-labels');
+                } else {
+                    body.classList.remove('hide-tool-labels');
+                }
+
+                // 4. Notation Display Toggles
+                if (window.editorPreferences.showLyrics === false) {
+                    body.classList.add('hide-lyrics');
+                } else {
+                    body.classList.remove('hide-lyrics');
+                }
+
+                if (window.editorPreferences.showVoiceLabels === false) {
+                    body.classList.add('hide-voice-labels');
+                } else {
+                    body.classList.remove('hide-voice-labels');
+                }
+
+                if (window.editorPreferences.showMeasureNumbers === false) {
+                    body.classList.add('hide-measure-numbers');
+                } else {
+                    body.classList.remove('hide-measure-numbers');
+                }
+
+                // 5. Individual Tool Groups Visibility
+                function setGroupVis(groupId, dividerId, isVis) {
+                    var grp = document.getElementById(groupId);
+                    var div = dividerId ? document.getElementById(dividerId) : null;
+                    if (grp) grp.style.display = (isVis !== false) ? '' : 'none';
+                    if (div) div.style.display = (isVis !== false) ? '' : 'none';
+                }
+
+                setGroupVis('deck-group-add', 'deck-divider-add', window.editorPreferences.showAddGroup);
+                setGroupVis('deck-group-notes', 'deck-divider-notes', window.editorPreferences.showNotesGroup);
+                setGroupVis('deck-group-rests', 'deck-divider-rests', window.editorPreferences.showRestsGroup);
+                setGroupVis('deck-group-mod', 'deck-divider-mod', window.editorPreferences.showModGroup);
+                setGroupVis('deck-group-curves', 'deck-divider-curves', window.editorPreferences.showCurvesGroup);
+                setGroupVis('deck-group-voice', 'deck-divider-voice', window.editorPreferences.showVoiceGroup);
+                setGroupVis('deck-group-actions', null, window.editorPreferences.showActionsGroup);
+
+                // 6. Score Scaling
+                if (window.editorPreferences.scoreScaling === 'fit_page' && typeof window.calculateFitToPageZoom === 'function') {
+                    applyZoom(window.calculateFitToPageZoom());
+                } else if (window.editorPreferences.scoreScaling === 'fit_width' && typeof window.calculateFitToWidthZoom === 'function') {
+                    applyZoom(window.calculateFitToWidthZoom());
+                }
+
+                // 7. Auto collapse deck state sync
+                if (selectedNoteId === null || selectedNoteId === undefined) {
+                    updateDeckUI(null);
+                }
+            } catch (e) {
+                console.warn('[VoxSight Editor] applyEditorPreferences error:', e);
+            }
+        };
+
+        // ─── Soundslice Deck Controller & Navigation ────────────────────────
+        let isPianoOpen = false;
+
+        function updateDeckUI(noteId) {
+            var deck = document.getElementById('soundslice-deck');
+            if (!deck) return;
+            if (noteId === null || noteId === undefined) {
+                if (window.editorPreferences && window.editorPreferences.autoCollapseDeck === false) {
+                    deck.classList.add('visible');
+                    var pitchBadge = document.getElementById('deck-note-pitch');
+                    var measBadge = document.getElementById('deck-note-meas');
+                    var voiceBadge = document.getElementById('deck-note-voice');
+                    if (pitchBadge) { pitchBadge.textContent = '--'; pitchBadge.style.background = '#9CA3AF'; }
+                    if (measBadge) measBadge.textContent = 'M.--';
+                    if (voiceBadge) { voiceBadge.textContent = '--'; voiceBadge.className = 'deck-voice-badge'; }
+                } else {
+                    deck.classList.remove('visible');
+                }
+                return;
+            }
+            deck.classList.add('visible');
+
+            var noteEl = getXmlNoteElement(noteId);
+            var pitchBadge = document.getElementById('deck-note-pitch');
+            var measBadge = document.getElementById('deck-note-meas');
+            var voiceBadge = document.getElementById('deck-note-voice');
+
+            if (!noteEl) {
+                if (pitchBadge) pitchBadge.textContent = '--';
+                return;
+            }
+
+            var isR = (noteEl.getElementsByTagName('rest').length > 0);
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            var step = 'C', oct = 4, alt = 0;
+            if (pEl) {
+                step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                alt = parseInt(pEl.getElementsByTagName('alter')[0] ? pEl.getElementsByTagName('alter')[0].textContent.trim() : '0', 10) || 0;
+            }
+
+            if (pitchBadge) {
+                if (isR) {
+                    var rEl = noteEl.getElementsByTagName('rest')[0];
+                    var isWholeMeas = (rEl && rEl.getAttribute('measure') === 'yes');
+                    pitchBadge.textContent = isWholeMeas ? 'Rest (Bar)' : 'Rest';
+                    pitchBadge.style.background = '#64748B';
+                } else {
+                    var altSym = alt === 1 ? '♯' : (alt === -1 ? '♭' : '');
+                    pitchBadge.textContent = step + altSym + oct;
+                    pitchBadge.style.background = '#5B2D8E';
+                }
+            }
+
+            var meas = noteEl.parentNode;
+            while (meas && meas.tagName !== 'measure') meas = meas.parentNode;
+            var mNum = meas ? (meas.getAttribute('number') || '1') : '1';
+            if (measBadge) measBadge.textContent = 'M.' + mNum;
+
+            var mapEntry = noteMap ? noteMap.get(noteId) : null;
+            var resolvedVoice = resolveNoteVoiceInfo(noteEl, mapEntry);
+            if (voiceBadge) {
+                voiceBadge.textContent = resolvedVoice.voiceLabel;
+                voiceBadge.className = 'deck-voice-badge ' + resolvedVoice.badgeClass;
+            }
+
+            // Highlight active voice chip in both primary voice toolbar and expandable voice strip
+            var allVoiceChips = deck.querySelectorAll ? deck.querySelectorAll('.deck-voice-chip[data-voice]') : [];
+            if (allVoiceChips && allVoiceChips.forEach) {
+                allVoiceChips.forEach(function(chip) {
+                    chip.classList.toggle('active', chip.getAttribute('data-voice') === resolvedVoice.voiceCode);
+                });
+            }
+
+            // Update duration buttons active state
+            var tEl = noteEl.getElementsByTagName('type')[0];
+            var curType = tEl ? tEl.textContent.trim().toLowerCase() : '';
+            var glyphBtns = deck.querySelectorAll('.deck-glyph-btn[data-type]');
+            glyphBtns.forEach(function(btn) {
+                if (btn.getAttribute('data-type') === curType && !isR) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Update accidental buttons active state
+            var bSharp = document.getElementById('deck-btn-sharp');
+            var bFlat = document.getElementById('deck-btn-flat');
+            var bNat = document.getElementById('deck-btn-natural');
+            var bDot = document.getElementById('deck-btn-dot');
+
+            if (bSharp) bSharp.classList.toggle('active', alt === 1);
+            if (bFlat) bFlat.classList.toggle('active', alt === -1);
+            if (bNat) bNat.classList.toggle('active', alt === 0 && !isR);
+            if (bDot) bDot.classList.toggle('active', noteEl.getElementsByTagName('dot').length > 0);
+
+            // Update Slur, Tie, 8va & 8vb buttons active state
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            var hasSlur = notatEl && notatEl.getElementsByTagName('slur').length > 0;
+            var hasTie = (noteEl.getElementsByTagName('tie').length > 0) || (notatEl && notatEl.getElementsByTagName('tied').length > 0);
+            var bSlur = document.getElementById('deck-btn-slur');
+            var bTie = document.getElementById('deck-btn-tie');
+            if (bSlur) bSlur.classList.toggle('active', !!hasSlur);
+            if (bTie) bTie.classList.toggle('active', !!hasTie);
+
+            var ottavaAttr = (noteEl.getAttribute('data-vx-ottava') || '').toLowerCase();
+            var b8va = document.getElementById('deck-btn-8va');
+            var b8vb = document.getElementById('deck-btn-8vb');
+            if (b8va) b8va.classList.toggle('active', ottavaAttr === '8va');
+            if (b8vb) b8vb.classList.toggle('active', ottavaAttr === '8vb');
+        }
+        window.updateDeckUI = updateDeckUI;
+
+        // ─── Soundslice Sequential Note Stepper (◀ Prev / Next ▶) ─────────
+        function getOrderedNoteIds() {
+            var ids = [];
+            if (!xmlDoc) return ids;
+            var parts = xmlDoc.getElementsByTagName('part');
+            for (var p = 0; p < parts.length; p++) {
+                var measures = parts[p].getElementsByTagName('measure');
+                for (var m = 0; m < measures.length; m++) {
+                    var notes = measures[m].getElementsByTagName('note');
+                    for (var n = 0; n < notes.length; n++) {
+                        var idStr = notes[n].getAttribute('data-vx-id');
+                        if (idStr) {
+                            var id = parseInt(idStr, 10);
+                            if (!isNaN(id) && ids.indexOf(id) === -1) {
+                                ids.push(id);
+                            }
+                        }
+                    }
+                }
+            }
+            return ids;
+        }
+
+        function stepNote(direction) {
+            var list = getOrderedNoteIds();
+            if (list.length === 0) return;
+
+            var curIdx = (selectedNoteId !== null) ? list.indexOf(selectedNoteId) : -1;
+            var nextIdx = 0;
+            if (curIdx === -1) {
+                nextIdx = (direction > 0) ? 0 : (list.length - 1);
+            } else {
+                nextIdx = curIdx + direction;
+                if (nextIdx < 0) nextIdx = 0;
+                if (nextIdx >= list.length) nextIdx = list.length - 1;
+            }
+
+            var targetId = list[nextIdx];
+            selectNote(targetId);
+
+            // Smooth scroll into view if offscreen
+            var targetCoord = null;
+            for (var i = 0; i < noteCoordinates.length; i++) {
+                if (noteCoordinates[i].id === targetId) {
+                    targetCoord = noteCoordinates[i];
+                    break;
+                }
+            }
+            if (targetCoord && scoreContainer) {
+                if (!window.editorPreferences || window.editorPreferences.autoScrollToNote !== false) {
+                    var cTop = scoreContainer.scrollTop;
+                    var cHeight = scoreContainer.clientHeight;
+                    if (targetCoord.cy < cTop + 60 || targetCoord.cy > cTop + cHeight - 120) {
+                        var isPerf = (window.editorPreferences && window.editorPreferences.performanceProfile === 'performance');
+                        scoreContainer.scrollTo({
+                            top: Math.max(0, targetCoord.cy - cHeight / 2),
+                            behavior: isPerf ? 'auto' : 'smooth'
+                        });
+                    }
+                }
+            }
+        }
+        window.stepNote = stepNote;
+
+        // ─── Visual Mini-Piano Strip & Voice Assignment Strip Controllers ────────
+        let isVoiceStripOpen = false;
+
+        function toggleVoiceStrip() {
+            var strip = document.getElementById('soundslice-voice-strip');
+            var btn = document.getElementById('deck-btn-voice-more');
+            isVoiceStripOpen = !isVoiceStripOpen;
+            if (strip) strip.classList.toggle('open', isVoiceStripOpen);
+            if (btn) btn.classList.toggle('active', isVoiceStripOpen);
+        }
+        window.toggleVoiceStrip = toggleVoiceStrip;
+
+        function togglePianoStrip() {
+            var strip = document.getElementById('soundslice-piano-strip');
+            var btn = document.getElementById('deck-btn-piano');
+            isPianoOpen = !isPianoOpen;
+            if (strip) strip.classList.toggle('open', isPianoOpen);
+            if (btn) btn.classList.toggle('active', isPianoOpen);
+            if (isPianoOpen) buildPianoKeys();
+        }
+        window.togglePianoStrip = togglePianoStrip;
+
+        function buildPianoKeys() {
+            var track = document.getElementById('piano-keys-track');
+            if (!track || track.children.length > 0) return;
+
+            // 2 Octaves: C3 to B4
+            var whiteNotes = [
+                { step: 'C', oct: 3 }, { step: 'D', oct: 3 }, { step: 'E', oct: 3 }, { step: 'F', oct: 3 }, { step: 'G', oct: 3 }, { step: 'A', oct: 3 }, { step: 'B', oct: 3 },
+                { step: 'C', oct: 4 }, { step: 'D', oct: 4 }, { step: 'E', oct: 4 }, { step: 'F', oct: 4 }, { step: 'G', oct: 4 }, { step: 'A', oct: 4 }, { step: 'B', oct: 4 },
+                { step: 'C', oct: 5 }
+            ];
+
+            var blackKeysData = [
+                { step: 'C', alt: 1, oct: 3, wIdx: 0 },
+                { step: 'D', alt: 1, oct: 3, wIdx: 1 },
+                { step: 'F', alt: 1, oct: 3, wIdx: 3 },
+                { step: 'G', alt: 1, oct: 3, wIdx: 4 },
+                { step: 'A', alt: 1, oct: 3, wIdx: 5 },
+                { step: 'C', alt: 1, oct: 4, wIdx: 7 },
+                { step: 'D', alt: 1, oct: 4, wIdx: 8 },
+                { step: 'F', alt: 1, oct: 4, wIdx: 10 },
+                { step: 'G', alt: 1, oct: 4, wIdx: 11 },
+                { step: 'A', alt: 1, oct: 4, wIdx: 12 }
+            ];
+
+            var whiteKeyWidth = 25;
+            whiteNotes.forEach(function(wn, idx) {
+                var wKey = document.createElement('div');
+                wKey.className = 'piano-white-key';
+                wKey.textContent = (wn.step === 'C') ? ('C' + wn.oct) : wn.step;
+                wKey.onclick = function() {
+                    onPianoKeyClick(wn.step, 0, wn.oct);
+                };
+                track.appendChild(wKey);
+            });
+
+            blackKeysData.forEach(function(bn) {
+                var bKey = document.createElement('div');
+                bKey.className = 'piano-black-key';
+                bKey.style.left = (bn.wIdx * whiteKeyWidth + whiteKeyWidth - 9) + 'px';
+                bKey.onclick = function(e) {
+                    e.stopPropagation();
+                    onPianoKeyClick(bn.step, bn.alt, bn.oct);
+                };
+                track.appendChild(bKey);
+            });
+        }
+
+        function onPianoKeyClick(step, alt, oct) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                convertToNote(selectedNoteId, step, alt, oct);
+            } else {
+                updateNotePitch(selectedNoteId, step, alt, oct);
+            }
+            var stepOffsets = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 };
+            var midi = (oct + 1) * 12 + (stepOffsets[step] || 0) + alt;
+            playNotePreview(midi, 180);
+            updateStatus('Pitch set to ' + step + (alt === 1 ? '♯' : '') + oct);
+        }
+
+        function shiftSelectedNoteOctave(delta) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var curOct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+            var curAlt = parseInt(pEl.getElementsByTagName('alter')[0] ? pEl.getElementsByTagName('alter')[0].textContent.trim() : '0', 10) || 0;
+            var newOct = Math.max(1, Math.min(7, curOct + delta));
+            updateNotePitch(selectedNoteId, step, curAlt, newOct);
+            updateStatus('Octave changed to ' + newOct);
+        }
+        window.shiftSelectedNoteOctave = shiftSelectedNoteOctave;
+
+        // ─── Musical Editing Operations ──────────────────────────────
+        function getActiveOrFallbackNoteId() {
+            if (selectedNoteId !== null && selectedNoteId !== undefined) {
+                var el = getXmlNoteElement(selectedNoteId);
+                if (el) return selectedNoteId;
+            }
+            if (xmlDoc) {
+                var first = xmlDoc.querySelector('note[data-vx-id]');
+                if (first) {
+                    var idStr = first.getAttribute('data-vx-id');
+                    var parsed = parseInt(idStr, 10);
+                    if (!isNaN(parsed)) return parsed;
+                }
+            }
+            return null;
+        }
+
+        window.insertNoteAfterSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) {
+                console.warn('insertNoteAfterSelected: no target note found in score');
+                return;
+            }
+            var targetEl = getXmlNoteElement(targetId);
+            var step = 'C', oct = 4, alt = 0, type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var p = targetEl.querySelector('pitch');
+                if (p) {
+                    step = p.querySelector('step') ? p.querySelector('step').textContent.trim() : 'C';
+                    oct = p.querySelector('octave') ? parseInt(p.querySelector('octave').textContent.trim(), 10) : 4;
+                    alt = p.querySelector('alter') ? parseInt(p.querySelector('alter').textContent.trim(), 10) : 0;
+                }
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addNote(targetId, 'after', step, alt, oct, type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            if (typeof playToneForNote === 'function') {
+                playToneForNote(step, oct, alt);
+            }
+            updateStatus('Inserted note after selected');
+        };
+
+        window.insertRestAfterSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) {
+                console.warn('insertRestAfterSelected: no target note found in score');
+                return;
+            }
+            var targetEl = getXmlNoteElement(targetId);
+            var type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addRest(targetId, 'after', type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            updateStatus('Inserted rest after selected');
+        };
+
+        window.insertNoteBeforeSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) return;
+            var targetEl = getXmlNoteElement(targetId);
+            var step = 'C', oct = 4, alt = 0, type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var p = targetEl.querySelector('pitch');
+                if (p) {
+                    step = p.querySelector('step') ? p.querySelector('step').textContent.trim() : 'C';
+                    oct = p.querySelector('octave') ? parseInt(p.querySelector('octave').textContent.trim(), 10) : 4;
+                    alt = p.querySelector('alter') ? parseInt(p.querySelector('alter').textContent.trim(), 10) : 0;
+                }
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addNote(targetId, 'before', step, alt, oct, type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            if (typeof playToneForNote === 'function') {
+                playToneForNote(step, oct, alt);
+            }
+            updateStatus('Inserted note before selected');
+        };
+
+        window.insertRestBeforeSelected = function () {
+            var targetId = getActiveOrFallbackNoteId();
+            if (targetId === null) return;
+            var targetEl = getXmlNoteElement(targetId);
+            var type = 'quarter', isDotted = false;
+            if (targetEl) {
+                var t = targetEl.querySelector('type');
+                if (t) type = t.textContent.trim().toLowerCase();
+                if (targetEl.querySelector('dot')) isDotted = true;
+            }
+            window.addRest(targetId, 'before', type, isDotted);
+            if (typeof reportToolGroupUsage === 'function') reportToolGroupUsage('add');
+            updateStatus('Inserted rest before selected');
+        };
+
+        function applyDurationTool(typeName, isDotted) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                convertToNote(selectedNoteId, 'C', 0, 4);
+            }
+            updateNoteDuration(selectedNoteId, typeName, isDotted);
+            updateStatus('Duration set to ' + typeName);
+        }
+        window.applyDurationTool = applyDurationTool;
+
+        function applyRestDurationTool(typeName) {
+            if (selectedNoteId === null) return;
+            convertToRest(selectedNoteId);
+            updateNoteDuration(selectedNoteId, typeName, false);
+            updateStatus('Converted to ' + typeName + ' rest');
+        }
+        window.applyRestDurationTool = applyRestDurationTool;
+
+        function applyWholeMeasureRestTool() {
+            if (selectedNoteId === null) return;
+            pushUndoSnapshot();
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl || !xmlDoc) return;
+
+            var fullDivs = getMeasureDivisions(noteEl) * 4;
+            var pitchEl = noteEl.getElementsByTagName('pitch')[0];
+            if (pitchEl) noteEl.removeChild(pitchEl);
+            var dotEl = noteEl.getElementsByTagName('dot')[0];
+            if (dotEl) noteEl.removeChild(dotEl);
+            var lyricEl = noteEl.getElementsByTagName('lyric')[0];
+            if (lyricEl) noteEl.removeChild(lyricEl);
+
+            var restEl = noteEl.getElementsByTagName('rest')[0];
+            if (!restEl) {
+                restEl = xmlDoc.createElement('rest');
+                noteEl.insertBefore(restEl, noteEl.firstChild);
+            }
+            restEl.setAttribute('measure', 'yes');
+
+            var durEl = noteEl.getElementsByTagName('duration')[0];
+            if (!durEl) {
+                durEl = xmlDoc.createElement('duration');
+                noteEl.appendChild(durEl);
+            }
+            durEl.textContent = String(fullDivs);
+
+            var typeEl = noteEl.getElementsByTagName('type')[0];
+            if (typeEl) noteEl.removeChild(typeEl);
+
+            reloadScore();
+            selectNote(selectedNoteId);
+            updateStatus('Set to Whole-Measure Rest');
+        }
+        window.applyWholeMeasureRestTool = applyWholeMeasureRestTool;
+
+        function applyAccidentalTool(altVal) {
+            if (selectedNoteId === null) {
+                updateStatus('Select a note first to apply accidental');
+                return;
+            }
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (pEl) {
+                var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+                var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+                updateNotePitch(selectedNoteId, step, altVal, oct);
+                var sign = altVal === 1 ? '♯' : (altVal === -1 ? '♭' : '♮');
+                updateStatus('Applied ' + sign + ' to ' + step + oct);
+            }
+        }
+        window.applyAccidentalTool = applyAccidentalTool;
+
+        function applyDotTool() {
+            if (selectedNoteId !== null) {
+                toggleSelectedNoteDot();
+            } else {
+                updateStatus('Select a note first to toggle dot');
+            }
+        }
+        window.applyDotTool = applyDotTool;
+
+        function applyVoiceTool(voiceCode) {
+            if (selectedNoteId !== null) {
+                updateNoteVoice(selectedNoteId, voiceCode);
+                updateStatus('Voice set to ' + voiceCode);
+            } else {
+                updateStatus('Select a note first to assign voice');
+            }
+        }
+        window.applyVoiceTool = applyVoiceTool;
+
+        // ─── "The Curve Thingy" (Slurs and Ties) ────────────────────────
+        function findNextPitchedNote(noteEl) {
+            if (!noteEl) return null;
+            var vEl = noteEl.getElementsByTagName('voice')[0];
+            var voiceNum = vEl ? vEl.textContent.trim() : '1';
+
+            var cur = noteEl.nextElementSibling;
+            while (cur) {
+                if (cur.tagName === 'note') {
+                    var isR = (cur.getElementsByTagName('rest').length > 0);
+                    var cv = cur.getElementsByTagName('voice')[0] ? cur.getElementsByTagName('voice')[0].textContent.trim() : '1';
+                    if (!isR && cv === voiceNum && cur.getElementsByTagName('pitch').length > 0) {
+                        return cur;
+                    }
+                }
+                cur = cur.nextElementSibling;
+            }
+
+            var meas = noteEl.parentNode;
+            while (meas && meas.tagName !== 'measure') meas = meas.parentNode;
+            if (meas) {
+                var nextM = meas.nextElementSibling;
+                while (nextM && nextM.tagName === 'measure') {
+                    var notes = nextM.getElementsByTagName('note');
+                    for (var i = 0; i < notes.length; i++) {
+                        var n = notes[i];
+                        var isR2 = (n.getElementsByTagName('rest').length > 0);
+                        var nv = n.getElementsByTagName('voice')[0] ? n.getElementsByTagName('voice')[0].textContent.trim() : '1';
+                        if (!isR2 && nv === voiceNum && n.getElementsByTagName('pitch').length > 0) {
+                            return n;
+                        }
+                    }
+                    nextM = nextM.nextElementSibling;
+                }
+            }
+            return null;
+        }
+        window.findNextPitchedNote = findNextPitchedNote;
+
+        function toggleSlur(noteId) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            if (!notatEl) {
+                notatEl = xmlDoc.createElement('notations');
+                noteEl.appendChild(notatEl);
+            }
+
+            var existingSlur = notatEl.getElementsByTagName('slur')[0];
+            if (existingSlur) {
+                var sNum = existingSlur.getAttribute('number') || '1';
+                notatEl.removeChild(existingSlur);
+
+                var parentMeas = noteEl.parentNode;
+                while (parentMeas && parentMeas.tagName !== 'measure') parentMeas = parentMeas.parentNode;
+                if (parentMeas) {
+                    var matches = parentMeas.querySelectorAll('slur[number="' + sNum + '"]');
+                    matches.forEach(function(s) {
+                        if (s.parentNode) s.parentNode.removeChild(s);
+                    });
+                }
+                updateStatus('Slur curve removed');
+            } else {
+                var slurStart = xmlDoc.createElement('slur');
+                slurStart.setAttribute('type', 'start');
+                slurStart.setAttribute('number', '1');
+                slurStart.setAttribute('placement', 'above');
+                notatEl.appendChild(slurStart);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nextNotat = nextNote.getElementsByTagName('notations')[0];
+                    if (!nextNotat) {
+                        nextNotat = xmlDoc.createElement('notations');
+                        nextNote.appendChild(nextNotat);
+                    }
+                    var slurStop = xmlDoc.createElement('slur');
+                    slurStop.setAttribute('type', 'stop');
+                    slurStop.setAttribute('number', '1');
+                    nextNotat.appendChild(slurStop);
+                }
+                updateStatus('Slur curve added');
+            }
+
+            reloadScore();
+            selectNote(noteId);
+        }
+        window.toggleSlur = toggleSlur;
+
+        function toggleTie(noteId) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var notatEl = noteEl.getElementsByTagName('notations')[0];
+            var existingTie = noteEl.getElementsByTagName('tie')[0];
+            var existingTied = notatEl ? notatEl.getElementsByTagName('tied')[0] : null;
+
+            if (existingTie || existingTied) {
+                if (existingTie && existingTie.parentNode) existingTie.parentNode.removeChild(existingTie);
+                if (existingTied && existingTied.parentNode) existingTied.parentNode.removeChild(existingTied);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nTie = nextNote.getElementsByTagName('tie')[0];
+                    var nNotat = nextNote.getElementsByTagName('notations')[0];
+                    var nTied = nNotat ? nNotat.getElementsByTagName('tied')[0] : null;
+                    if (nTie && nTie.parentNode) nTie.parentNode.removeChild(nTie);
+                    if (nTied && nTied.parentNode) nTied.parentNode.removeChild(nTied);
+                }
+                updateStatus('Tie curve removed');
+            } else {
+                var tieEl = xmlDoc.createElement('tie');
+                tieEl.setAttribute('type', 'start');
+                noteEl.appendChild(tieEl);
+
+                if (!notatEl) {
+                    notatEl = xmlDoc.createElement('notations');
+                    noteEl.appendChild(notatEl);
+                }
+                var tiedEl = xmlDoc.createElement('tied');
+                tiedEl.setAttribute('type', 'start');
+                notatEl.appendChild(tiedEl);
+
+                var nextNote = findNextPitchedNote(noteEl);
+                if (nextNote) {
+                    var nTie2 = xmlDoc.createElement('tie');
+                    nTie2.setAttribute('type', 'stop');
+                    nextNote.appendChild(nTie2);
+
+                    var nNotat2 = nextNote.getElementsByTagName('notations')[0];
+                    if (!nNotat2) {
+                        nNotat2 = xmlDoc.createElement('notations');
+                        nextNote.appendChild(nNotat2);
+                    }
+                    var nTied2 = xmlDoc.createElement('tied');
+                    nTied2.setAttribute('type', 'stop');
+                    nNotat2.appendChild(nTied2);
+                }
+                updateStatus('Tie curve added');
+            }
+
+            reloadScore();
+            selectNote(noteId);
+        }
+        window.toggleTie = toggleTie;
+
+        function applySlurTool() {
+            if (selectedNoteId !== null) toggleSlur(selectedNoteId);
+            else updateStatus('Select a note first to add a Slur');
+        }
+        window.applySlurTool = applySlurTool;
+
+        function applyTieTool() {
+            if (selectedNoteId !== null) toggleTie(selectedNoteId);
+            else updateStatus('Select a note first to add a Tie');
+        }
+        window.applyTieTool = applyTieTool;
+
+        // ─── 8va / 8vb Octave-Shift Spanner Support ────────────────────────
+        function toggleOctaveShift(noteId, ottavaType) {
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl || !xmlDoc) return;
+            pushUndoSnapshot();
+
+            var targetMode = (String(ottavaType || '8va').toLowerCase() === '8vb') ? '8vb' : '8va';
+            var currentMode = (noteEl.getAttribute('data-vx-ottava') || '').toLowerCase();
+            var parentMeas = noteEl.parentNode;
+
+            // Remove any existing octave-shift direction tied to this note
+            var prevSib = noteEl.previousElementSibling;
+            if (prevSib && prevSib.tagName === 'direction' && prevSib.getElementsByTagName('octave-shift').length > 0) {
+                parentMeas.removeChild(prevSib);
+            }
+            var nextSib = noteEl.nextElementSibling;
+            if (nextSib && nextSib.tagName === 'direction' && nextSib.getElementsByTagName('octave-shift').length > 0) {
+                parentMeas.removeChild(nextSib);
+            }
+
+            if (currentMode === targetMode) {
+                noteEl.removeAttribute('data-vx-ottava');
+                updateStatus(targetMode + ' marking removed');
+            } else {
+                noteEl.setAttribute('data-vx-ottava', targetMode);
+                if (parentMeas) {
+                    var startDir = xmlDoc.createElement('direction');
+                    startDir.setAttribute('placement', targetMode === '8va' ? 'above' : 'below');
+                    startDir.setAttribute('data-vx-ottava-owner', String(noteId));
+                    var startDirType = xmlDoc.createElement('direction-type');
+                    var startShift = xmlDoc.createElement('octave-shift');
+                    // MusicXML standard: 8va uses type="down" (written notes are below sounding pitch); 8vb uses type="up"
+                    startShift.setAttribute('type', targetMode === '8va' ? 'down' : 'up');
+                    startShift.setAttribute('size', '8');
+                    startShift.setAttribute('number', '1');
+                    startDirType.appendChild(startShift);
+                    startDir.appendChild(startDirType);
+                    parentMeas.insertBefore(startDir, noteEl);
+
+                    var stopDir = xmlDoc.createElement('direction');
+                    stopDir.setAttribute('data-vx-ottava-owner', String(noteId));
+                    var stopDirType = xmlDoc.createElement('direction-type');
+                    var stopShift = xmlDoc.createElement('octave-shift');
+                    stopShift.setAttribute('type', 'stop');
+                    stopShift.setAttribute('size', '8');
+                    stopShift.setAttribute('number', '1');
+                    stopDirType.appendChild(stopShift);
+                    stopDir.appendChild(stopDirType);
+                    if (noteEl.nextSibling) {
+                        parentMeas.insertBefore(stopDir, noteEl.nextSibling);
+                    } else {
+                        parentMeas.appendChild(stopDir);
+                    }
+                }
+                updateStatus('Applied ' + targetMode + ' (' + (targetMode === '8va' ? '+1 octave' : '-1 octave') + ')');
+            }
+
+            reloadScore();
+            selectNote(noteId);
+        }
+        window.toggleOctaveShift = toggleOctaveShift;
+
+        function applyOctaveShiftTool(ottavaType) {
+            if (selectedNoteId !== null) toggleOctaveShift(selectedNoteId, ottavaType);
+            else updateStatus('Select a note first to apply ' + (ottavaType || '8va'));
+        }
+        window.applyOctaveShiftTool = applyOctaveShiftTool;
+
+
+        function initPaletteInteractions() {
+            var chips = document.querySelectorAll('.palette-chip');
+            paletteDragGhost = document.getElementById('palette-drag-ghost');
+
+            chips.forEach(function(chip) {
+                var type = chip.getAttribute('data-type');
+
+                chip.addEventListener('click', function() {
+                    chips.forEach(function(c) { c.classList.remove('active'); });
+                    chip.classList.add('active');
+                    activePaletteType = type;
+
+                    if (selectedNoteId !== null) {
+                        if (type === 'rest') {
+                            convertToRest(selectedNoteId);
+                            updateStatus('Converted to Rest');
+                        } else {
+                            var noteEl = getXmlNoteElement(selectedNoteId);
+                            if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                                convertToNote(selectedNoteId, 'C', 0, 4);
+                            }
+                            updateNoteDuration(selectedNoteId, type, false);
+                            updateStatus('Duration updated to ' + type);
+                        }
+                    }
+                });
+
+                var touchStartX = 0, touchStartY = 0;
+                var hasLifted = false;
+
+                chip.addEventListener('touchstart', function(e) {
+                    if (e.touches.length !== 1) return;
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    hasLifted = false;
+                }, { passive: true });
+
+                chip.addEventListener('touchmove', function(e) {
+                    if (e.touches.length !== 1) return;
+                    var cx = e.touches[0].clientX;
+                    var cy = e.touches[0].clientY;
+                    var dist = Math.hypot(cx - touchStartX, cy - touchStartY);
+
+                    if (dist > 12 && !hasLifted) {
+                        hasLifted = true;
+                        isPaletteDragging = true;
+                        var glyph = chip.querySelector('.chip-glyph') ? chip.querySelector('.chip-glyph').textContent : '𝅘';
+                        var name = chip.querySelector('.chip-name') ? chip.querySelector('.chip-name').textContent : type;
+                        if (paletteDragGhost) {
+                            var gGlyph = document.getElementById('palette-ghost-glyph');
+                            var gType = document.getElementById('palette-ghost-type');
+                            if (gGlyph) gGlyph.textContent = glyph;
+                            if (gType) gType.textContent = name;
+                            paletteDragGhost.classList.add('visible');
+                        }
+                    }
+
+                    if (hasLifted && paletteDragGhost) {
+                        paletteDragGhost.style.left = cx + 'px';
+                        paletteDragGhost.style.top = cy + 'px';
+                    }
+                }, { passive: true });
+
+                chip.addEventListener('touchend', function(e) {
+                    if (hasLifted) {
+                        hasLifted = false;
+                        isPaletteDragging = false;
+                        if (paletteDragGhost) paletteDragGhost.classList.remove('visible');
+
+                        var changedTouch = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : null;
+                        if (changedTouch) {
+                            handlePaletteDropAt(changedTouch.clientX, changedTouch.clientY, type);
+                        }
+                    }
+                });
+            });
+        }
+
+        function handlePaletteDropAt(clientX, clientY, type) {
+            var container = document.getElementById('score-container');
+            if (!container) return;
+            var r = container.getBoundingClientRect();
+            var dropX = clientX - r.left + container.scrollLeft;
+            var dropY = clientY - r.top + container.scrollTop;
+
+            var bestDist = 55;
+            var bestId = null;
+            for (var i = 0; i < noteCoordinates.length; i++) {
+                var nc = noteCoordinates[i];
+                var d = Math.hypot(nc.cx - dropX, nc.cy - dropY);
+                if (d < bestDist) {
+                    bestDist = d;
+                    bestId = nc.id;
+                }
+            }
+
+            if (bestId !== null) {
+                if (type === 'rest') {
+                    convertToRest(bestId);
+                    selectNote(bestId);
+                    updateStatus('Stamped Rest');
+                } else {
+                    var noteEl = getXmlNoteElement(bestId);
+                    if (noteEl && noteEl.getElementsByTagName('rest').length > 0) {
+                        convertToNote(bestId, 'C', 0, 4);
+                    }
+                    updateNoteDuration(bestId, type, false);
+                    selectNote(bestId);
+                    updateStatus('Stamped ' + type + ' note');
+                }
+                playNotePreview(60, 150);
+            }
+        }
+
+        // ─── Keyboard Shortcuts for Power Users ────────────────────────────────
+        window.addEventListener('keydown', function(e) {
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                undo();
+                return;
+            }
+
+            if (((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||
+                ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))) {
+                e.preventDefault();
+                redo();
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                clearHighlights();
+                selectedNoteId = null;
+                return;
+            }
+
+            if (selectedNoteId !== null) {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    deleteSelectedNote();
+                    return;
+                }
+
+                if (e.key === 'r' || e.key === 'R') {
+                    e.preventDefault();
+                    toggleSelectedNoteRest();
+                    return;
+                }
+
+                if (e.key === '.') {
+                    e.preventDefault();
+                    toggleSelectedNoteDot();
+                    return;
+                }
+
+                if (e.key === '#' || e.key === '+' || e.key === '=') {
+                    e.preventDefault();
+                    cycleSelectedNoteAccidental();
+                    return;
+                }
+
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    stepSelectedNotePitch(e.shiftKey ? 7 : 1);
+                    return;
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    stepSelectedNotePitch(e.shiftKey ? -7 : -1);
+                    return;
+                }
+
+                if (e.key === '1') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'whole', false); return; }
+                if (e.key === '2') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'half', false); return; }
+                if (e.key === '4') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'quarter', false); return; }
+                if (e.key === '8') { e.preventDefault(); updateNoteDuration(selectedNoteId, 'eighth', false); return; }
+            }
+        });
+
+        function stepSelectedNotePitch(stepDelta) {
+            if (selectedNoteId === null) return;
+            var noteEl = getXmlNoteElement(selectedNoteId);
+            if (!noteEl) return;
+            var pEl = noteEl.getElementsByTagName('pitch')[0];
+            if (!pEl) return;
+
+            var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
+            var alt = pEl.getElementsByTagName('alter')[0] ? (parseInt(pEl.getElementsByTagName('alter')[0].textContent.trim(), 10) || 0) : 0;
+            var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
+
+            var sIdx = DIATONIC_STEPS.indexOf(step);
+            if (sIdx === -1) sIdx = 0;
+            var dIdx = Math.max(14, Math.min(50, oct * 7 + sIdx + stepDelta));
+            var newOct = Math.floor(dIdx / 7);
+            var newStep = DIATONIC_STEPS[((dIdx % 7) + 7) % 7];
+
+            updateNotePitch(selectedNoteId, newStep, alt, newOct);
+            var midi = (newOct + 1) * 12 + (STEP_MIDI_OFFSETS[newStep] || 0) + alt;
+            playNotePreview(midi, 120);
+        }
+
         initOSMD();
+        initPitchDragging();
+        initPaletteInteractions();
 
         var urlParams = new URLSearchParams(window.location.search);
         var targetFile = urlParams.get('score') || urlParams.get('file');

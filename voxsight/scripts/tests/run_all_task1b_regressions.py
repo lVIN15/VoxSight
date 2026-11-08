@@ -9,6 +9,7 @@ suites = [
     ('Task 1B (Dedicated Suite)', [sys.executable, str(TEST_DIR / 'test_task_1b.py')]),
     ('Task 1B-M (Renderer Live Asset Contract)', ['node', str(TEST_DIR / 'test_task_1b_m.js')]),
     ('Task 1B-Editor (Interactive Editor Contract)', ['node', str(TEST_DIR / 'test_task_1b_editor.js')]),
+    ('Editing Revamp (Gestures, Undo, Palette, Deletion)', ['node', str(TEST_DIR / 'test_editor_revamp.js')]),
     ('Task 1A.1 (Safe Classifier Suite)', [sys.executable, str(TEST_DIR / 'test_task_1a1.py')]),
     ('Phase 1A.2 (Diagnostic Isolation Suite)', [sys.executable, str(TEST_DIR / 'test_phase1a2.py')]),
     ('Task 1A.3 (Pre-Scan & Stamping Suite)', [sys.executable, str(TEST_DIR / 'test_task_1a3.py')]),
