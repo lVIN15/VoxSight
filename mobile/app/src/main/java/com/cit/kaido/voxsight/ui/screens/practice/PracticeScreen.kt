@@ -57,6 +57,7 @@ import androidx.compose.material.icons.outlined.MusicOff
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -276,11 +277,12 @@ fun Module2PracticeScreen(
     )
 
     // Smooth continuous timer interpolation
-    LaunchedEffect(isPlaying, progress) {
+    val isScoreReady = midiController?.isScoreReady ?: false
+    LaunchedEffect(isPlaying, progress, isScoreReady) {
         if (!isDraggingSlider) {
             simulatedProgress = progress
         }
-        if (isPlaying && totalSeconds > 0) {
+        if (isPlaying && totalSeconds > 0 && isScoreReady) {
             var lastTime = System.nanoTime()
             while (isActive) {
                 delay(16) // ~60 FPS
@@ -298,9 +300,9 @@ fun Module2PracticeScreen(
         }
     }
 
-    LaunchedEffect(externalPlayingState) {
+    LaunchedEffect(externalPlayingState, isScoreReady) {
         externalPlayingState?.let { shouldPlay ->
-            if (shouldPlay && !isPlaying) {
+            if (shouldPlay && !isPlaying && isScoreReady) {
                 midiController?.play()
                 isPlaying = true
                 onMusicPlay()
@@ -517,7 +519,7 @@ fun Module2PracticeScreen(
                             .clip(CircleShape)
                             .clickable {
                                 isFullscreenScore = !isFullscreenScore
-                                midiController?.zoomFit()
+                                midiController?.handleFullscreenToggle(isFullscreenScore)
                             },
                         color = Color.White.copy(alpha = 0.94f),
                         shadowElevation = 6.dp,
@@ -531,6 +533,35 @@ fun Module2PracticeScreen(
                                 tint = VoxPurplePrimary,
                                 modifier = Modifier.size(24.dp)
                             )
+                        }
+                    }
+
+                    // Score rendering indicator for multi-page scores or layout recalculations
+                    if (midiController?.isScoreReady == false) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.Center),
+                            color = Color.White.copy(alpha = 0.94f),
+                            shape = RoundedCornerShape(20.dp),
+                            shadowElevation = 6.dp,
+                            border = BorderStroke(1.dp, VoxPurplePrimary.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = VoxPurplePrimary
+                                )
+                                Text(
+                                    text = "Rendering score...",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = VoxPurplePrimary
+                                )
+                            }
                         }
                     }
 
@@ -641,9 +672,11 @@ fun Module2PracticeScreen(
                         onMusicPause()
                         onPauseClicked()
                     } else {
-                        midiController?.play()
-                        isPlaying = true
-                        onMusicPlay()
+                        if (midiController?.isScoreReady == true) {
+                            midiController?.play()
+                            isPlaying = true
+                            onMusicPlay()
+                        }
                     }
                 },
                 progress = if (isDraggingSlider) progress else animatedProgress,

@@ -2949,6 +2949,7 @@
             });
 
             console.log(`[VoxSight Renderer] Note map built: ${noteCoordinates.length} notes mapped and colored with 100% precision`);
+            buildSystemIndexMap();
         }
 
         // ─── Tone.js Audio Synth (Mastered Anti-Clipping Chain) ────────
@@ -3007,7 +3008,16 @@
             ensureSynth();
         }
 
-        function playNote(midiNote, durationMs, velocity) {
+        function playNote(midiNote, durationMs, velocity, scheduledTimeMs) {
+            // Stale audio burst guard: if this note was delayed by more than 160ms
+            // (e.g. during heavy multi-page OSMD layout or fullscreen re-render),
+            // drop it immediately rather than dumping backlogged notes all at once!
+            if (scheduledTimeMs) {
+                const ageMs = Date.now() - Number(scheduledTimeMs);
+                if (ageMs > 160) {
+                    return;
+                }
+            }
             ensureSynth();
             if (synth) {
                 try {
@@ -3092,6 +3102,64 @@
         let currentScrollAnimId = null;
         let lastAutoScrollTargetY = -1;
         let lastAutoScrollTargetX = -1;
+        let currentMaxAutoScrollY = 0;
+        let noteIdToSystemMap = new Map();
+        let systemTops = [];
+
+        function buildSystemIndexMap() {
+            systemTops = [];
+            noteIdToSystemMap = new Map();
+            currentMaxAutoScrollY = 0;
+            lastAutoScrollTargetY = -1;
+            lastAutoScrollTargetX = -1;
+
+            if (!noteCoordinates || noteCoordinates.length === 0) return;
+
+            // Group notes by measureIndex
+            const measureNotes = new Map();
+            for (let i = 0; i < noteCoordinates.length; i++) {
+                const n = noteCoordinates[i];
+                if (!measureNotes.has(n.measureIndex)) {
+                    measureNotes.set(n.measureIndex, []);
+                }
+                measureNotes.get(n.measureIndex).push(n);
+            }
+
+            const measureIndices = Array.from(measureNotes.keys()).sort((a, b) => a - b);
+            let currentSysIdx = 0;
+            let prevSysMinY = -1;
+
+            for (let i = 0; i < measureIndices.length; i++) {
+                const mIdx = measureIndices[i];
+                const notesInMeas = measureNotes.get(mIdx);
+                let mMinY = Infinity;
+                for (let j = 0; j < notesInMeas.length; j++) {
+                    const y = notesInMeas[j].y;
+                    if (typeof y === 'number' && y < mMinY) mMinY = y;
+                }
+
+                if (prevSysMinY === -1) {
+                    prevSysMinY = mMinY;
+                    systemTops[currentSysIdx] = mMinY;
+                } else if (mMinY - prevSysMinY > 80) { // New stave row down the page
+                    currentSysIdx++;
+                    prevSysMinY = mMinY;
+                    systemTops[currentSysIdx] = mMinY;
+                } else {
+                    systemTops[currentSysIdx] = Math.min(systemTops[currentSysIdx], mMinY);
+                }
+
+                for (let j = 0; j < notesInMeas.length; j++) {
+                    const n = notesInMeas[j];
+                    noteIdToSystemMap.set(n.id, {
+                        systemIndex: currentSysIdx,
+                        systemTop: systemTops[currentSysIdx],
+                        noteY: n.y,
+                        part: n.part
+                    });
+                }
+            }
+        }
 
         function onUserScrollOrGesture() {
             isUserInteracting = true;
@@ -3165,44 +3233,63 @@
         function handleAutoScroll(notes, fallbackY) {
             if (!autoScrollEnabled || isUserInteracting) return;
 
-            let targetNoteY = null;
+            let targetSystemTop = null;
+            let targetStaveY = null;
             let targetNoteX = null;
 
             if (Array.isArray(notes) && notes.length > 0) {
-                let minY = Infinity;
+                let bestSystemTop = null;
+                let focusedPartY = null;
                 let minX = Infinity;
+
                 for (let i = 0; i < notes.length; i++) {
                     const n = notes[i];
-                    if (typeof n.y === 'number' && n.y < minY) {
-                        minY = n.y;
+                    const sysInfo = (n.id !== undefined && noteIdToSystemMap) ? noteIdToSystemMap.get(n.id) : null;
+                    if (sysInfo) {
+                        if (bestSystemTop === null || sysInfo.systemTop < bestSystemTop) {
+                            bestSystemTop = sysInfo.systemTop;
+                        }
+                        if (currentVisualFocus && sysInfo.part && sysInfo.part.toUpperCase().startsWith(currentVisualFocus.toUpperCase())) {
+                            focusedPartY = sysInfo.noteY;
+                        }
+                    } else if (typeof n.y === 'number') {
+                        if (bestSystemTop === null || n.y < bestSystemTop) {
+                            bestSystemTop = n.y;
+                        }
                     }
                     if (typeof n.x === 'number' && n.x < minX) {
                         minX = n.x;
                     }
                 }
-                if (minY !== Infinity) {
-                    targetNoteY = minY;
-                    targetNoteX = minX !== Infinity ? minX : null;
-                }
+
+                targetSystemTop = bestSystemTop;
+                targetStaveY = focusedPartY;
+                targetNoteX = minX !== Infinity ? minX : null;
             } else if (typeof fallbackY === 'number') {
-                targetNoteY = fallbackY;
+                targetSystemTop = fallbackY;
             }
 
-            if (targetNoteY === null) return;
+            if (targetSystemTop === null) return;
 
             const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
             const currentScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-            const screenY = targetNoteY - currentScrollY;
 
-            // Maintain active stave at ~24% from viewport top for comfortable read-ahead
-            const desiredScrollY = Math.max(0, targetNoteY - Math.round(viewportH * 0.24));
+            // Anchor to the stave system top, or the user's focused vocal stave if selected
+            const anchorY = (targetStaveY !== null) ? targetStaveY : targetSystemTop;
+            const desiredScrollY = Math.max(0, anchorY - Math.round(viewportH * 0.18));
 
-            // Comfort zone check:
-            // Top: 6% of viewport, Bottom: 68% of viewport
-            const isOutOfComfortZone = (screenY < viewportH * 0.06) || (screenY > viewportH * 0.68);
+            // MONOTONIC FORWARD PROGRESS GUARD:
+            // During continuous playback, never scroll backwards/upwards!
+            // In a multi-part score, notes jumping between Soprano (top) and Bass (bottom)
+            // in the same system must NEVER cause the screen to bounce back and forth.
+            if (desiredScrollY < currentMaxAutoScrollY - 24) {
+                return;
+            }
 
-            // Stave line transition threshold (36px prevents jitter between notes on the same staff)
-            const isNewSystem = Math.abs(desiredScrollY - lastAutoScrollTargetY) > 36;
+            // Stave line transition threshold (45px prevents jitter between notes on the same staff)
+            const isNewSystem = Math.abs(desiredScrollY - lastAutoScrollTargetY) > 45;
+            const screenY = anchorY - currentScrollY;
+            const isOutOfComfortZone = (screenY < viewportH * 0.05) || (screenY > viewportH * 0.70);
 
             let finalTargetX = null;
             if (targetNoteX !== null) {
@@ -3216,8 +3303,9 @@
 
             if (isNewSystem || isOutOfComfortZone) {
                 lastAutoScrollTargetY = desiredScrollY;
+                currentMaxAutoScrollY = Math.max(currentMaxAutoScrollY, desiredScrollY);
                 if (finalTargetX !== null) lastAutoScrollTargetX = finalTargetX;
-                smoothScrollTo(desiredScrollY, finalTargetX, 400);
+                smoothScrollTo(desiredScrollY, finalTargetX, 420);
             }
         }
 
@@ -3240,7 +3328,14 @@
             }
             lastAutoScrollTargetY = 0;
             lastAutoScrollTargetX = 0;
+            currentMaxAutoScrollY = 0;
             smoothScrollTo(0, 0, 320);
+        };
+
+        window.resetAutoScrollPosition = function () {
+            lastAutoScrollTargetY = 0;
+            lastAutoScrollTargetX = 0;
+            currentMaxAutoScrollY = 0;
         };
 
         // ─── Highlight API (called from Android via WebView) ────────────

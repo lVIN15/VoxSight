@@ -126,6 +126,8 @@ open class MidiPlayerController(
     var selectedVoicePart by mutableStateOf<String?>(null)
     var pitchAttempts by mutableStateOf(listOf<com.cit.kaido.voxsight.pitch.PitchAttempt>())
     var isAutoScrollEnabled by mutableStateOf(true)
+    var isScoreReady by mutableStateOf(false)
+    private var isPendingFullscreenResume = false
     
     private var eventStream: EventStream = EventStream.empty()
     private var isPageFinished = false
@@ -205,6 +207,7 @@ open class MidiPlayerController(
         loadedScoreKey = scoreKey
         currentScoreXml = score.rawXml
         isRendered = false
+        isScoreReady = false
         
         // Parse events with automatic fallback generation
         val resolvedEventsJson = score.eventsJson?.takeIf { it.isNotBlank() && it != "[]" }
@@ -288,7 +291,11 @@ open class MidiPlayerController(
 
     // ─── Control API ───────────────────────────────────────────────
     fun play() {
-        webView.post { webView.evaluateJavascript("initSynth();", null) }
+        if (!isScoreReady) {
+            android.util.Log.w("MidiPlayerController", "play() ignored: score is still rendering")
+            return
+        }
+        webView.post { webView.evaluateJavascript("if (window.initSynth) window.initSynth();", null) }
         playbackState = "PLAYING"
         when (playbackEngine.getState()) {
             NativePlaybackEngine.PlaybackState.IDLE,
@@ -323,6 +330,9 @@ open class MidiPlayerController(
             tick
         }
         playbackEngine.seekToTick(targetTick)
+        webView.post {
+            webView.evaluateJavascript("if (window.resetAutoScrollPosition) window.resetAutoScrollPosition();", null)
+        }
         if (playbackEngine.getState() != com.cit.kaido.voxsight.playback.NativePlaybackEngine.PlaybackState.PLAYING) {
             play()
         }
@@ -330,9 +340,28 @@ open class MidiPlayerController(
 
     fun seek(progressFraction: Float) {
         playbackEngine.seek(progressFraction)
+        webView.post {
+            webView.evaluateJavascript("if (window.resetAutoScrollPosition) window.resetAutoScrollPosition();", null)
+        }
         if (progressFraction <= 0.01f) {
             scrollToTop()
         }
+    }
+
+    fun handleFullscreenToggle(isFullscreen: Boolean) {
+        val wasPlaying = playbackState == "PLAYING"
+        if (wasPlaying) {
+            isPendingFullscreenResume = true
+            pause()
+            playbackEngine.silenceAllActiveNotes()
+            webView.post {
+                webView.evaluateJavascript("if (window.emergencySilence) window.emergencySilence();", null)
+            }
+        } else {
+            isPendingFullscreenResume = false
+        }
+        isScoreReady = false
+        zoomFit()
     }
 
     fun setAutoScroll(enabled: Boolean) {
@@ -549,8 +578,9 @@ open class MidiPlayerController(
         val bpm = playbackEngine.getCurrentBPM().coerceAtLeast(1f)
         val tpq = currentTpq.coerceAtLeast(1)
         val durationMs = (event.durationTicks.toDouble() * 60000.0 / (bpm.toDouble() * tpq.toDouble())).toLong().coerceAtLeast(100)
+        val scheduledTimeMs = System.currentTimeMillis()
         webView.post {
-            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, $velocity);", null)
+            webView.evaluateJavascript("playNote(${event.pitchMidi}, $durationMs, $velocity, $scheduledTimeMs);", null)
         }
     }
 
@@ -669,6 +699,13 @@ open class MidiPlayerController(
         @JavascriptInterface
         @Suppress("UNCHECKED_CAST")
         fun onRenderComplete(layoutHash: String, coordinatesJson: String) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                isScoreReady = true
+                if (isPendingFullscreenResume) {
+                    isPendingFullscreenResume = false
+                    play()
+                }
+            }
             try {
                 if (layoutHash == lastProcessedLayoutHash && mappedNotesCount > 0) {
                     return
