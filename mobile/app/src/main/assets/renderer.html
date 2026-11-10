@@ -1952,6 +1952,11 @@
                 // Compute layout hash
                 layoutHash = computeLayoutHash();
 
+                // Reset scroll position and auto-scroll target for newly loaded score
+                window.scrollTo(0, 0);
+                lastAutoScrollTargetY = -1;
+                lastAutoScrollTargetX = -1;
+
                 loadingOverlay.classList.add('hidden');
                 updateStatus(`Score loaded: ${noteCoordinates.length} notes`);
 
@@ -3080,6 +3085,164 @@
             }
         };
 
+        // ─── Auto-Scroll Engine for Playback (Singing & Listening) ────────────
+        let autoScrollEnabled = true;
+        let isUserInteracting = false;
+        let userInteractionTimer = null;
+        let currentScrollAnimId = null;
+        let lastAutoScrollTargetY = -1;
+        let lastAutoScrollTargetX = -1;
+
+        function onUserScrollOrGesture() {
+            isUserInteracting = true;
+            if (currentScrollAnimId !== null) {
+                cancelAnimationFrame(currentScrollAnimId);
+                currentScrollAnimId = null;
+            }
+            if (userInteractionTimer) {
+                clearTimeout(userInteractionTimer);
+            }
+            // Gracefully yield to manual user scrolling for 2.5 seconds
+            userInteractionTimer = setTimeout(() => {
+                isUserInteracting = false;
+            }, 2500);
+        }
+
+        window.addEventListener('touchstart', onUserScrollOrGesture, { passive: true });
+        window.addEventListener('touchmove', onUserScrollOrGesture, { passive: true });
+        window.addEventListener('wheel', onUserScrollOrGesture, { passive: true });
+        window.addEventListener('pointerdown', onUserScrollOrGesture, { passive: true });
+
+        function smoothScrollTo(targetY, targetX, durationMs) {
+            if (durationMs === undefined) durationMs = 380;
+            if (currentScrollAnimId !== null) {
+                cancelAnimationFrame(currentScrollAnimId);
+                currentScrollAnimId = null;
+            }
+
+            const startY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+            const startX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+            const finalTargetX = (targetX !== null && targetX !== undefined) ? Math.max(0, targetX) : startX;
+            const finalTargetY = Math.max(0, targetY);
+
+            const diffY = finalTargetY - startY;
+            const diffX = finalTargetX - startX;
+
+            if (Math.abs(diffY) < 3 && Math.abs(diffX) < 3) {
+                window.scrollTo(finalTargetX, finalTargetY);
+                return;
+            }
+
+            const startTime = performance.now();
+
+            function step(now) {
+                if (isUserInteracting) {
+                    currentScrollAnimId = null;
+                    return;
+                }
+
+                const elapsed = now - startTime;
+                const progress = Math.min(1, elapsed / durationMs);
+
+                // Cubic ease-out deceleration
+                const ease = 1 - Math.pow(1 - progress, 3);
+
+                const curY = startY + diffY * ease;
+                const curX = startX + diffX * ease;
+
+                window.scrollTo(curX, curY);
+
+                if (progress < 1) {
+                    currentScrollAnimId = requestAnimationFrame(step);
+                } else {
+                    currentScrollAnimId = null;
+                }
+            }
+
+            currentScrollAnimId = requestAnimationFrame(step);
+        }
+
+        function handleAutoScroll(notes, fallbackY) {
+            if (!autoScrollEnabled || isUserInteracting) return;
+
+            let targetNoteY = null;
+            let targetNoteX = null;
+
+            if (Array.isArray(notes) && notes.length > 0) {
+                let minY = Infinity;
+                let minX = Infinity;
+                for (let i = 0; i < notes.length; i++) {
+                    const n = notes[i];
+                    if (typeof n.y === 'number' && n.y < minY) {
+                        minY = n.y;
+                    }
+                    if (typeof n.x === 'number' && n.x < minX) {
+                        minX = n.x;
+                    }
+                }
+                if (minY !== Infinity) {
+                    targetNoteY = minY;
+                    targetNoteX = minX !== Infinity ? minX : null;
+                }
+            } else if (typeof fallbackY === 'number') {
+                targetNoteY = fallbackY;
+            }
+
+            if (targetNoteY === null) return;
+
+            const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
+            const currentScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+            const screenY = targetNoteY - currentScrollY;
+
+            // Maintain active stave at ~24% from viewport top for comfortable read-ahead
+            const desiredScrollY = Math.max(0, targetNoteY - Math.round(viewportH * 0.24));
+
+            // Comfort zone check:
+            // Top: 6% of viewport, Bottom: 68% of viewport
+            const isOutOfComfortZone = (screenY < viewportH * 0.06) || (screenY > viewportH * 0.68);
+
+            // Stave line transition threshold (36px prevents jitter between notes on the same staff)
+            const isNewSystem = Math.abs(desiredScrollY - lastAutoScrollTargetY) > 36;
+
+            let finalTargetX = null;
+            if (targetNoteX !== null) {
+                const viewportW = window.innerWidth || document.documentElement.clientWidth || 400;
+                const currentScrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+                const screenX = targetNoteX - currentScrollX;
+                if (screenX < 24 || screenX > viewportW - 48) {
+                    finalTargetX = Math.max(0, targetNoteX - Math.round(viewportW * 0.2));
+                }
+            }
+
+            if (isNewSystem || isOutOfComfortZone) {
+                lastAutoScrollTargetY = desiredScrollY;
+                if (finalTargetX !== null) lastAutoScrollTargetX = finalTargetX;
+                smoothScrollTo(desiredScrollY, finalTargetX, 400);
+            }
+        }
+
+        window.setAutoScroll = function (enabled) {
+            autoScrollEnabled = !!enabled;
+            if (!autoScrollEnabled && currentScrollAnimId !== null) {
+                cancelAnimationFrame(currentScrollAnimId);
+                currentScrollAnimId = null;
+            }
+        };
+
+        window.isAutoScrollEnabled = function () {
+            return autoScrollEnabled;
+        };
+
+        window.scrollToTop = function () {
+            if (currentScrollAnimId !== null) {
+                cancelAnimationFrame(currentScrollAnimId);
+                currentScrollAnimId = null;
+            }
+            lastAutoScrollTargetY = 0;
+            lastAutoScrollTargetX = 0;
+            smoothScrollTo(0, 0, 320);
+        };
+
         // ─── Highlight API (called from Android via WebView) ────────────
         window.currentPitchOverlay = { version: 0, notes: [] };
         let overlayRafId = null;
@@ -3123,7 +3286,12 @@
             highlightCtx.clearRect(0, 0, canvas.width, canvas.height);
 
             try {
-                const notes = window.currentPitchOverlay.notes;
+                const notes = window.currentPitchOverlay.notes || [];
+                const fallbackY = window.currentPitchOverlay.fallbackY;
+
+                // Auto-scroll score seamlessly during singing and listening playback
+                handleAutoScroll(notes, fallbackY);
+
                 for (const note of notes) {
                     const { x, y, width, height, color } = note;
                     let r = 99, g = 102, b = 241; // Default

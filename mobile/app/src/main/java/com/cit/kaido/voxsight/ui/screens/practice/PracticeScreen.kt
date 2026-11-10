@@ -470,6 +470,44 @@ fun Module2PracticeScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
+                    // Floating Auto-Scroll Toggle Chip
+                    val isAutoScroll = midiController?.isAutoScrollEnabled ?: true
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(if (isFullscreenScore) 16.dp else 10.dp)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(19.dp))
+                            .clickable {
+                                midiController?.toggleAutoScroll()
+                            },
+                        color = if (isAutoScroll) VoxPurplePrimary.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f),
+                        shadowElevation = 6.dp,
+                        shape = RoundedCornerShape(19.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isAutoScroll) VoxPurplePrimary else Color.LightGray.copy(alpha = 0.6f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = if (isAutoScroll) "Auto-Scroll Enabled" else "Auto-Scroll Disabled",
+                                tint = if (isAutoScroll) Color.White else Color(0xFF64748B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = if (isAutoScroll) "Scroll ON" else "Scroll OFF",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (isAutoScroll) Color.White else Color(0xFF64748B)
+                            )
+                        }
+                    }
+
                     // Floating Fullscreen / Exit Fullscreen Button
                     Surface(
                         modifier = Modifier

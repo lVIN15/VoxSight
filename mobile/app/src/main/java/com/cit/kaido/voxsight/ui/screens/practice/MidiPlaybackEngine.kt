@@ -125,6 +125,7 @@ open class MidiPlayerController(
     var isMicEnabled by mutableStateOf(false)
     var selectedVoicePart by mutableStateOf<String?>(null)
     var pitchAttempts by mutableStateOf(listOf<com.cit.kaido.voxsight.pitch.PitchAttempt>())
+    var isAutoScrollEnabled by mutableStateOf(true)
     
     private var eventStream: EventStream = EventStream.empty()
     private var isPageFinished = false
@@ -329,6 +330,28 @@ open class MidiPlayerController(
 
     fun seek(progressFraction: Float) {
         playbackEngine.seek(progressFraction)
+        if (progressFraction <= 0.01f) {
+            scrollToTop()
+        }
+    }
+
+    fun setAutoScroll(enabled: Boolean) {
+        isAutoScrollEnabled = enabled
+        webView.post {
+            webView.evaluateJavascript("if (window.setAutoScroll) window.setAutoScroll($enabled);", null)
+        }
+    }
+
+    fun toggleAutoScroll(): Boolean {
+        val newState = !isAutoScrollEnabled
+        setAutoScroll(newState)
+        return newState
+    }
+
+    fun scrollToTop() {
+        webView.post {
+            webView.evaluateJavascript("if (window.scrollToTop) window.scrollToTop();", null)
+        }
     }
 
     fun setTempo(bpm: Float) {
@@ -604,10 +627,18 @@ open class MidiPlayerController(
             lastRenderedHighlightsJson = notesJson
             
             overlayVersion++
-            val payload = mapOf(
+            val payload = mutableMapOf<String, Any>(
                 "version" to overlayVersion,
                 "notes" to coloredNotes
             )
+            // If target part is resting in this measure, provide fallback Y coordinate
+            // from active playback notes so auto-scroll keeps following the musical progression
+            if (coloredNotes.isEmpty() && lastHighlights.isNotEmpty()) {
+                val fallbackY = lastHighlights.minOfOrNull { it.y }
+                if (fallbackY != null) {
+                    payload["fallbackY"] = fallbackY
+                }
+            }
             val json = gson.toJson(payload)
             
             webView.post {
