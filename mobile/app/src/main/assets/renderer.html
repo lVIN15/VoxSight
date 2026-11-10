@@ -81,31 +81,20 @@
             color: #4ade80;
         }
 
-        /* Loading state */
+        /* Loading state - WebView overlay disabled in favor of native Compose loading pill */
         .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(26, 26, 46, 0.9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
         }
 
         .loading-overlay.hidden {
-            display: none;
+            display: none !important;
         }
 
         .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.2);
-            border-top-color: #6366f1;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
+            display: none !important;
         }
 
         @keyframes spin {
@@ -133,10 +122,8 @@
 
 <body>
 
-    <!-- Loading overlay -->
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="spinner"></div>
-    </div>
+    <!-- Loading overlay (disabled in favor of native Compose loading pill) -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none !important;"></div>
 
     <!-- Score container with canvas overlay -->
     <div id="score-container">
@@ -219,6 +206,8 @@
         let xmlDoc = null;          // Global MusicXML DOM for H-bar and structure inspection
         let colorMappingList = [];
         let currentVisualFocus = null;
+        let currentAudioFocus = null;
+        let currentFocusedVoicePart = null;
 
         function calculateFitToWidthZoom() {
             var container = document.getElementById('score-container') || document.getElementById('osmd-render');
@@ -1997,16 +1986,25 @@
         window.loadScoreBase64 = loadScoreBase64;
 
         window.setVisualFocus = function (partLabel) {
-            currentVisualFocus = partLabel;
+            currentVisualFocus = partLabel ? partLabel.trim().toUpperCase() : null;
             updateColorsAndRender();
         };
 
-        /**
-         * API for Android to clear the visual focus.
-         */
         window.clearVisualFocus = function () {
             currentVisualFocus = null;
             updateColorsAndRender();
+        };
+
+        window.setAudioFocus = function (partLabel) {
+            currentAudioFocus = partLabel ? partLabel.trim().toUpperCase() : null;
+        };
+
+        window.clearAudioFocus = function () {
+            currentAudioFocus = null;
+        };
+
+        window.setFocusedVoicePart = function (partLabel) {
+            currentFocusedVoicePart = partLabel ? partLabel.trim().toUpperCase() : null;
         };
 
         window.applySyncColors = function (colorsJson) {
@@ -3230,12 +3228,39 @@
             currentScrollAnimId = requestAnimationFrame(step);
         }
 
+        function isVoicePartMatch(part, focus) {
+            if (!part || !focus) return false;
+            const p = part.trim().toUpperCase();
+            const f = focus.trim().toUpperCase();
+            if (p === f) return true;
+            // Handle numbered divisi: S1 vs S2, etc.
+            const fNum = f.match(/\d+/);
+            const pNum = p.match(/\d+/);
+            if (fNum && pNum && fNum[0] !== pNum[0]) {
+                return false;
+            }
+            if (f.startsWith('SOLO') || p.startsWith('SOLO')) {
+                return f.startsWith('SOLO') && p.startsWith('SOLO');
+            }
+            if (f.startsWith('S') && p.startsWith('S')) return true;
+            if (f.startsWith('A') && p.startsWith('A')) return true;
+            if (f.startsWith('T') && p.startsWith('T')) return true;
+            if (f.startsWith('B') && p.startsWith('B')) return true;
+            return false;
+        }
+
+        let lastActiveSystemIndex = -1;
+
         function handleAutoScroll(notes, fallbackY) {
             if (!autoScrollEnabled || isUserInteracting) return;
 
             let targetSystemTop = null;
+            let targetSystemIndex = -1;
             let targetStaveY = null;
             let targetNoteX = null;
+
+            // Visual Focus or Audio Focus determines stave locking
+            const activeVoiceFocus = currentVisualFocus || currentAudioFocus || null;
 
             if (Array.isArray(notes) && notes.length > 0) {
                 let bestSystemTop = null;
@@ -3248,8 +3273,10 @@
                     if (sysInfo) {
                         if (bestSystemTop === null || sysInfo.systemTop < bestSystemTop) {
                             bestSystemTop = sysInfo.systemTop;
+                            targetSystemIndex = sysInfo.systemIndex;
                         }
-                        if (currentVisualFocus && sysInfo.part && sysInfo.part.toUpperCase().startsWith(currentVisualFocus.toUpperCase())) {
+                        // Visual Focus, Audio Focus, or Voice Part Stave Matching
+                        if (activeVoiceFocus && sysInfo.part && isVoicePartMatch(sysInfo.part, activeVoiceFocus)) {
                             focusedPartY = sysInfo.noteY;
                         }
                     } else if (typeof n.y === 'number') {
@@ -3274,22 +3301,33 @@
             const viewportH = window.innerHeight || document.documentElement.clientHeight || 600;
             const currentScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
 
-            // Anchor to the stave system top, or the user's focused vocal stave if selected
-            const anchorY = (targetStaveY !== null) ? targetStaveY : targetSystemTop;
-            const desiredScrollY = Math.max(0, anchorY - Math.round(viewportH * 0.18));
+            let desiredScrollY;
+            let shouldTriggerScroll = false;
 
-            // MONOTONIC FORWARD PROGRESS GUARD:
-            // During continuous playback, never scroll backwards/upwards!
-            // In a multi-part score, notes jumping between Soprano (top) and Bass (bottom)
-            // in the same system must NEVER cause the screen to bounce back and forth.
+            if (activeVoiceFocus && targetStaveY !== null) {
+                // FOCUS MODE (Visual Focus or Audio Focus is ON):
+                // Directly lock the view to the singer's focused vocal stave line!
+                // Placing the stave at ~33% from the top keeps it comfortably centered.
+                desiredScrollY = Math.max(0, targetStaveY - Math.round(viewportH * 0.33));
+                const screenY = targetStaveY - currentScrollY;
+                const isOutOfFocusZone = (screenY < viewportH * 0.12) || (screenY > viewportH * 0.65);
+                const isStaveShift = Math.abs(desiredScrollY - lastAutoScrollTargetY) > 36;
+                shouldTriggerScroll = isOutOfFocusZone || isStaveShift;
+            } else {
+                // ALL PARTS MODE (Neither Visual nor Audio Focus is ON):
+                // System-level stepping! Align to the top of the active system row with modest headroom.
+                // Keep the entire system rock-steady: only advance when transitioning to the NEXT system row!
+                desiredScrollY = Math.max(0, targetSystemTop - 16);
+                const isNewSystemRow = (targetSystemIndex !== -1 && targetSystemIndex !== lastActiveSystemIndex);
+                const screenTop = targetSystemTop - currentScrollY;
+                const isSystemOffscreen = (screenTop < -30) || (screenTop > viewportH * 0.75);
+                shouldTriggerScroll = isNewSystemRow || isSystemOffscreen;
+            }
+
+            // Monotonic downward progress guard during forward playback
             if (desiredScrollY < currentMaxAutoScrollY - 24) {
                 return;
             }
-
-            // Stave line transition threshold (45px prevents jitter between notes on the same staff)
-            const isNewSystem = Math.abs(desiredScrollY - lastAutoScrollTargetY) > 45;
-            const screenY = anchorY - currentScrollY;
-            const isOutOfComfortZone = (screenY < viewportH * 0.05) || (screenY > viewportH * 0.70);
 
             let finalTargetX = null;
             if (targetNoteX !== null) {
@@ -3301,8 +3339,9 @@
                 }
             }
 
-            if (isNewSystem || isOutOfComfortZone) {
+            if (shouldTriggerScroll) {
                 lastAutoScrollTargetY = desiredScrollY;
+                if (targetSystemIndex !== -1) lastActiveSystemIndex = targetSystemIndex;
                 currentMaxAutoScrollY = Math.max(currentMaxAutoScrollY, desiredScrollY);
                 if (finalTargetX !== null) lastAutoScrollTargetX = finalTargetX;
                 smoothScrollTo(desiredScrollY, finalTargetX, 420);
@@ -3328,6 +3367,7 @@
             }
             lastAutoScrollTargetY = 0;
             lastAutoScrollTargetX = 0;
+            lastActiveSystemIndex = -1;
             currentMaxAutoScrollY = 0;
             smoothScrollTo(0, 0, 320);
         };
@@ -3335,6 +3375,7 @@
         window.resetAutoScrollPosition = function () {
             lastAutoScrollTargetY = 0;
             lastAutoScrollTargetX = 0;
+            lastActiveSystemIndex = -1;
             currentMaxAutoScrollY = 0;
         };
 

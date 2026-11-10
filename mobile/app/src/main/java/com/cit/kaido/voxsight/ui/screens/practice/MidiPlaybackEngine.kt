@@ -138,6 +138,7 @@ open class MidiPlayerController(
     open val totalSeconds: Int get() = calculatedTotalSeconds
     
     private var visualFocusPart: String? = null
+    var audioFocusPart: String? = null
     private var currentTpq = 960
     private var currentBpm = 120f
     private var calculatedTotalSeconds = 0
@@ -465,6 +466,12 @@ open class MidiPlayerController(
             part.uppercase().startsWith("OTHER") -> "OTHER"
             else -> part.trim().uppercase()
         }
+        audioFocusPart = targetLabel
+        if (isRendered) {
+            webView.post {
+                webView.evaluateJavascript("if (window.setAudioFocus) window.setAudioFocus('$targetLabel');", null)
+            }
+        }
         mutedVoicesList = listOf(targetLabel)
         playbackEngine.setFocusedVoicePart(targetLabel)
         playbackEngine.silenceAllActiveNotes()
@@ -495,6 +502,12 @@ open class MidiPlayerController(
     fun mutePart(part: String) = focusPart(part)
 
     fun unmuteAllParts() {
+        audioFocusPart = null
+        if (isRendered) {
+            webView.post {
+                webView.evaluateJavascript("if (window.clearAudioFocus) window.clearAudioFocus();", null)
+            }
+        }
         mutedVoicesList = emptyList()
         playbackEngine.setFocusedVoicePart(null)
         playbackEngine.silenceAllActiveNotes()
@@ -513,7 +526,7 @@ open class MidiPlayerController(
         }
         visualFocusPart = targetLabel
         if (isRendered) {
-            webView.post { webView.evaluateJavascript("setVisualFocus('$targetLabel');", null) }
+            webView.post { webView.evaluateJavascript("if (window.setVisualFocus) window.setVisualFocus('$targetLabel');", null) }
         }
         refreshHighlights()
     }
@@ -521,7 +534,7 @@ open class MidiPlayerController(
     fun clearVisualFocus() {
         visualFocusPart = null
         if (isRendered) {
-            webView.post { webView.evaluateJavascript("clearVisualFocus();", null) }
+            webView.post { webView.evaluateJavascript("if (window.clearVisualFocus) window.clearVisualFocus();", null) }
         }
         refreshHighlights()
     }
@@ -759,6 +772,14 @@ open class MidiPlayerController(
                 val initColorsJson = gson.toJson(initialColors)
                 webView.post {
                     webView.evaluateJavascript("applySyncColors('$initColorsJson');", null)
+                    val activeVisual = visualFocusPart
+                    if (activeVisual != null) {
+                        webView.evaluateJavascript("if (window.setVisualFocus) window.setVisualFocus('$activeVisual');", null)
+                    }
+                    val activeAudio = audioFocusPart
+                    if (activeAudio != null) {
+                        webView.evaluateJavascript("if (window.setAudioFocus) window.setAudioFocus('$activeAudio');", null)
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("SyncDiag", "onRenderComplete EXCEPTION: ${e.message}", e)
