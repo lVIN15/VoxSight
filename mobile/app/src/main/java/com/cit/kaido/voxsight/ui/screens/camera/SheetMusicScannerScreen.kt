@@ -441,7 +441,7 @@ fun SheetMusicScannerScreen(
                         if (capturedPages.isNotEmpty()) {
                             val lastPage = capturedPages.last()
                             val bitmap = remember(lastPage.absolutePath) {
-                                BitmapFactory.decodeFile(lastPage.absolutePath)
+                                ImageOptimizationHelper.loadThumbnail(lastPage, maxDim = 200)
                             }
 
                             Box(
@@ -644,7 +644,7 @@ fun SheetMusicScannerScreen(
                     ) {
                         itemsIndexed(capturedPages) { index, file ->
                             val bitmap = remember(file.absolutePath) {
-                                BitmapFactory.decodeFile(file.absolutePath)
+                                ImageOptimizationHelper.loadThumbnail(file, maxDim = 300)
                             }
                             val isBlank = remember(file.absolutePath) {
                                 bitmap?.let { ImageOptimizationHelper.isBitmapBlank(it) } ?: false

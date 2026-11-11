@@ -255,6 +255,29 @@ object ImageOptimizationHelper {
     }
 
     /**
+     * Efficiently loads a downsampled thumbnail of an image file to prevent OutOfMemoryError in UI previews.
+     */
+    fun loadThumbnail(file: File, maxDim: Int = 300): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            val maxOriginalDim = max(options.outWidth, options.outHeight)
+            if (maxOriginalDim <= 0) return null
+            var sampleSize = 1
+            while ((maxOriginalDim / (sampleSize * 2)) >= maxDim) {
+                sampleSize *= 2
+            }
+            options.inJustDecodeBounds = false
+            options.inSampleSize = sampleSize
+            options.inPreferredConfig = Bitmap.Config.RGB_565
+            BitmapFactory.decodeFile(file.absolutePath, options)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading thumbnail for ${file.name}", e)
+            null
+        }
+    }
+
+    /**
      * Quickly checks if a bitmap appears to be blank or nearly empty (less than 0.4% dark pixels).
      * Fast grid sampling (< 1ms overhead) suitable for UI display.
      */
