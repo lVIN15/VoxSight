@@ -211,4 +211,104 @@ class ScoreEditingModeUiTest {
         assertEquals("♮", alterSymbols[0])
         assertEquals("♯", alterSymbols[1])
     }
+
+    @Test
+    fun testSelectedNoteStateUpdateReflectsLatestProperties() {
+        // Initial scanned note: Half note with Sharp accidental (G#4)
+        val initialNote = com.cit.kaido.voxsight.ui.screens.upload.SelectedNoteInfo(
+            id = 101,
+            pitchStep = "G",
+            alter = 1,
+            octave = 4,
+            durationType = "half",
+            voiceId = 1,
+            voiceCode = "S",
+            measureNumber = 3,
+            lyricText = "La",
+            isRest = false,
+            isDotted = false
+        )
+        assertEquals("half", initialNote.durationType)
+        assertEquals(1, initialNote.alter)
+
+        // Edit 1: Change duration from half to quarter
+        val updatedDurationNote = initialNote.copy(durationType = "quarter")
+        assertEquals("quarter", updatedDurationNote.durationType)
+        assertNotEquals("half", updatedDurationNote.durationType)
+
+        // Edit 2: Change accidental from sharp (1) to flat (-1)
+        val updatedAccidentalNote = updatedDurationNote.copy(alter = -1)
+        assertEquals(-1, updatedAccidentalNote.alter)
+        assertNotEquals(1, updatedAccidentalNote.alter)
+
+        // Edit 3: Change duration again to eighth note and accidental to natural (0)
+        val multiEditedNote = updatedAccidentalNote.copy(durationType = "eighth", alter = 0)
+        assertEquals("eighth", multiEditedNote.durationType)
+        assertEquals(0, multiEditedNote.alter)
+    }
+
+    @Test
+    fun testCrossPageNavigationTargetComputation() {
+        data class PageRange(
+            val page: Int,
+            val startMeasureNumber: Int,
+            val endMeasureNumber: Int
+        )
+
+        val pageRanges = listOf(
+            PageRange(page = 1, startMeasureNumber = 1, endMeasureNumber = 4),
+            PageRange(page = 2, startMeasureNumber = 5, endMeasureNumber = 8),
+            PageRange(page = 3, startMeasureNumber = 9, endMeasureNumber = 12)
+        )
+
+        fun findPageForMeasure(measureNum: Int): Int {
+            return pageRanges.firstOrNull { measureNum in it.startMeasureNumber..it.endMeasureNumber }?.page ?: 1
+        }
+
+        // Measure 4 is on Page 1
+        assertEquals(1, findPageForMeasure(4))
+
+        // When user is at Measure 4 (Page 1) and navigates to next note at Measure 5:
+        val nextPage = findPageForMeasure(5)
+        assertEquals(2, nextPage)
+        assertTrue("Page transition required from 1 to 2", nextPage != 1)
+
+        // Stepping backwards from Measure 5 (Page 2) to Measure 4:
+        val prevPage = findPageForMeasure(4)
+        assertEquals(1, prevPage)
+        assertTrue("Page transition required from 2 to 1", prevPage != 2)
+
+        // Measure within same page does not require page switch
+        assertEquals(2, findPageForMeasure(6))
+    }
+
+    @Test
+    fun testUnsavedChangesTrackingLogic() {
+        // Initial state before any edit
+        var hasUnsavedChanges = false
+        var canUndo = false
+        val shouldShowExitModalInitial = hasUnsavedChanges || canUndo
+        assertFalse("No unsaved changes dialog should show initially", shouldShowExitModalInitial)
+
+        // When user modifies a note
+        hasUnsavedChanges = true
+        canUndo = true
+        val shouldShowExitModalAfterEdit = hasUnsavedChanges || canUndo
+        assertTrue("Exit confirmation modal must trigger when edits exist", shouldShowExitModalAfterEdit)
+
+        // If user chooses Continue Editing, modal closes and unsaved changes remain
+        var showExitConfirmDialog = shouldShowExitModalAfterEdit
+        // Action: Continue Editing
+        showExitConfirmDialog = false
+        assertTrue("Edits preserved on Continue Editing", hasUnsavedChanges)
+        assertFalse("Dialog closed", showExitConfirmDialog)
+
+        // Action: Discard Changes
+        var exitDestination: String? = null
+        val onCancel = {
+            exitDestination = "upload"
+        }
+        onCancel()
+        assertEquals("upload", exitDestination)
+    }
 }

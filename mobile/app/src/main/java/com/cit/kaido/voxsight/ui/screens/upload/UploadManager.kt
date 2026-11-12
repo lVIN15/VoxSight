@@ -56,6 +56,8 @@ object UploadManager {
     var pendingScoreTitle: String? = null
     var pendingFileName: String? = null
     var pendingOriginalUri: String? = null
+    var pendingEventsJson: String? = null
+    var pendingMetadataJson: String? = null
     var activeError: String? = null
     val activeErrorFlow = MutableStateFlow<String?>(null)
     val navigateToReview = MutableStateFlow(false)
@@ -220,6 +222,8 @@ object UploadManager {
         activeErrorFlow.value = null
         pendingMusicXml = null
         pendingScoreTitle = null
+        pendingEventsJson = null
+        pendingMetadataJson = null
         navigateToReview.value = false
         uploadProgress.value = 0f
         uploadPhaseText.value = "Reading selected file..."
@@ -241,9 +245,16 @@ object UploadManager {
     /**
      * Transitions to [ImportOperationState.READY] upon successful score analysis.
      */
-    fun markReady(musicXml: String, scoreTitle: String) = synchronized(stateLock) {
+    fun markReady(
+        musicXml: String,
+        scoreTitle: String,
+        eventsJson: String? = null,
+        metadataJson: String? = null
+    ) = synchronized(stateLock) {
         pendingMusicXml = musicXml
         pendingScoreTitle = scoreTitle
+        pendingEventsJson = eventsJson
+        pendingMetadataJson = metadataJson
         uploadProgress.value = 1f
         uploadPhaseText.value = "Score ready!"
         uploadStatus.value = UploadStatus.READY
@@ -285,6 +296,8 @@ object UploadManager {
         pendingMusicXml = null
         pendingScoreTitle = null
         pendingFileName = null
+        pendingEventsJson = null
+        pendingMetadataJson = null
         activeError = null
         activeErrorFlow.value = null
         navigateToReview.value = false
@@ -513,7 +526,18 @@ object UploadManager {
                         contentIntent = pendingIntent
                     )
 
-                    markReady(response.musicXml, scoreTitle)
+                    val gson = Gson()
+                    val cachedEventsJson = response.events
+                        ?.takeIf { it.isNotEmpty() && it.any { ev -> ev.sourceNoteId != null } }
+                        ?.let { gson.toJson(it) }
+                    val cachedMetadataJson = response.scoreMetadata?.let { gson.toJson(it) }
+
+                    markReady(
+                        musicXml = response.musicXml,
+                        scoreTitle = scoreTitle,
+                        eventsJson = cachedEventsJson,
+                        metadataJson = cachedMetadataJson
+                    )
                     navigateToReview.value = true
                     withContext(Dispatchers.Main) {
                         onSuccess(response.musicXml, scoreTitle)

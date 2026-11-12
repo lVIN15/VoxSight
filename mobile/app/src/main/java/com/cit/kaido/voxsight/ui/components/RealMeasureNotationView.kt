@@ -2,15 +2,36 @@ package com.cit.kaido.voxsight.ui.components
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,14 +45,453 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cit.kaido.voxsight.model.SATBVoice
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlNote
+import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlPart
 import com.cit.kaido.voxsight.ui.screens.practice.MusicXmlScore
 import com.cit.kaido.voxsight.pitch.PitchAttempt
 import kotlin.math.abs
 import kotlin.math.min
+
+/**
+ * High-level pitch classification categories for individual notes.
+ */
+enum class NotePitchStatus {
+    IN_TUNE,
+    SUNG_SHARP,
+    SUNG_FLAT,
+    NOT_SUNG
+}
+
+/**
+ * Detailed pitch evaluation record for a single note within a practice measure.
+ */
+data class FlaggedNoteDetail(
+    val noteIndex: Int,
+    val noteName: String,
+    val lyric: String?,
+    val status: NotePitchStatus,
+    val statusLabel: String,
+    val deviationCents: Float?,
+    val isFlagged: Boolean,
+    val badgeColor: Color,
+    val badgeBg: Color
+)
+
+private data class NoteClassificationColors(
+    val status: NotePitchStatus,
+    val statusLabel: String,
+    val color: Color,
+    val bg: Color
+)
+
+/**
+ * Pure evaluator mapping notes of a measure to their exact pitch evaluation status.
+ * Ensures strict 1:1 classification without duplicate counting.
+ */
+fun evaluateMeasureNoteDetails(
+    filteredNotes: List<MusicXmlNote>,
+    measureNumber: Int,
+    pitchAttempts: List<PitchAttempt>
+): List<FlaggedNoteDetail> {
+    val pitchedNotes = filteredNotes.filter { !it.isRest }
+    return pitchedNotes.mapIndexed { index, note ->
+        val noteAttempts = matchAttemptsForMeasureNote(
+            note = note,
+            measureNumber = measureNumber,
+            pitchAttempts = pitchAttempts
+        )
+        val isAttempted = noteAttempts.isNotEmpty()
+        val hasMatch = noteAttempts.any { it.isMatch }
+        val validDeviations = noteAttempts.map { it.deviationCents }.filter { abs(it) < 500f }
+        val avgDev = if (validDeviations.isNotEmpty()) {
+            validDeviations.average().toFloat()
+        } else if (isAttempted) {
+            noteAttempts.map { it.deviationCents }.average().toFloat()
+        } else 0f
+
+        val (status, statusLabel, color, bg) = when {
+            !isAttempted -> {
+                NoteClassificationColors(NotePitchStatus.NOT_SUNG, "Not Sung", Color(0xFF6E717E), Color(0xFFF1F2F6))
+            }
+            !hasMatch -> {
+                if (avgDev > 0f) {
+                    NoteClassificationColors(NotePitchStatus.SUNG_SHARP, "Sung Sharp", Color(0xFFE65100), Color(0xFFFFF3E0))
+                } else {
+                    NoteClassificationColors(NotePitchStatus.SUNG_FLAT, "Sung Flat", Color(0xFFC62828), Color(0xFFFFEBEE))
+                }
+            }
+            avgDev > 25f -> {
+                NoteClassificationColors(NotePitchStatus.SUNG_SHARP, "Sung Sharp", Color(0xFFE65100), Color(0xFFFFF3E0))
+            }
+            avgDev < -25f -> {
+                NoteClassificationColors(NotePitchStatus.SUNG_FLAT, "Sung Flat", Color(0xFFC62828), Color(0xFFFFEBEE))
+            }
+            else -> {
+                NoteClassificationColors(NotePitchStatus.IN_TUNE, "In Tune", Color(0xFF1B5E20), Color(0xFFE8F5E9))
+            }
+        }
+
+        val stepFormatted = note.step.replace("#", "♯").replace("b", "♭")
+        val noteName = "$stepFormatted${note.octave}"
+        val directLyric = note.lyric?.trim()?.takeIf { it.isNotBlank() }
+
+        FlaggedNoteDetail(
+            noteIndex = index + 1,
+            noteName = noteName,
+            lyric = directLyric,
+            status = status,
+            statusLabel = statusLabel,
+            deviationCents = if (isAttempted) avgDev else null,
+            isFlagged = (status != NotePitchStatus.IN_TUNE),
+            badgeColor = color,
+            badgeBg = bg
+        )
+    }
+}
+
+private val SUMMARY_EVENT_ID_REGEX = Regex("^t(\\d+)-p(\\d+)-c(\\d+)$")
+
+private fun diatonicStepIndex(step: String): Int {
+    val cleanStep = step.take(1).uppercase()
+    return when (cleanStep) {
+        "C" -> 0
+        "D" -> 1
+        "E" -> 2
+        "F" -> 3
+        "G" -> 4
+        "A" -> 5
+        "B" -> 6
+        else -> 0
+    }
+}
+
+private fun isSoloPartSummaryCandidate(part: MusicXmlPart): Boolean {
+    val pName = part.name.trim().lowercase()
+    return listOf("solo", "baritone", "cantor", "leader", "descant", "obbligato", "sol.").any { pName.contains(it) } ||
+        part.notes.any { !it.isRest && (it.customVoice == 5 || it.voice == 5) }
+}
+
+private fun isAccompanimentPartSummaryCandidate(part: MusicXmlPart): Boolean {
+    val pName = part.name.trim().lowercase()
+    return listOf("other", "accomp", "piano", "organ", "keyboard", "guitar", "strings", "orch").any { pName.contains(it) }
+}
+
+private fun doesPartMatchSelectedVoice(part: MusicXmlPart, voice: SATBVoice): Boolean {
+    val pName = part.name.trim().lowercase()
+    val isSolo = isSoloPartSummaryCandidate(part)
+    val isAccomp = isAccompanimentPartSummaryCandidate(part)
+    val isCondensedSA = (pName.contains("soprano") && pName.contains("alto")) ||
+        pName.contains("s/a") || pName.contains("s & a") || pName.contains("s.a.") ||
+        pName.contains("s. a.") || pName == "sa" || pName.contains("women") || pName.contains("treble")
+    val isCondensedTB = (pName.contains("tenor") && pName.contains("bass")) ||
+        pName.contains("t/b") || pName.contains("t & b") || pName.contains("t.b.") ||
+        pName.contains("t. b.") || pName == "tb" || pName.contains("men")
+
+    return when (voice) {
+        SATBVoice.SOLO -> isSolo
+        SATBVoice.OTHERS -> isAccomp
+        SATBVoice.SOPRANO -> !isSolo && !isAccomp && (
+            pName.contains("soprano") || pName == "s" || pName.startsWith("s.") ||
+            Regex("(?i)\\bs\\b").containsMatchIn(pName) || isCondensedSA
+        )
+        SATBVoice.ALTO -> !isSolo && !isAccomp && (
+            pName.contains("alto") || pName == "a" || pName.startsWith("a.") ||
+            Regex("(?i)\\ba\\b").containsMatchIn(pName) || isCondensedSA
+        )
+        SATBVoice.TENOR -> !isSolo && !isAccomp && (
+            pName.contains("tenor") || pName == "t" || pName.startsWith("t.") ||
+            Regex("(?i)\\bt\\b").containsMatchIn(pName) || isCondensedTB
+        )
+        SATBVoice.BASS -> !isSolo && !isAccomp && (
+            pName.contains("bass") || pName == "b" || pName.startsWith("b.") ||
+            Regex("(?i)\\bb\\b").containsMatchIn(pName) || isCondensedTB
+        )
+        SATBVoice.UNKNOWN -> !isAccomp
+    }
+}
+
+/**
+ * Resolves the exact single-measure musical content for the user's selected vocal part in Practice Summary.
+ *
+ * Guarantees:
+ * 1. Never misidentifies Part 1 ("Baritone Solo" / "Solo") as Soprano in 5-part Solo+SATB scores.
+ * 2. Handles split-system multi-part scores (e.g., 6-page Awit ng Paghahangad where Soprano notes are in P4
+ *    for M1-M7 and P1 for M8-M24) by preferring parts with active pitched notes in [measureNumber].
+ * 3. Disambiguates duplicate XML measure numbers across system breaks via [MusicXmlNote.measureIndex].
+ * 4. Preserves authentic leading/interleaved rests while stripping polyphonic backup filler rests that
+ *    overlap active sustained pitched notes in the same measure.
+ */
+fun resolveMeasureNotesForSummary(
+    measureNumber: Int,
+    score: MusicXmlScore?,
+    voice: SATBVoice = SATBVoice.SOPRANO,
+    pitchAttempts: List<PitchAttempt> = emptyList()
+): List<MusicXmlNote> {
+    if (score == null) return emptyList()
+
+    val voiceIndex = when (voice) {
+        SATBVoice.SOPRANO -> 1
+        SATBVoice.ALTO -> 2
+        SATBVoice.TENOR -> 3
+        SATBVoice.BASS -> 4
+        SATBVoice.SOLO -> 5
+        SATBVoice.OTHERS -> 6
+        SATBVoice.UNKNOWN -> 1
+    }
+    val isLowerVoice = voice == SATBVoice.ALTO || voice == SATBVoice.BASS
+
+    val measureAttempts = pitchAttempts.filter { it.measureNumber == measureNumber }
+    val attemptedPartIdsInMeasure = measureAttempts.mapNotNull {
+        SUMMARY_EVENT_ID_REGEX.matchEntire(it.eventId.trim())?.groupValues?.getOrNull(2)?.toIntOrNull()
+    }.toSet()
+    val attemptedTicksInMeasure = measureAttempts.mapNotNull {
+        SUMMARY_EVENT_ID_REGEX.matchEntire(it.eventId.trim())?.groupValues?.getOrNull(1)?.toIntOrNull()
+    }.toSet()
+    val attemptedPartIdsInSession = pitchAttempts.mapNotNull {
+        SUMMARY_EVENT_ID_REGEX.matchEntire(it.eventId.trim())?.groupValues?.getOrNull(2)?.toIntOrNull()
+    }.toSet()
+
+    val rawCandidateNotes: List<MusicXmlNote> = if (score.parts.isNotEmpty()) {
+        val nonSoloChoralParts = score.parts.filter {
+            !isSoloPartSummaryCandidate(it) && !isAccompanimentPartSummaryCandidate(it)
+        }
+        val positionalPart = when (voice) {
+            SATBVoice.SOPRANO -> nonSoloChoralParts.getOrNull(0)
+            SATBVoice.ALTO -> nonSoloChoralParts.getOrNull(1) ?: nonSoloChoralParts.getOrNull(0)
+            SATBVoice.TENOR -> nonSoloChoralParts.getOrNull(2) ?: nonSoloChoralParts.lastOrNull()
+            SATBVoice.BASS -> nonSoloChoralParts.getOrNull(3) ?: nonSoloChoralParts.lastOrNull()
+            SATBVoice.SOLO -> score.parts.firstOrNull { isSoloPartSummaryCandidate(it) }
+            SATBVoice.OTHERS -> score.parts.firstOrNull { isAccompanimentPartSummaryCandidate(it) }
+            SATBVoice.UNKNOWN -> score.parts.firstOrNull()
+        }
+
+        val namedMatchingParts = score.parts.filter { doesPartMatchSelectedVoice(it, voice) }
+
+        val selectedPart: MusicXmlPart? =
+            // 1. Part explicitly referenced by PitchAttempt eventId in this measure that has pitched notes
+            score.parts.firstOrNull { part ->
+                part.id in attemptedPartIdsInMeasure &&
+                    part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }
+            // 2. Named matching part (also in session's attempted parts) with pitched notes in this measure
+            ?: namedMatchingParts.firstOrNull { part ->
+                part.id in attemptedPartIdsInSession &&
+                    part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }
+            // 3. Any named matching part with pitched notes in this measure (handles split-system parts like P1="S" vs P4="Soprano")
+            ?: namedMatchingParts.firstOrNull { part ->
+                part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }
+            // 4. Any part containing pitched notes tagged with voiceIndex in this measure
+            ?: score.parts.firstOrNull { part ->
+                part.notes.any {
+                    it.measureNumber == measureNumber && !it.isRest &&
+                        (it.voice == voiceIndex || it.customVoice == voiceIndex)
+                }
+            }
+            // 5. Positional choral fallback part if it has pitched notes in this measure
+            ?: positionalPart?.takeIf { part ->
+                part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }
+            // 6. Session-attempted part or single active cutaway staff in this measure
+            ?: score.parts.firstOrNull { part ->
+                part.id in attemptedPartIdsInSession &&
+                    part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }
+            ?: score.parts.filter { part ->
+                !isAccompanimentPartSummaryCandidate(part) &&
+                    part.notes.any { it.measureNumber == measureNumber && !it.isRest }
+            }.takeIf { it.size == 1 || measureAttempts.isNotEmpty() }?.firstOrNull()
+            // 7. Fallback to named or positional part even if resting in this measure
+            ?: namedMatchingParts.firstOrNull()
+            ?: positionalPart
+            ?: score.parts.firstOrNull()
+
+        selectedPart?.notes?.filter { it.measureNumber == measureNumber } ?: emptyList()
+    } else {
+        val allMeasureNotes = score.notes.filter { it.measureNumber == measureNumber }
+        val voicePitched = allMeasureNotes.filter { !it.isRest && (it.voice == voiceIndex || it.customVoice == voiceIndex) }
+        if (voicePitched.isNotEmpty()) {
+            allMeasureNotes.filter { it.isRest || it.voice == voiceIndex || it.customVoice == voiceIndex }
+        } else {
+            allMeasureNotes
+        }
+    }
+
+    if (rawCandidateNotes.isEmpty()) return emptyList()
+
+    // Disambiguate duplicate measure numbers (e.g., split systems sharing the same XML measure number)
+    val byMeasureIndex = rawCandidateNotes.groupBy { it.measureIndex }
+    val singleMeasureNotes = if (byMeasureIndex.size <= 1) {
+        rawCandidateNotes
+    } else {
+        byMeasureIndex.values.maxByOrNull { notesInIdx ->
+            val tickMatches = notesInIdx.count { !it.isRest && it.startTimeDivisions in attemptedTicksInMeasure }
+            val pitchedCount = notesInIdx.count { !it.isRest }
+            (tickMatches * 1000) + pitchedCount
+        } ?: rawCandidateNotes
+    }
+
+    // Measure-level shared lyric fallback across vocal parts
+    val measureLyricsByTick = score.notes
+        .filter { it.measureNumber == measureNumber && !it.lyric.isNullOrBlank() && it.voice != 6 && it.customVoice != 6 }
+        .associate { it.startTimeDivisions to it.lyric!!.trim() }
+
+    val hasVoiceSpecificPitched = singleMeasureNotes.any {
+        !it.isRest && (it.voice == voiceIndex || it.customVoice == voiceIndex)
+    }
+
+    val attemptsByTick = measureAttempts.mapNotNull { attempt ->
+        val tick = SUMMARY_EVENT_ID_REGEX.matchEntire(attempt.eventId.trim())
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+        if (tick != null) tick to attempt else null
+    }.groupBy({ it.first }, { it.second })
+
+    val sortedTickGroups = singleMeasureNotes
+        .groupBy { it.startTimeDivisions }
+        .entries
+        .sortedBy { it.key }
+
+    // First pass: resolve active pitched notes for the selected vocal line across the measure
+    val selectedPitchedByTick = linkedMapOf<Int, MusicXmlNote>()
+    var activeVoiceEndTick = -1
+
+    for ((tick, notesAtTick) in sortedTickGroups) {
+        val nonRests = notesAtTick.filter { !it.isRest }
+        if (nonRests.isEmpty()) continue
+
+        val voiceMatched = if (hasVoiceSpecificPitched) {
+            nonRests.filter { it.voice == voiceIndex || it.customVoice == voiceIndex }
+        } else {
+            nonRests
+        }
+
+        val pool = when {
+            voiceMatched.isNotEmpty() -> voiceMatched
+            // If another voice on a condensed staff has a note while the selected voice is still sustaining, skip
+            hasVoiceSpecificPitched && tick < activeVoiceEndTick -> emptyList()
+            else -> nonRests
+        }
+        if (pool.isEmpty()) continue
+
+        val attemptedNamesAtTick = attemptsByTick[tick]?.map { it.noteName.uppercase() }?.toSet() ?: emptySet()
+        val attemptMatchedPool = if (attemptedNamesAtTick.isNotEmpty()) {
+            pool.filter { "${it.step}${it.octave}".uppercase() in attemptedNamesAtTick }
+        } else {
+            emptyList()
+        }
+        val effectivePool = if (attemptMatchedPool.isNotEmpty()) attemptMatchedPool else pool
+
+        val selected = if (isLowerVoice) {
+            effectivePool.minByOrNull { (it.octave * 7) + diatonicStepIndex(it.step) } ?: effectivePool.first()
+        } else {
+            effectivePool.maxByOrNull { (it.octave * 7) + diatonicStepIndex(it.step) } ?: effectivePool.first()
+        }
+
+        val sharedLyric = notesAtTick.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric?.trim()
+            ?: measureLyricsByTick[selected.startTimeDivisions]
+        val finalNote = if (selected.lyric.isNullOrBlank() && sharedLyric != null) {
+            selected.copy(lyric = sharedLyric)
+        } else {
+            selected
+        }
+
+        selectedPitchedByTick[tick] = finalNote
+        activeVoiceEndTick = maxOf(activeVoiceEndTick, tick + finalNote.durationDivisions)
+    }
+
+    val pitchedNotesList = selectedPitchedByTick.values.toList()
+    if (pitchedNotesList.isEmpty()) {
+        // Measure genuinely contains only rests for this part; keep at most one rest (preferring whole/longest rest)
+        val firstTickRests = sortedTickGroups.firstOrNull()?.value ?: return emptyList()
+        val longestRest = firstTickRests.maxByOrNull { it.durationDivisions } ?: firstTickRests.first()
+        return listOf(longestRest)
+    }
+
+    // Second pass: combine pitched notes with genuine non-overlapping rests (excluding polyphonic backup rests)
+    val finalMeasureSequence = mutableListOf<MusicXmlNote>()
+    val wholeMeasureThreshold = (score.divisions * 3).coerceAtLeast(1440)
+
+    for ((tick, notesAtTick) in sortedTickGroups) {
+        val pitchedAtTick = selectedPitchedByTick[tick]
+        if (pitchedAtTick != null) {
+            finalMeasureSequence.add(pitchedAtTick)
+            continue
+        }
+
+        val restsAtTick = notesAtTick.filter { it.isRest }
+        if (restsAtTick.isEmpty()) continue
+
+        // Ignore rest if a pitched note in the selected voice is currently sustaining across this tick
+        val isCoveredBySustainedNote = pitchedNotesList.any { p ->
+            p.startTimeDivisions <= tick && tick < (p.startTimeDivisions + p.durationDivisions)
+        }
+        if (isCoveredBySustainedNote) continue
+
+        val candidateRest = restsAtTick.firstOrNull { it.voice == voiceIndex || it.customVoice == voiceIndex }
+            ?: restsAtTick.first()
+
+        // Ignore whole-measure placeholder rests from inactive backup voices when pitched notes exist in the measure
+        val isBackupWholeMeasureRest = candidateRest.type.equals("whole", ignoreCase = true) ||
+            (candidateRest.durationDivisions >= wholeMeasureThreshold &&
+                pitchedNotesList.any { p -> p.startTimeDivisions < candidateRest.startTimeDivisions + candidateRest.durationDivisions })
+        if (isBackupWholeMeasureRest) continue
+
+        finalMeasureSequence.add(candidateRest)
+    }
+
+    return finalMeasureSequence.sortedBy { it.startTimeDivisions }
+}
+
+/**
+ * Matches a rendered [MusicXmlNote] in [measureNumber] to its corresponding [PitchAttempt] evaluations.
+ * Prioritizes exact tick alignment from [PitchAttempt.eventId] (`t{tick}-p{part}-c{idx}`),
+ * and falls back to exact pitch name (`step + alter + octave`), avoiding false partial-letter matches.
+ */
+fun matchAttemptsForMeasureNote(
+    note: MusicXmlNote,
+    measureNumber: Int,
+    pitchAttempts: List<PitchAttempt>
+): List<PitchAttempt> {
+    if (note.isRest) return emptyList()
+    val measureAttempts = pitchAttempts.filter { it.measureNumber == measureNumber }
+    if (measureAttempts.isEmpty()) return emptyList()
+
+    val cleanPitchName = "${note.step}${note.octave}"
+
+    // 1. Match by exact tick position encoded in eventId (t{tick}-p{partId}-c{idx})
+    // Supports 1:1, 1:2, and 2:1 division scaling (e.g. 480 vs 960 divisions) with proportional tolerance
+    val tickMatched = measureAttempts.filter { attempt ->
+        val tick = SUMMARY_EVENT_ID_REGEX.matchEntire(attempt.eventId.trim())
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+        tick != null && (
+            abs(tick - note.startTimeDivisions) <= 15 ||
+            abs(tick / 2 - note.startTimeDivisions) <= 15 ||
+            abs(tick * 2 - note.startTimeDivisions) <= 15
+        )
+    }
+    if (tickMatched.isNotEmpty()) {
+        val exactPitchAtTick = tickMatched.filter { it.noteName.equals(cleanPitchName, ignoreCase = true) }
+        if (exactPitchAtTick.isNotEmpty()) {
+            return exactPitchAtTick
+        }
+    }
+
+    // 2. Fallback for legacy/custom eventIds: match by exact full pitch name (e.g. "C#4", "D4"), never by bare first letter
+    val pitchMatched = measureAttempts.filter { attempt ->
+        attempt.noteName.equals(cleanPitchName, ignoreCase = true)
+    }
+    if (pitchMatched.isNotEmpty()) {
+        return pitchMatched
+    }
+
+    // 3. Fallback: if tick matched and attempts have blank noteName
+    return tickMatched.filter { it.noteName.isBlank() }
+}
 
 /**
  * Authentic Sheet Music Measure View.
@@ -47,95 +507,26 @@ fun RealMeasureNotationView(
     pitchAttempts: List<PitchAttempt> = emptyList(),
     mistakeCount: Int = 0,
     isSharp: Boolean = false,
+    averageDeviation: Float = 0f,
     modifier: Modifier = Modifier
 ) {
-    fun stepIndex(step: String): Int {
-        val cleanStep = step.take(1).uppercase()
-        return when (cleanStep) {
-            "C" -> 0
-            "D" -> 1
-            "E" -> 2
-            "F" -> 3
-            "G" -> 4
-            "A" -> 5
-            "B" -> 6
-            else -> 0
-        }
-    }
+    fun stepIndex(step: String): Int = diatonicStepIndex(step)
 
-    val voiceIndex = when (voice) {
-        SATBVoice.SOPRANO -> 1
-        SATBVoice.ALTO -> 2
-        SATBVoice.TENOR -> 3
-        SATBVoice.BASS -> 4
-        SATBVoice.SOLO -> 5
-        SATBVoice.OTHERS -> 6
-        SATBVoice.UNKNOWN -> 1
-    }
+    val filteredNotes = resolveMeasureNotesForSummary(
+        measureNumber = measureNumber,
+        score = score,
+        voice = voice,
+        pitchAttempts = pitchAttempts
+    )
 
-    val isLowerVoice = voice == SATBVoice.ALTO || voice == SATBVoice.BASS
-
-    // 1. Isolate notes strictly for the user's selected vocal line to prevent multi-part overlap
-    val voicePartNotes = if (!score?.parts.isNullOrEmpty()) {
-        val targetPart = score?.parts?.firstOrNull { part ->
-            when (voice) {
-                SATBVoice.SOPRANO -> part.name.contains("soprano", true) || part.id == 1
-                SATBVoice.ALTO -> part.name.contains("alto", true) || part.id == 2
-                SATBVoice.TENOR -> part.name.contains("tenor", true) || part.id == 3
-                SATBVoice.BASS -> part.name.contains("bass", true) || part.id == 4
-                SATBVoice.SOLO -> part.name.contains("solo", true) || part.name.contains("cantor", true) || part.name.contains("leader", true) || part.id == 5
-                SATBVoice.OTHERS -> part.name.contains("other", true) || part.name.contains("accomp", true) || part.name.contains("piano", true) || part.name.contains("organ", true) || part.name.contains("keyboard", true) || part.name.contains("guitar", true) || part.id == 6
-                else -> part.id == 1
-            }
-        } ?: score?.parts?.getOrNull(voiceIndex - 1) ?: score?.parts?.firstOrNull()
-        targetPart?.notes?.filter { it.measureNumber == measureNumber } ?: emptyList()
-    } else {
-        emptyList()
-    }
-
-    val baseNotes = if (voicePartNotes.isNotEmpty()) {
-        val matchingVoice = voicePartNotes.filter { it.voice == voiceIndex || it.customVoice == voiceIndex }
-        if (matchingVoice.isNotEmpty()) matchingVoice else voicePartNotes
-    } else {
-        val allMeasureNotes = score?.notes?.filter { it.measureNumber == measureNumber } ?: emptyList()
-        val voiceSpecific = allMeasureNotes.filter { it.voice == voiceIndex || it.customVoice == voiceIndex }
-        if (voiceSpecific.isNotEmpty()) voiceSpecific else allMeasureNotes
-    }
-
-    // Measure-level shared lyric fallback across all parts in the score
-    val measureLyricsByTick = score?.notes
-        ?.filter { it.measureNumber == measureNumber && !it.lyric.isNullOrBlank() }
-        ?.associate { it.startTimeDivisions to it.lyric!!.trim() }
-        ?: emptyMap()
-
-    // Deduplicate chord/simultaneous notes at the exact same startTimeDivisions for the selected line.
-    // For Soprano/Tenor, pick the upper melody note; for Alto/Bass, pick the lower harmony note.
-    // If a tick contains both pitched notes and rests, prioritize pitched notes.
-    // Inherit the shared lyric from the beat group if the individual note lacks one.
-    val filteredNotes = baseNotes
-        .groupBy { it.startTimeDivisions }
-        .values
-        .map { notesAtTick ->
-            val nonRests = notesAtTick.filter { !it.isRest }
-            val pool = if (nonRests.isNotEmpty()) nonRests else notesAtTick
-            val selected = if (isLowerVoice) {
-                pool.minByOrNull { (it.octave * 7) + stepIndex(it.step) } ?: pool.first()
-            } else {
-                pool.maxByOrNull { (it.octave * 7) + stepIndex(it.step) } ?: pool.first()
-            }
-            val sharedLyric = notesAtTick.firstOrNull { !it.lyric.isNullOrBlank() }?.lyric?.trim()
-                ?: measureLyricsByTick[selected.startTimeDivisions]
-
-            if (selected.lyric.isNullOrBlank() && sharedLyric != null) {
-                selected.copy(lyric = sharedLyric)
-            } else {
-                selected
-            }
-        }
-        .sortedBy { it.startTimeDivisions }
-
-    // Determine Clef based on SATB voice
-    val isBassClef = voice == SATBVoice.TENOR || voice == SATBVoice.BASS
+    // Determine Clef based on SATB voice (and tessitura for Solo parts like Baritone Solo)
+    val pitchedNotesInMeasure = filteredNotes.filter { !it.isRest }
+    val avgDiatonic = if (pitchedNotesInMeasure.isNotEmpty()) {
+        pitchedNotesInMeasure.map { (it.octave * 7) + stepIndex(it.step) }.average()
+    } else 30.0
+    val isBassClef = voice == SATBVoice.TENOR ||
+        voice == SATBVoice.BASS ||
+        (voice == SATBVoice.SOLO && pitchedNotesInMeasure.isNotEmpty() && avgDiatonic < 27.5)
     val clefSymbol = if (isBassClef) "𝄢" else "𝄞"
     val clefLabel = if (isBassClef) "Bass Clef (F)" else "Treble Clef (G)"
     val baselineDiatonic = if (isBassClef) 18 else 30
@@ -220,18 +611,33 @@ fun RealMeasureNotationView(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            // Header: Measure badge + Clef info + Mistake indicator
+            var isExpanded by remember { mutableStateOf(false) }
+
+            val noteDetails = remember(filteredNotes, pitchAttempts, measureNumber) {
+                evaluateMeasureNoteDetails(
+                    filteredNotes = filteredNotes,
+                    measureNumber = measureNumber,
+                    pitchAttempts = pitchAttempts
+                )
+            }
+            val flaggedNotes = noteDetails.filter { it.isFlagged }
+
+            // Header: Measure badge + Clef info (left) & Interactive Flagged Button (right)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Left: Measure Badge + Clef (weighted to prevent crowding and support clean truncation)
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFFEDE7F6))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 7.dp, vertical = 2.5.dp)
                     ) {
                         Text(
                             text = "MEASURE $measureNumber",
@@ -242,36 +648,210 @@ fun RealMeasureNotationView(
                             color = Color(0xFF5E35B1)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "$clefSymbol $clefLabel",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF6E717E)
+                        color = Color(0xFF6E717E),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                if (mistakeCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFFFEBEE))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Interactive Flagged / Pitch Issue Button
+                val count = flaggedNotes.size
+                val hasFlagged = count > 0 || mistakeCount > 0
+                val allSharp = flaggedNotes.isNotEmpty() && flaggedNotes.all { it.status == NotePitchStatus.SUNG_SHARP }
+                val allNotSung = flaggedNotes.isNotEmpty() && flaggedNotes.all { it.status == NotePitchStatus.NOT_SUNG }
+                val hasIntonation = !hasFlagged && (abs(averageDeviation) > 20f || isSharp)
+
+                val buttonLabel = when {
+                    count > 0 -> "$count Flagged"
+                    mistakeCount > 0 -> "$mistakeCount Flagged"
+                    hasIntonation -> if (isSharp) "Sung Sharp" else "Sung Flat"
+                    else -> "In Tune"
+                }
+
+                val buttonColor = when {
+                    allSharp -> Color(0xFFD97706)
+                    allNotSung -> Color(0xFF4B5563)
+                    hasFlagged -> Color(0xFFDC2626)
+                    hasIntonation -> if (isSharp) Color(0xFFD97706) else Color(0xFFDC2626)
+                    else -> Color(0xFF059669)
+                }
+
+                val buttonBg = when {
+                    allSharp -> Color(0xFFFFFBEB)
+                    allNotSung -> Color(0xFFF3F4F6)
+                    hasFlagged -> Color(0xFFFEF2F2)
+                    hasIntonation -> if (isSharp) Color(0xFFFFFBEB) else Color(0xFFFEF2F2)
+                    else -> Color(0xFFECFDF5)
+                }
+
+                val buttonIcon = when {
+                    allSharp -> Icons.Outlined.WarningAmber
+                    allNotSung -> Icons.Outlined.Info
+                    hasFlagged -> Icons.Outlined.ErrorOutline
+                    hasIntonation -> Icons.Outlined.WarningAmber
+                    else -> Icons.Outlined.CheckCircle
+                }
+
+                val canExpand = noteDetails.isNotEmpty()
+
+                // Sleek, distinctly clickable button with clear visual boundary and tactile state feedback
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isExpanded) buttonColor.copy(alpha = 0.14f) else buttonBg,
+                    border = BorderStroke(
+                        width = if (isExpanded) 1.5.dp else 1.dp,
+                        color = if (isExpanded) buttonColor else buttonColor.copy(alpha = 0.5f)
+                    ),
+                    shadowElevation = if (isExpanded) 0.dp else 1.dp,
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(enabled = canExpand) { isExpanded = !isExpanded }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "$mistakeCount ${if (mistakeCount == 1) "MISTAKE" else "MISTAKES"}",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = Color(0xFFC62828)
+                        Icon(
+                            imageVector = buttonIcon,
+                            contentDescription = null,
+                            tint = buttonColor,
+                            modifier = Modifier.size(13.dp)
                         )
+                        Text(
+                            text = buttonLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            ),
+                            color = buttonColor
+                        )
+                        if (canExpand) {
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = if (isExpanded) "Collapse details" else "Expand note details",
+                                tint = buttonColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
-                } else {
-                    val pitchNotesCount = filteredNotes.count { !it.isRest }
-                    Text(
-                        text = "$pitchNotesCount ${if (pitchNotesCount == 1) "Note" else "Notes"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF8D909F)
-                    )
+                }
+            }
+
+            // Expandable Dropdown Details: Note-by-note evaluation breakdown
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF8F9FD),
+                    border = BorderStroke(1.dp, Color(0xFFE2E4ED)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "NOTE-BY-NOTE PITCH BREAKDOWN",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.5.sp,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = Color(0xFF5E35B1)
+                            )
+                            Text(
+                                text = "${flaggedNotes.size} of ${noteDetails.size} need attention",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = Color(0xFF6E717E)
+                            )
+                        }
+
+                        HorizontalDivider(color = Color(0xFFE5E7EB), thickness = 0.8.dp)
+
+                        noteDetails.forEach { detail ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (detail.isFlagged) detail.badgeBg.copy(alpha = 0.55f) else Color.Transparent)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Left: Status dot + Note index & pitch name (+ lyric if available)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(detail.badgeColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val lyricText = if (!detail.lyric.isNullOrBlank()) " • \"${detail.lyric}\"" else ""
+                                    Text(
+                                        text = "Note ${detail.noteIndex} (${detail.noteName}$lyricText)",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontWeight = if (detail.isFlagged) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 12.5.sp
+                                        ),
+                                        color = if (detail.isFlagged) Color(0xFF191C20) else Color(0xFF4A4452),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                // Right: Reason label ("Sung Flat", "Sung Sharp", "Not Sung", "In Tune") + secondary cents
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        text = detail.statusLabel,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp
+                                        ),
+                                        color = detail.badgeColor
+                                    )
+                                    if (detail.deviationCents != null && detail.status != NotePitchStatus.NOT_SUNG) {
+                                        val sign = if (detail.deviationCents > 0) "+" else ""
+                                        Text(
+                                            text = " ($sign${detail.deviationCents.toInt()}¢)",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Normal
+                                            ),
+                                            color = Color(0xFF6E717E)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -527,6 +1107,13 @@ fun RealMeasureNotationView(
                                 drawLine(color = restColor, start = Offset(noteX - 2.dp.toPx(), midY - 3.dp.toPx()), end = Offset(noteX + 2.5.dp.toPx(), midY - 6.dp.toPx()), strokeWidth = 1.8.dp.toPx())
                                 drawLine(color = restColor, start = Offset(noteX + 2.5.dp.toPx(), midY - 6.dp.toPx()), end = Offset(noteX - 1.5.dp.toPx(), midY + 8.dp.toPx()), strokeWidth = 1.8.dp.toPx())
                             }
+                            "16th" -> {
+                                drawCircle(color = restColor, radius = 2.0.dp.toPx(), center = Offset(noteX - 1.5.dp.toPx(), midY - 4.5.dp.toPx()))
+                                drawLine(color = restColor, start = Offset(noteX - 1.5.dp.toPx(), midY - 4.5.dp.toPx()), end = Offset(noteX + 2.8.dp.toPx(), midY - 7.dp.toPx()), strokeWidth = 1.6.dp.toPx())
+                                drawCircle(color = restColor, radius = 2.0.dp.toPx(), center = Offset(noteX - 2.5.dp.toPx(), midY + 0.5.dp.toPx()))
+                                drawLine(color = restColor, start = Offset(noteX - 2.5.dp.toPx(), midY + 0.5.dp.toPx()), end = Offset(noteX + 1.8.dp.toPx(), midY - 2.dp.toPx()), strokeWidth = 1.6.dp.toPx())
+                                drawLine(color = restColor, start = Offset(noteX + 2.8.dp.toPx(), midY - 7.dp.toPx()), end = Offset(noteX - 1.8.dp.toPx(), midY + 9.dp.toPx()), strokeWidth = 1.8.dp.toPx())
+                            }
                             else -> {
                                 // Quarter rest (classic angular shape)
                                 val qRestPath = Path().apply {
@@ -553,39 +1140,49 @@ fun RealMeasureNotationView(
                         return@forEachIndexed
                     }
 
-                    // Determine note attempt result / error state
-                    val cleanPitchName = "${note.step}${note.octave}"
-                    val noteAttempts = pitchAttempts.filter { attempt ->
-                        attempt.measureNumber == measureNumber &&
-                        (attempt.noteName.equals(cleanPitchName, ignoreCase = true) ||
-                         attempt.noteName.startsWith(note.step.take(1), ignoreCase = true))
-                    }
+                    // Determine note attempt result / error state using tick + pitch matching
+                    val noteAttempts = matchAttemptsForMeasureNote(
+                        note = note,
+                        measureNumber = measureNumber,
+                        pitchAttempts = pitchAttempts
+                    )
 
                     val isAttempted = noteAttempts.isNotEmpty()
                     val hasMatch = noteAttempts.any { it.isMatch }
-                    val avgDev = if (isAttempted) {
+                    val validDeviations = noteAttempts.map { it.deviationCents }.filter { abs(it) < 500f }
+                    val avgDev = if (validDeviations.isNotEmpty()) {
+                        validDeviations.average().toFloat()
+                    } else if (isAttempted) {
                         noteAttempts.map { it.deviationCents }.average().toFloat()
                     } else 0f
 
                     val isError = isAttempted && !hasMatch
+                    val isIntonationOff = isAttempted && hasMatch && abs(avgDev) > 25f
 
                     // Highlight colors:
                     // Amber for Sharp (+ cents), Red for Flat (- cents), Dark slate for unattempted, Deep green for match
                     val noteColor = when {
                         !isAttempted -> Color(0xFF2C3040)
-                        hasMatch -> Color(0xFF1B5E20) // Deep green match
-                        avgDev > 0f -> Color(0xFFE65100) // Sharp amber
-                        else -> Color(0xFFC62828) // Flat crimson
+                        isError -> if (avgDev > 0f) Color(0xFFE65100) else Color(0xFFC62828)
+                        avgDev > 25f -> Color(0xFFE65100) // Sharp tendency
+                        avgDev < -25f -> Color(0xFFC62828) // Flat tendency
+                        else -> Color(0xFF1B5E20) // Deep green match
                     }
 
                     val noteRadiusX = 5.5.dp.toPx()
                     val noteRadiusY = 4.2.dp.toPx()
 
-                    // Subtle highlight ring behind error notes for clear feedback
+                    // Subtle highlight ring behind error or intonation-drift notes for clear feedback
                     if (isError) {
                         drawCircle(
-                            color = (if (avgDev > 0f) Color(0xFFFFE0B2) else Color(0xFFFFCDD2)).copy(alpha = 0.55f),
+                            color = (if (avgDev > 0f) Color(0xFFFFE0B2) else Color(0xFFFFCDD2)).copy(alpha = 0.65f),
                             radius = 12.dp.toPx(),
+                            center = Offset(noteX, noteY)
+                        )
+                    } else if (isIntonationOff) {
+                        drawCircle(
+                            color = (if (avgDev > 0f) Color(0xFFFFE0B2) else Color(0xFFFFCDD2)).copy(alpha = 0.40f),
+                            radius = 10.dp.toPx(),
                             center = Offset(noteX, noteY)
                         )
                     }
@@ -974,7 +1571,7 @@ fun RealMeasureNotationView(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Sharp (+pitch)",
+                        text = "Sung Sharp",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -993,7 +1590,7 @@ fun RealMeasureNotationView(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Flat (-pitch)",
+                        text = "Sung Flat",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold

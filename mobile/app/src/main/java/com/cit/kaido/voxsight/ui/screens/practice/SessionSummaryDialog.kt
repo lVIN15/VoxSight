@@ -40,6 +40,7 @@ data class SessionSummary(
     val problematicNotes: List<ProblematicNote> = emptyList(),
     val vocalHighlight: VocalHighlight? = null,
     val topProblematicMeasure: ProblematicMeasure? = null,
+    val problematicMeasures: List<ProblematicMeasure> = emptyList(),
     val recordingFile: java.io.File? = null
 ) {
     val accuracyPercentage: Float

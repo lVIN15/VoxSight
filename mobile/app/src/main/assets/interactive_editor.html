@@ -1506,7 +1506,7 @@
                         <path fill-rule="evenodd" clip-rule="evenodd" d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2ZM8.8 14.1C6.8 14.8 5.6 16.1 5.9 17.1C6.2 18.0 8.0 18.2 10.0 17.5C12.0 16.8 13.2 15.5 12.9 14.5C12.6 13.6 10.8 13.4 8.8 14.1Z" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="deck-glyph-btn active" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">
+                <button class="deck-glyph-btn" data-type="quarter" onclick="applyDurationTool('quarter', false)" title="Quarter Note">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M13.6 3.2C13.6 2.8 13.9 2.5 14.3 2.5C14.7 2.5 15.0 2.8 15.0 3.2V14.8C15.0 16.8 12.6 18.9 9.6 19.6C6.8 20.2 4.5 19.1 4.1 17.2C3.7 15.2 5.9 13.0 9.0 12.3C11.0 11.9 12.7 12.2 13.6 13.0V3.2Z" fill="currentColor"/>
                     </svg>
@@ -1528,29 +1528,29 @@
             <!-- Group 2: Rests (SMuFL / Bravura Engraved Vector Notation SVGs) -->
             <div id="deck-group-rests" class="deck-tool-group">
                 <span class="deck-group-label">Rests</span>
-                <button class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
+                <button id="deck-btn-bar-rest" class="deck-glyph-btn" onclick="applyWholeMeasureRestTool()" title="Whole Measure Rest (Full Bar)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <line x1="3" y1="8.5" x2="21" y2="8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                         <rect x="6.5" y="8.5" width="11" height="5.5" rx="0.8" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('half')" title="Half Rest">
+                <button class="deck-glyph-btn" data-rest-type="half" onclick="applyRestDurationTool('half')" title="Half Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <line x1="3" y1="15.5" x2="21" y2="15.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                         <rect x="6.5" y="10" width="11" height="5.5" rx="0.8" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">
+                <button class="deck-glyph-btn" data-rest-type="quarter" onclick="applyRestDurationTool('quarter')" title="Quarter Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M10.2 2.5C10.6 2.2 11.2 2.3 11.5 2.7L15.2 7.3C15.6 7.8 15.5 8.4 15.0 8.8C13.4 10.1 12.3 11.3 12.3 12.3C12.3 13.1 13.1 13.9 14.5 15.0C14.9 15.3 14.9 15.9 14.4 16.1C13.4 16.5 12.1 16.2 11.1 16.7C10.1 17.2 9.8 18.3 10.6 19.6C11.0 20.2 11.7 20.6 12.3 20.8C12.6 20.9 12.6 21.4 12.2 21.5C10.5 21.8 8.3 20.6 7.7 18.7C7.1 16.9 8.1 14.9 10.3 14.3C11.1 14.1 11.8 14.2 12.4 14.4L8.8 10.4C8.4 9.9 8.5 9.2 9.0 8.8C10.6 7.5 11.6 6.4 11.6 5.4C11.6 4.7 11.0 3.9 10.0 3.2C9.7 2.9 9.8 2.7 10.2 2.5Z" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('eighth')" title="8th Rest">
+                <button class="deck-glyph-btn" data-rest-type="eighth" onclick="applyRestDurationTool('eighth')" title="8th Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M9.6 6.2C10.9 6.2 11.9 7.1 12.0 8.3C12.1 9.0 12.6 9.3 13.3 9.1C14.0 8.9 14.7 8.2 15.1 7.3C15.3 6.9 15.9 6.9 16.1 7.3C16.3 7.7 16.2 8.2 16.0 8.8L11.3 20.2C11.1 20.7 10.5 20.9 10.0 20.7C9.5 20.5 9.3 19.9 9.5 19.4L13.4 10.4C12.3 10.9 11.0 11.0 9.8 10.6C8.3 10.1 7.4 8.7 7.7 7.4C7.9 6.6 8.7 6.2 9.6 6.2Z" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="deck-glyph-btn" onclick="applyRestDurationTool('16th')" title="16th Rest">
+                <button class="deck-glyph-btn" data-rest-type="16th" onclick="applyRestDurationTool('16th')" title="16th Rest">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                         <path d="M10.4 4.5C11.5 4.5 12.4 5.3 12.5 6.3C12.6 6.9 13.1 7.2 13.7 7.0C14.3 6.8 14.9 6.2 15.3 5.4C15.5 5.0 16.1 5.0 16.3 5.4C16.5 5.7 16.4 6.2 16.2 6.8L10.6 20.5C10.4 21.0 9.8 21.2 9.4 21.0C8.9 20.8 8.7 20.2 8.9 19.8L11.2 14.2C10.2 14.6 9.0 14.6 8.0 14.2C6.7 13.7 5.9 12.5 6.2 11.3C6.4 10.5 7.2 10.0 8.1 10.0C9.2 10.0 10.1 10.8 10.2 11.8C10.3 12.4 10.8 12.7 11.5 12.5C11.8 12.4 12.1 12.1 12.4 11.8L13.7 8.5C12.7 8.9 11.5 8.9 10.5 8.5C9.2 8.0 8.4 6.8 8.7 5.6C8.9 4.9 9.6 4.5 10.4 4.5Z" fill="currentColor"/>
                     </svg>
@@ -1778,8 +1778,21 @@
         var redoStack = [];
         var MAX_UNDO = 30;
 
+        function setScoreEdited(isEdited) {
+            window.isScoreEdited = !!isEdited;
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onScoreEdited === 'function') {
+                try {
+                    window.VoxSightBridge.onScoreEdited(window.isScoreEdited);
+                } catch (e) {
+                    console.warn('[VoxSight Editor] onScoreEdited bridge notice:', e);
+                }
+            }
+        }
+        window.setScoreEdited = setScoreEdited;
+
         function pushUndoSnapshot() {
             if (!xmlDoc) return;
+            setScoreEdited(true);
             try {
                 var serializer = new XMLSerializer();
                 var rawXml = serializer.serializeToString(xmlDoc);
@@ -1802,8 +1815,8 @@
                 var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
                 redoStack.push(currentXml);
                 var prevXml = undoStack.pop();
-                window.isScoreEdited = true;
-                loadScore(prevXml, currentTpq, false);
+                setScoreEdited(true);
+                loadScore(prevXml, currentTpq, false, true);
                 updateUndoRedoUI();
                 updateStatus('Undid last action');
             } catch (e) {
@@ -1818,8 +1831,8 @@
                 var currentXml = sanitizeMusicXmlString(serializer.serializeToString(xmlDoc));
                 undoStack.push(currentXml);
                 var nextXml = redoStack.pop();
-                window.isScoreEdited = true;
-                loadScore(nextXml, currentTpq, false);
+                setScoreEdited(true);
+                loadScore(nextXml, currentTpq, false, true);
                 updateUndoRedoUI();
                 updateStatus('Redid last action');
             } catch (e) {
@@ -1838,6 +1851,9 @@
                 try {
                     window.VoxSightBridge.onHistoryChanged(canUndo, canRedo);
                 } catch (e) {}
+            }
+            if (canUndo) {
+                setScoreEdited(true);
             }
         }
 
@@ -2040,8 +2056,10 @@
 
             if (selectedNoteId !== null && noteMap.has(selectedNoteId)) {
                 drawHighlight(selectedNoteId);
+                updateDeckUI(selectedNoteId);
             } else {
                 clearHighlights();
+                updateDeckUI(null);
             }
         }
 
@@ -2468,7 +2486,7 @@
          * Load and render MusicXML.
          */
         let isScoreLoading = false;
-        async function loadScore(musicXml, tpq, preserveDoc) {
+        async function loadScore(musicXml, tpq, preserveDoc, keepEditedFlag) {
             if (isScoreLoading) {
                 console.warn('[VoxSight Editor] Concurrent loadScore suppressed');
                 return;
@@ -2481,7 +2499,10 @@
                 loadingOverlay.classList.remove('hidden');
 
                 if (!preserveDoc || !xmlDoc) {
-                    window.isScoreEdited = false;
+                    if (!keepEditedFlag) {
+                        window.isScoreEdited = false;
+                        setScoreEdited(false);
+                    }
                     var xmlString = musicXml;
                     if (typeof xmlString === 'string' && !xmlString.trim().startsWith('<')) {
                         xmlString = decodeBase64ToXml(xmlString.trim());
@@ -2575,8 +2596,10 @@
                 // Re-draw selection highlight if a note was previously selected
                 if (selectedNoteId !== null) {
                     drawHighlight(selectedNoteId);
+                    updateDeckUI(selectedNoteId);
                 } else {
                     clearHighlights();
+                    updateDeckUI(null);
                 }
 
             } catch (err) {
@@ -2775,7 +2798,7 @@
 
                 var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant', 'baritone solo', 'baritone'].some(function(w) { return combined.indexOf(w) !== -1; });
                 var isAccomp = ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'].some(function(w) { return combined.indexOf(w) !== -1; });
-                var isCondensedPair = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 't/b', 't / b', 'tenor / bass', 'tenor/bass', 'women', 'men'].some(function(w) { return combined.indexOf(w) !== -1; });
+                var isCondensedPair = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 't/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'women', 'men'].some(function(w) { return combined.indexOf(w) !== -1; });
 
                 var isSoprano = !isCondensedPair && (combined.indexOf('soprano') !== -1 || combined.indexOf('sopr') !== -1 || combined.indexOf('sop') !== -1 || combined === 's' || combined === 's.' || /\bs\b/i.test(combined)) && combined.indexOf('alto') === -1;
                 var isAlto = !isCondensedPair && (combined.indexOf('alto') !== -1 || combined.indexOf('alt') !== -1 || combined === 'a' || combined === 'a.' || /\ba\b/i.test(combined)) && combined.indexOf('soprano') === -1;
@@ -2974,7 +2997,7 @@
         }
 
         // ─── Vocal Part Color Coding Helper (SATB - Identical to Playback Mode) ─
-        function getVocalPartColor(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice, isDivisiChord) {
+        function getVocalPartColor(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice, isDivisiChord, isUserVoiceOverride) {
             function applyInStaffDivisiColor(baseColor) {
                 if (!isDivisiChord || (chordPos !== 'top' && chordPos !== 'bottom')) return baseColor;
                 var isTop = (chordPos === 'top');
@@ -2987,6 +3010,8 @@
                 }
             }
             var isPartSolo = false;
+            var isPartCondensedSA = false;
+            var isPartCondensedTB = false;
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
                     var partsList = xmlDoc.getElementsByTagName('part');
@@ -3006,12 +3031,49 @@
                         if (comb.indexOf('baritone') !== -1 || isSoloNamed) {
                             isPartSolo = true;
                         }
+                        isPartCondensedSA = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return comb.indexOf(w) !== -1; });
+                        isPartCondensedTB = ['t/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return comb.indexOf(w) !== -1; });
                     }
                 } catch(e) {}
             }
 
+            var vocalPartEntry = (xmlDoc && xmlDoc._vxVocalPartMap && typeof partIdx === 'number') ? xmlDoc._vxVocalPartMap[partIdx] : null;
+            var hasScoreSoloPart = (xmlDoc && xmlDoc._vxVocalPartMap && Array.isArray(xmlDoc._vxVocalPartMap))
+                ? xmlDoc._vxVocalPartMap.some(function(entry) { return entry && entry.part === "SOLO"; })
+                : false;
+            if (vocalPartEntry && vocalPartEntry.part === "SOLO") {
+                isPartSolo = true;
+            }
+            if (isPartSolo && !isUserVoiceOverride && totalParts > 1) {
+                return '#FF6D00';
+            }
+
+            var ignoreStaleBackendCustomVoice = false;
+            if (!isUserVoiceOverride && customVoice !== null && customVoice !== undefined) {
+                var cvCheck = String(customVoice).trim().toUpperCase();
+                if (cvCheck !== "" && cvCheck !== "TUTTI" && cvCheck !== "ALL" && cvCheck !== "UNISON_ALL") {
+                    if (isPartCondensedSA) {
+                        var validSA = ["1", "2", "S", "S1", "S2", "SOPRANO", "SOPRANO1", "SOPRANO 1", "SOPRANO2", "SOPRANO 2", "A", "A1", "A2", "ALTO", "ALTO1", "ALTO 1", "ALTO2", "ALTO 2", "SA", "UNISON_SA", "S1S2", "UNISON_S1S2", "A1A2", "UNISON_A1A2"];
+                        if (validSA.indexOf(cvCheck) === -1) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    } else if (isPartCondensedTB) {
+                        var validTB = ["3", "4", "T", "T1", "T2", "TENOR", "TENOR1", "TENOR 1", "TENOR2", "TENOR 2", "B", "B1", "B2", "BASS", "BASS1", "BASS 1", "BASS2", "BASS 2", "TB", "UNISON_TB", "T1T2", "UNISON_T1T2", "B1B2", "UNISON_B1B2"];
+                        if (validTB.indexOf(cvCheck) === -1) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    } else if (totalParts >= 4 && hasScoreSoloPart && vocalPartEntry && ["S", "A", "T", "B"].indexOf(vocalPartEntry.part) !== -1) {
+                        var expectedPrefix = vocalPartEntry.part;
+                        var matchesSection = (cvCheck === expectedPrefix || cvCheck === expectedPrefix + "1" || cvCheck === expectedPrefix + "2" || cvCheck.indexOf(vocalPartEntry.voice) === 0);
+                        if (!matchesSection) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    }
+                }
+            }
+
             // Priority 1: Explicit user override via data-vx-voice attribute (string tokens or legacy numeric)
-            if (customVoice !== null && customVoice !== undefined) {
+            if (!ignoreStaleBackendCustomVoice && customVoice !== null && customVoice !== undefined) {
                 var cv = String(customVoice).trim().toUpperCase();
                 switch (cv) {
                     case "1": case "S": case "SOPRANO": return "#E11D48";
@@ -3067,8 +3129,8 @@
                         }
 
                         // Composite / Condensed Part Check (e.g. "Soprano / Alto", "S/A", "Tenor / Bass", "T/B")
-                        var isCondensedSA = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
-                        var isCondensedTB = ['t/b', 't / b', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+                        var isCondensedSA = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+                        var isCondensedTB = ['t/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
 
                         if (isCondensedSA) {
                             if (chordPos === 'bottom' || voiceNum === 2) {
@@ -3393,6 +3455,8 @@
                             var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
                             var customVoiceStr = node.getAttribute('data-vx-voice');
                             var customVoice = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim() : null;
+                            var voiceSourceStr = (node.getAttribute('data-vx-voice-source') || '').trim().toLowerCase();
+                            var isUserVoiceOverride = (voiceSourceStr === 'user' || voiceSourceStr === 'user_override');
 
                             list.push({
                                 el: node,
@@ -3404,6 +3468,7 @@
                                 midi: midi,
                                 voice: voice,
                                 customVoice: customVoice,
+                                isUserVoiceOverride: isUserVoiceOverride,
                                 staffLocal: staffLocal,
                                 staffIdx: staffIdx,
                                 trackKey: trackKey,
@@ -3708,7 +3773,7 @@
                     noteCoordinates.push(coord);
 
                     // Tag ONLY specific notehead SVG elements with exact data-vx-id & Vocal Part Color
-                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
+                    var voiceColor = getVocalPartColor(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord, xn.isUserVoiceOverride);
 
                     // Store stable 1:1 mapping
                     gNote.__vx_id = vxId;
@@ -7035,7 +7100,7 @@
         }
 
         function reloadScore() {
-            window.isScoreEdited = true;
+            setScoreEdited(true);
             loadScore('', currentTpq, true);
         }
 
@@ -7044,6 +7109,35 @@
             var serializer = new XMLSerializer();
             var rawXml = serializer.serializeToString(xmlDoc);
             return sanitizeMusicXmlString(rawXml);
+        };
+
+        window.isEditorScoreEdited = function () {
+            return !!window.isScoreEdited;
+        };
+
+        window.setEditorInteractionLocked = function (locked) {
+            window.isInteractionLocked = !!locked;
+            try {
+                if (locked) {
+                    if (typeof isPitchDragging !== 'undefined' && isPitchDragging && typeof onDragEnd === 'function') {
+                        isOverTrash = false;
+                        pitchDragCurrentDiatonicIndex = pitchDragInitialDiatonicIndex;
+                        onDragEnd();
+                    }
+                    if (typeof closeMultiRestPanel === 'function') {
+                        closeMultiRestPanel();
+                    }
+                    if (typeof deselectNote === 'function') {
+                        deselectNote();
+                    }
+                }
+                if (document.body) {
+                    document.body.style.pointerEvents = locked ? 'none' : 'auto';
+                    document.body.style.userSelect = locked ? 'none' : '';
+                }
+            } catch (e) {
+                console.warn('[VoxSight Editor] setEditorInteractionLocked notice:', e);
+            }
         };
 
         // ─── Highlight rendering & Resize ──────────────────────────────────────
@@ -7750,6 +7844,32 @@
                 } else {
                     deck.classList.remove('visible');
                 }
+                var glyphBtns = deck.querySelectorAll('.deck-glyph-btn[data-type]');
+                glyphBtns.forEach(function(b) { b.classList.remove('active'); });
+                var restBtns = deck.querySelectorAll('.deck-glyph-btn[data-rest-type]');
+                restBtns.forEach(function(b) { b.classList.remove('active'); });
+                var bBarRest = document.getElementById('deck-btn-bar-rest');
+                if (bBarRest) bBarRest.classList.remove('active');
+                var bSharp = document.getElementById('deck-btn-sharp');
+                var bFlat = document.getElementById('deck-btn-flat');
+                var bNat = document.getElementById('deck-btn-natural');
+                var bDot = document.getElementById('deck-btn-dot');
+                if (bSharp) bSharp.classList.remove('active');
+                if (bFlat) bFlat.classList.remove('active');
+                if (bNat) bNat.classList.remove('active');
+                if (bDot) bDot.classList.remove('active');
+                var bSlur = document.getElementById('deck-btn-slur');
+                var bTie = document.getElementById('deck-btn-tie');
+                var b8va = document.getElementById('deck-btn-8va');
+                var b8vb = document.getElementById('deck-btn-8vb');
+                if (bSlur) bSlur.classList.remove('active');
+                if (bTie) bTie.classList.remove('active');
+                if (b8va) b8va.classList.remove('active');
+                if (b8vb) b8vb.classList.remove('active');
+                var allVoiceChips = deck.querySelectorAll ? deck.querySelectorAll('.deck-voice-chip[data-voice]') : [];
+                if (allVoiceChips && allVoiceChips.forEach) {
+                    allVoiceChips.forEach(function(chip) { chip.classList.remove('active'); });
+                }
                 return;
             }
             deck.classList.add('visible');
@@ -7770,13 +7890,15 @@
             if (pEl) {
                 step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
                 oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
-                alt = parseInt(pEl.getElementsByTagName('alter')[0] ? pEl.getElementsByTagName('alter')[0].textContent.trim() : '0', 10) || 0;
+                var altEl = pEl.getElementsByTagName('alter')[0];
+                alt = altEl ? (parseInt(altEl.textContent.trim(), 10) || 0) : 0;
             }
+
+            var rEl = isR ? noteEl.getElementsByTagName('rest')[0] : null;
+            var isWholeMeas = (rEl && rEl.getAttribute('measure') === 'yes');
 
             if (pitchBadge) {
                 if (isR) {
-                    var rEl = noteEl.getElementsByTagName('rest')[0];
-                    var isWholeMeas = (rEl && rEl.getAttribute('measure') === 'yes');
                     pitchBadge.textContent = isWholeMeas ? 'Rest (Bar)' : 'Rest';
                     pitchBadge.style.background = '#64748B';
                 } else {
@@ -7811,23 +7933,28 @@
             var curType = tEl ? tEl.textContent.trim().toLowerCase() : '';
             var glyphBtns = deck.querySelectorAll('.deck-glyph-btn[data-type]');
             glyphBtns.forEach(function(btn) {
-                if (btn.getAttribute('data-type') === curType && !isR) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
+                btn.classList.toggle('active', btn.getAttribute('data-type') === curType && !isR);
             });
+
+            // Update rest duration buttons active state
+            var restBtns = deck.querySelectorAll('.deck-glyph-btn[data-rest-type]');
+            restBtns.forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-rest-type') === curType && isR && !isWholeMeas);
+            });
+            var bBarRest = document.getElementById('deck-btn-bar-rest');
+            if (bBarRest) bBarRest.classList.toggle('active', isR && isWholeMeas);
 
             // Update accidental buttons active state
             var bSharp = document.getElementById('deck-btn-sharp');
             var bFlat = document.getElementById('deck-btn-flat');
             var bNat = document.getElementById('deck-btn-natural');
             var bDot = document.getElementById('deck-btn-dot');
+            var isDotted = noteEl.getElementsByTagName('dot').length > 0;
 
-            if (bSharp) bSharp.classList.toggle('active', alt === 1);
-            if (bFlat) bFlat.classList.toggle('active', alt === -1);
+            if (bSharp) bSharp.classList.toggle('active', alt === 1 && !isR);
+            if (bFlat) bFlat.classList.toggle('active', alt === -1 && !isR);
             if (bNat) bNat.classList.toggle('active', alt === 0 && !isR);
-            if (bDot) bDot.classList.toggle('active', noteEl.getElementsByTagName('dot').length > 0);
+            if (bDot) bDot.classList.toggle('active', isDotted);
 
             // Update Slur, Tie, 8va & 8vb buttons active state
             var notatEl = noteEl.getElementsByTagName('notations')[0];
@@ -7843,6 +7970,29 @@
             var b8vb = document.getElementById('deck-btn-8vb');
             if (b8va) b8va.classList.toggle('active', ottavaAttr === '8va');
             if (b8vb) b8vb.classList.toggle('active', ottavaAttr === '8vb');
+
+            // Update Prev / Next button state
+            var bPrev = document.getElementById('deck-btn-prev');
+            var bNext = document.getElementById('deck-btn-next');
+            var list = getOrderedNoteIds();
+            var curIdx = list.indexOf(noteId);
+            if (bPrev) bPrev.disabled = (curIdx <= 0);
+            if (bNext) bNext.disabled = (curIdx >= list.length - 1 && curIdx !== -1);
+
+            // Sync with Android bridge
+            if (window.VoxSightBridge && typeof window.VoxSightBridge.onNoteSelected === 'function') {
+                var lyricText = '';
+                var lyricEl = noteEl.getElementsByTagName('lyric')[0];
+                if (lyricEl) {
+                    var textEl = lyricEl.getElementsByTagName('text')[0];
+                    if (textEl && textEl.textContent) lyricText = textEl.textContent.trim();
+                }
+                window.VoxSightBridge.onNoteSelected(
+                    noteId, step, alt, oct,
+                    curType || 'quarter', resolvedVoice.voiceId, parseInt(mNum, 10) || 1,
+                    lyricText, isR, isDotted, resolvedVoice.voiceCode
+                );
+            }
         }
         window.updateDeckUI = updateDeckUI;
 
@@ -7869,6 +8019,35 @@
             return ids;
         }
 
+        function findPageForNoteId(noteId) {
+            if (!scorePageRanges || scorePageRanges.length <= 1) return 1;
+            var noteEl = getXmlNoteElement(noteId);
+            if (!noteEl) return 1;
+            var measEl = noteEl.parentNode;
+            while (measEl && measEl.tagName !== 'measure') measEl = measEl.parentNode;
+            if (!measEl) return 1;
+
+            var partEl = measEl.parentNode;
+            var mIndex = -1;
+            if (partEl) {
+                var partMeasures = Array.from(partEl.getElementsByTagName('measure'));
+                mIndex = partMeasures.indexOf(measEl);
+            }
+            var mNum = parseInt(measEl.getAttribute('number') || '', 10);
+
+            for (var i = 0; i < scorePageRanges.length; i++) {
+                var p = scorePageRanges[i];
+                if (mIndex !== -1 && mIndex >= p.startMeasureIndex && mIndex <= p.endMeasureIndex) {
+                    return p.page;
+                }
+                if (!isNaN(mNum) && mNum >= p.startMeasureNumber && mNum <= p.endMeasureNumber) {
+                    return p.page;
+                }
+            }
+            return 1;
+        }
+        window.findPageForNoteId = findPageForNoteId;
+
         function stepNote(direction) {
             var list = getOrderedNoteIds();
             if (list.length === 0) return;
@@ -7884,6 +8063,13 @@
             }
 
             var targetId = list[nextIdx];
+            var targetPage = findPageForNoteId(targetId);
+
+            // Cross-page navigation: automatically switch page if next/prev note is on a different page
+            if (targetPage && targetPage !== currentPage && targetPage >= 1 && targetPage <= scorePageRanges.length) {
+                goToPage(targetPage);
+            }
+
             selectNote(targetId);
 
             // Smooth scroll into view if offscreen
@@ -8116,6 +8302,7 @@
                 convertToNote(selectedNoteId, 'C', 0, 4);
             }
             updateNoteDuration(selectedNoteId, typeName, isDotted);
+            updateDeckUI(selectedNoteId);
             updateStatus('Duration set to ' + typeName);
         }
         window.applyDurationTool = applyDurationTool;
@@ -8124,6 +8311,7 @@
             if (selectedNoteId === null) return;
             convertToRest(selectedNoteId);
             updateNoteDuration(selectedNoteId, typeName, false);
+            updateDeckUI(selectedNoteId);
             updateStatus('Converted to ' + typeName + ' rest');
         }
         window.applyRestDurationTool = applyRestDurationTool;
@@ -8161,6 +8349,7 @@
 
             reloadScore();
             selectNote(selectedNoteId);
+            updateDeckUI(selectedNoteId);
             updateStatus('Set to Whole-Measure Rest');
         }
         window.applyWholeMeasureRestTool = applyWholeMeasureRestTool;
@@ -8177,6 +8366,7 @@
                 var step = (pEl.getElementsByTagName('step')[0] ? pEl.getElementsByTagName('step')[0].textContent.trim().toUpperCase() : 'C');
                 var oct = parseInt(pEl.getElementsByTagName('octave')[0] ? pEl.getElementsByTagName('octave')[0].textContent.trim() : '4', 10) || 4;
                 updateNotePitch(selectedNoteId, step, altVal, oct);
+                updateDeckUI(selectedNoteId);
                 var sign = altVal === 1 ? '♯' : (altVal === -1 ? '♭' : '♮');
                 updateStatus('Applied ' + sign + ' to ' + step + oct);
             }
@@ -8186,6 +8376,7 @@
         function applyDotTool() {
             if (selectedNoteId !== null) {
                 toggleSelectedNoteDot();
+                updateDeckUI(selectedNoteId);
             } else {
                 updateStatus('Select a note first to toggle dot');
             }
@@ -8195,6 +8386,7 @@
         function applyVoiceTool(voiceCode) {
             if (selectedNoteId !== null) {
                 updateNoteVoice(selectedNoteId, voiceCode);
+                updateDeckUI(selectedNoteId);
                 updateStatus('Voice set to ' + voiceCode);
             } else {
                 updateStatus('Select a note first to assign voice');

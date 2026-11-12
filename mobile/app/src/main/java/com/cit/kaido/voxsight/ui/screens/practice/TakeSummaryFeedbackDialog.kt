@@ -371,8 +371,14 @@ fun TakeSummaryFeedbackDialog(
                                         ),
                                         color = Color(0xFFE65100)
                                     )
+                                    val dev = if (measure.averageDeviation != 0f) " (${if (measure.isSharp && measure.averageDeviation > 0) "+" else ""}${measure.averageDeviation.toInt()}¢)" else ""
+                                    val passageText = if (measure.mistakeCount > 0) {
+                                        "Measure ${measure.measureNumber} (${measure.mistakeCount} flagged ${if (measure.mistakeCount == 1) "note" else "notes"} • ${if (measure.isSharp) "Sung Sharp" else "Sung Flat"}$dev)"
+                                    } else {
+                                        "Measure ${measure.measureNumber} (${if (measure.isSharp) "Sung Sharp" else "Sung Flat"}$dev)"
+                                    }
                                     Text(
-                                        text = "Measure ${measure.measureNumber} (${measure.mistakeCount} missed ${if (measure.mistakeCount == 1) "note" else "notes"})",
+                                        text = passageText,
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = Color(0xFF191C20)
                                     )
@@ -404,12 +410,15 @@ fun TakeSummaryFeedbackDialog(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 summary!!.problematicNotes.forEach { prob ->
-                                    val tendency = if (prob.isSharp) "Sharp (+)" else "Flat (-)"
+                                    val tendency = if (prob.isSharp) "Sung Sharp" else "Sung Flat"
                                     val cents = String.format(java.util.Locale.US, "%.0f", abs(prob.averageDeviation))
+                                    val centsWithSign = if (prob.isSharp) "+$cents¢" else "-$cents¢"
+                                    val tendencyColor = if (prob.isSharp) Color(0xFFE65100) else Color(0xFFC62828)
+                                    val tendencyBg = if (prob.isSharp) Color(0xFFFFF3E0) else Color(0xFFFFEBEE)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 3.dp),
+                                            .padding(vertical = 4.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -418,11 +427,31 @@ fun TakeSummaryFeedbackDialog(
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                             color = Color(0xFF191C20)
                                         )
-                                        Text(
-                                            text = "$tendency $cents¢",
-                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = if (prob.isSharp) Color(0xFFC62828) else Color(0xFF1565C0)
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(tendencyBg)
+                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = tendency.uppercase(),
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp
+                                                    ),
+                                                    color = tendencyColor
+                                                )
+                                            }
+                                            Text(
+                                                text = "($centsWithSign)",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                                color = Color.Gray
+                                            )
+                                        }
                                     }
                                 }
                             }

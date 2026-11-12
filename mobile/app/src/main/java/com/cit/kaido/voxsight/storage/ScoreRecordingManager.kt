@@ -22,6 +22,7 @@ data class TakeSummaryData(
     val vocalHighlightLowest: String? = null,
     val problematicNotes: List<ProblematicNoteData> = emptyList(),
     val topProblematicMeasure: ProblematicMeasureData? = null,
+    val problematicMeasures: List<ProblematicMeasureData> = emptyList(),
     val pitchAttempts: List<com.cit.kaido.voxsight.pitch.PitchAttempt> = emptyList()
 )
 
@@ -44,6 +45,16 @@ fun ScoreRecordingItem.toSessionSummary(): com.cit.kaido.voxsight.ui.screens.pra
         )
     }
 
+    val allMeasures = s?.problematicMeasures?.map {
+        com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure(
+            measureNumber = it.measureNumber,
+            mistakeCount = it.mistakeCount,
+            totalNotes = it.totalNotes,
+            isSharp = it.isSharp,
+            averageDeviation = it.averageDeviation
+        )
+    }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(topMeasure)
+
     val probNotes = s?.problematicNotes?.map {
         com.cit.kaido.voxsight.ui.screens.practice.ProblematicNote(
             noteName = it.noteName,
@@ -58,7 +69,8 @@ fun ScoreRecordingItem.toSessionSummary(): com.cit.kaido.voxsight.ui.screens.pra
         averageDeviationCents = s?.averageDeviationCents ?: 0f,
         problematicNotes = probNotes,
         vocalHighlight = vocalHighlight,
-        topProblematicMeasure = topMeasure,
+        topProblematicMeasure = topMeasure ?: allMeasures.firstOrNull(),
+        problematicMeasures = allMeasures,
         recordingFile = this.file
     )
 }

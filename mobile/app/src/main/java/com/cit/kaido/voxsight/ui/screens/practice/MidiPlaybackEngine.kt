@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.cit.kaido.voxsight.model.EventStream
 import com.cit.kaido.voxsight.model.MusicalEvent
+import com.cit.kaido.voxsight.model.isSoloVoiceToken
+import com.cit.kaido.voxsight.model.normalizeLegacyVoiceToParts
 import com.cit.kaido.voxsight.network.ScoreMetadata
 import com.cit.kaido.voxsight.playback.NativePlaybackEngine
 import com.cit.kaido.voxsight.playback.SyncManager
@@ -65,6 +67,7 @@ fun MidiPlaybackEngine(
         controller.isMicEnabled = isMicEnabled
         controller.selectedVoicePart = selectedVoicePart
         controller.pitchAttempts = pitchAttempts
+        controller.syncMicPartIsolation()
         controller.refreshHighlights()
     }
 
@@ -212,14 +215,15 @@ open class MidiPlayerController(
         
         // Parse events with automatic fallback generation
         val resolvedEventsJson = score.eventsJson?.takeIf { it.isNotBlank() && it != "[]" }
-            ?: generateEventsJsonFromScoreParts(score.parts, score.divisions)
+            ?: generateEventsJsonFromScoreParts(score.parts, score.divisions, score.title)
 
         val eventType = object : TypeToken<List<MusicalEvent>>() {}.type
-        val events: List<MusicalEvent> = try {
+        val rawEvents: List<MusicalEvent> = try {
             gson.fromJson(resolvedEventsJson, eventType) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
+        val events = reconcileEventsWithScoreParts(rawEvents, score)
 
         eventStream = EventStream.freeze(events)
         eventsCount = events.size
@@ -462,7 +466,7 @@ open class MidiPlayerController(
      */
     fun focusPart(part: String) {
         val targetLabel = when {
-            part.uppercase().startsWith("SOLO") -> "SOLO"
+            isSoloVoiceToken(part) -> "SOLO"
             part.uppercase().startsWith("OTHER") -> "OTHER"
             else -> part.trim().uppercase()
         }
@@ -477,7 +481,7 @@ open class MidiPlayerController(
         playbackEngine.silenceAllActiveNotes()
 
         val baseVoice = when {
-            targetLabel.startsWith("SOLO") -> "SOLO"
+            isSoloVoiceToken(targetLabel) -> "SOLO"
             targetLabel.startsWith("OTHER") -> "OTHER"
             targetLabel.startsWith("S") -> "S"
             targetLabel.startsWith("A") -> "A"
@@ -497,6 +501,7 @@ open class MidiPlayerController(
 
         // Apply accompaniment state according to Section 6.3 State Machine
         updateAccompanimentState()
+        syncMicPartIsolation()
     }
 
     fun mutePart(part: String) = focusPart(part)
@@ -516,11 +521,26 @@ open class MidiPlayerController(
             playbackEngine.setVoiceVolume(v, 1.0f)
         }
         updateAccompanimentState()
+        syncMicPartIsolation()
+    }
+
+    /**
+     * In Test Pitch (isMicEnabled == true), the user tests a single chosen vocal part.
+     * If a non-Solo vocal part (e.g. Tenor, Soprano, Alto, Bass) is selected, Solo must
+     * remain muted so the system never sings the Solo line over the user's part test.
+     */
+    fun syncMicPartIsolation() {
+        if (isMicEnabled && !selectedVoicePart.isNullOrBlank()) {
+            val isTestingSolo = isSoloVoiceToken(selectedVoicePart)
+            if (!isTestingSolo) {
+                playbackEngine.muteVoice("SOLO", true)
+            }
+        }
     }
 
     fun setVisualFocus(part: String) {
         val targetLabel = when {
-            part.uppercase().startsWith("SOLO") -> "SOLO"
+            isSoloVoiceToken(part) -> "SOLO"
             part.uppercase().startsWith("OTHER") -> "OTHER"
             else -> part.trim().uppercase()
         }
@@ -625,12 +645,12 @@ open class MidiPlayerController(
     private fun renderHighlights() {
         val targetFilterPart = if (isMicEnabled) {
             when {
-                selectedVoicePart?.uppercase()?.startsWith("SOLO") == true -> "SOLO"
+                isSoloVoiceToken(selectedVoicePart) -> "SOLO"
                 selectedVoicePart?.uppercase()?.startsWith("OTHER") == true -> "OTHERS"
-                else -> selectedVoicePart?.trim()?.uppercase() ?: visualFocusPart
+                else -> selectedVoicePart?.trim()?.uppercase() ?: visualFocusPart ?: audioFocusPart
             }
         } else {
-            visualFocusPart
+            visualFocusPart ?: audioFocusPart
         }
 
         // Inject colors based on SATB / Divisi / Solo / Others part mapping

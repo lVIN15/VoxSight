@@ -69,7 +69,7 @@ class NativePlaybackEngine(private val context: Context? = null) {
         fun normalizeVoiceKey(voice: String): String {
             val upper = voice.uppercase().trim()
             return when {
-                upper.startsWith("SOLO") -> "SOLO"
+                com.cit.kaido.voxsight.model.isSoloVoiceToken(upper) -> "SOLO"
                 upper.startsWith("OTHER") || upper.startsWith("PIANO") || upper.startsWith("ACCOMP") -> "OTHER"
                 upper.startsWith("S") -> "S"
                 upper.startsWith("A") -> "A"
@@ -489,12 +489,13 @@ class NativePlaybackEngine(private val context: Context? = null) {
     )
 
     fun isVocalEventActiveInAudio(eventVoices: List<String>): Boolean {
-        val focus = focusedVoicePart
-        if (focus == null) {
+        val rawFocus = focusedVoicePart
+        if (rawFocus == null) {
             // Decouple voice vs. track gating for vocal lines on shared staves (Fix #Phase2.4)
             return eventVoices.any { v -> mutedVoices[normalizeVoiceKey(v)] != true }
         }
 
+        val focus = if (com.cit.kaido.voxsight.model.isSoloVoiceToken(rawFocus)) "SOLO" else rawFocus.uppercase().trim()
         val upperVoices = eventVoices.map { it.uppercase().trim() }
 
         // 1. Tutti / Universal Choral Unison: All vocal singers participate
@@ -502,18 +503,26 @@ class NativePlaybackEngine(private val context: Context? = null) {
             return focus !in setOf("OTHER", "OTHERS")
         }
 
-        // 2. Direct exact match (e.g. "B1" == "B1", "SOLO" == "SOLO")
+        // 2. Solo isolation: Solo focus only plays Solo events; non-Solo focus mutes Solo events
+        if (focus == "SOLO") {
+            return upperVoices.any { com.cit.kaido.voxsight.model.isSoloVoiceToken(it) }
+        }
+        if (upperVoices.all { com.cit.kaido.voxsight.model.isSoloVoiceToken(it) }) {
+            return false
+        }
+
+        // 3. Direct exact match (e.g. "B1" == "B1", "SOLO" == "SOLO")
         if (upperVoices.contains(focus)) {
             return true
         }
 
-        // 3. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
+        // 4. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
         val allowedDivisi = SECTION_DIVISI_MAP[focus]
         if (allowedDivisi != null && upperVoices.any { it in allowedDivisi }) {
             return true
         }
 
-        // 4. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
+        // 5. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
         val parent = DIVISI_TO_PARENT_MAP[focus]
         if (parent != null && upperVoices.contains(parent)) {
             return true

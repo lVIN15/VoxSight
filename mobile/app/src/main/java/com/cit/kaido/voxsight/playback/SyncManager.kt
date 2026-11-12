@@ -148,6 +148,11 @@ class SyncManager {
         val ev = eventVoice.uppercase().trim()
         val ep = elemPart.uppercase().trim()
         if (ev == ep) return true
+        val evIsSolo = com.cit.kaido.voxsight.model.isSoloVoiceToken(ev)
+        val epIsSolo = com.cit.kaido.voxsight.model.isSoloVoiceToken(ep)
+        if (evIsSolo || epIsSolo) {
+            return evIsSolo && epIsSolo
+        }
         if (ep == "TUTTI" || ep == "ALL" || ep == "UNISON_ALL") {
             return ev != "OTHER" && ev != "OTHERS" && ev != "PIANO"
         }
@@ -157,7 +162,6 @@ class SyncManager {
         if (ep in setOf("UNISON_A1A2", "A1A2") && (ev.startsWith("A") || ev.contains("ALTO"))) return true
         if (ep in setOf("UNISON_T1T2", "T1T2") && (ev.startsWith("T") || ev.contains("TENOR"))) return true
         if (ep in setOf("UNISON_B1B2", "B1B2") && (ev.startsWith("B") || ev.contains("BASS"))) return true
-        if ((ev.contains("SOLO") || ev.contains("BARITONE")) && (ep == "SOLO" || ep.contains("SOLO"))) return true
         val evInitial = ev.firstOrNull()?.toString() ?: ""
         val epInitial = ep.firstOrNull()?.toString() ?: ""
         return evInitial.isNotEmpty() && evInitial == epInitial
@@ -185,6 +189,17 @@ class SyncManager {
             activeEvents.all { it.measureNumber <= 1 }
 
         fun canShareUnisonNoteHead(assigned: MusicalEvent, incoming: MusicalEvent): Boolean {
+            if (com.cit.kaido.voxsight.model.isSoloVoiceToken(assigned.satbVoice) != com.cit.kaido.voxsight.model.isSoloVoiceToken(incoming.satbVoice)) {
+                return false
+            }
+            val hasSharedStampedSourceId = assigned.sourceNoteId != null &&
+                incoming.sourceNoteId != null &&
+                assigned.sourceNoteId == incoming.sourceNoteId
+            if (!hasSharedStampedSourceId &&
+                (assigned.partId != incoming.partId || resolveExpectedStaffIdx(assigned) != resolveExpectedStaffIdx(incoming))
+            ) {
+                return false
+            }
             val sameMeasure = if (hasReliableMeasureIndex) {
                 assigned.measureIndex == incoming.measureIndex
             } else {
@@ -284,10 +299,12 @@ class SyncManager {
                     for (event in sEvents) {
                         if (coords.containsKey(event.eventId)) continue
                         val eventTick480 = scaleEventTickToOsmd(event)
+                        val eventIsSolo = com.cit.kaido.voxsight.model.isSoloVoiceToken(event.satbVoice)
                         val best = sOsmd
                             .filter { (idx, elem) ->
                                 isElementAvailableFor(idx, event) &&
-                                    elem.midiNote == event.pitchMidi
+                                    elem.midiNote == event.pitchMidi &&
+                                    com.cit.kaido.voxsight.model.isSoloVoiceToken(elem.part) == eventIsSolo
                             }
                             .minByOrNull { (_, elem) -> abs(elem.tick - eventTick480) }
                         if (best != null) {
@@ -305,10 +322,12 @@ class SyncManager {
                     .sortedWith(compareBy<MusicalEvent>({ scaleEventTickToOsmd(it) }, { -it.pitchMidi }))
                 for (event in remainingInMeasure) {
                     val eventTick480 = scaleEventTickToOsmd(event)
+                    val eventIsSolo = com.cit.kaido.voxsight.model.isSoloVoiceToken(event.satbVoice)
                     val best = mOsmd
                         .filter { (idx, elem) ->
                             isElementAvailableFor(idx, event) &&
-                                elem.midiNote == event.pitchMidi
+                                elem.midiNote == event.pitchMidi &&
+                                com.cit.kaido.voxsight.model.isSoloVoiceToken(elem.part) == eventIsSolo
                         }
                         .minByOrNull { (_, elem) ->
                             val voicePenalty = if (isVoiceCompatible(event.satbVoice, elem.part)) 0 else 480
@@ -330,6 +349,7 @@ class SyncManager {
             for (event in remainingUnstamped) {
                 val expectedStaff = resolveExpectedStaffIdx(event)
                 val eventTick480 = scaleEventTickToOsmd(event)
+                val eventIsSolo = com.cit.kaido.voxsight.model.isSoloVoiceToken(event.satbVoice)
                 val best = osmdElements.withIndex()
                     .filter { (idx, elem) ->
                         val mDist = if (hasReliableMeasureIndex) {
@@ -340,7 +360,8 @@ class SyncManager {
                         isElementAvailableFor(idx, event) &&
                             mDist <= 1 &&
                             elem.staffIdx == expectedStaff &&
-                            elem.midiNote == event.pitchMidi
+                            elem.midiNote == event.pitchMidi &&
+                            com.cit.kaido.voxsight.model.isSoloVoiceToken(elem.part) == eventIsSolo
                     }
                     .minByOrNull { (_, elem) -> abs(elem.tick - eventTick480) }
                 if (best != null) {

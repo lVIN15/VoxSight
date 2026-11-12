@@ -35,6 +35,13 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
     private val _showPauseModal = MutableStateFlow(false)
     val showPauseModal: StateFlow<Boolean> = _showPauseModal.asStateFlow()
 
+    private val _showExitConfirmationModal = MutableStateFlow(false)
+    val showExitConfirmationModal: StateFlow<Boolean> = _showExitConfirmationModal.asStateFlow()
+
+    private var wasPlayingBeforeExitPrompt: Boolean = false
+    val wasPlayingBeforeExit: Boolean
+        get() = wasPlayingBeforeExitPrompt
+
     private val _pitchAttempts = MutableStateFlow<List<PitchAttempt>>(emptyList())
     val pitchAttempts: StateFlow<List<PitchAttempt>> = _pitchAttempts.asStateFlow()
 
@@ -74,6 +81,9 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
     init {
         viewModelScope.launch {
             pitchEngine.detectedPitchHz.collect { hz ->
+                if (!_isPlaying.value) {
+                    return@collect
+                }
                 val targets = _activeTargets.value
                 if (targets.isNotEmpty()) {
                     var anyMatch = false
@@ -223,6 +233,15 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
                         averageDeviation = it.averageDeviation
                     )
                 },
+                problematicMeasures = summary.problematicMeasures.map {
+                    com.cit.kaido.voxsight.storage.ProblematicMeasureData(
+                        measureNumber = it.measureNumber,
+                        mistakeCount = it.mistakeCount,
+                        totalNotes = it.totalNotes,
+                        isSharp = it.isSharp,
+                        averageDeviation = it.averageDeviation
+                    )
+                },
                 pitchAttempts = _pitchAttempts.value
             )
 
@@ -285,10 +304,66 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
         _showPauseModal.value = show
     }
 
+    fun setShowExitConfirmationModal(show: Boolean) {
+        _showExitConfirmationModal.value = show
+    }
+
+    /**
+     * Handles back navigation requests when in Pitch Test.
+     * @return true if the back event is intercepted (exit confirmation displayed), false to proceed immediately.
+     */
+    fun onBackRequested(): Boolean {
+        if (!_isMicrophoneEnabled.value) {
+            return false
+        }
+        if (_showExitConfirmationModal.value) {
+            // Already showing; consume event to avoid re-triggering or duplicate dialogs
+            return true
+        }
+        // Dismiss pause menu if it was open to avoid stacked/overlapping modals
+        _showPauseModal.value = false
+
+        wasPlayingBeforeExitPrompt = _isPlaying.value
+        if (_isPlaying.value) {
+            setPlaying(false)
+            pausePitchSession()
+        }
+        _showExitConfirmationModal.value = true
+        return true
+    }
+
+    /**
+     * User cancels exit or chooses "Continue Practice".
+     * @return true if playback was resumed (because it was playing before Back was pressed), false if it remains paused.
+     */
+    fun cancelExitPractice(): Boolean {
+        _showExitConfirmationModal.value = false
+        val shouldResume = wasPlayingBeforeExitPrompt
+        wasPlayingBeforeExitPrompt = false
+        if (shouldResume) {
+            setPlaying(true)
+            resumePitchSession()
+            return true
+        }
+        return false
+    }
+
+    /**
+     * User confirms "Exit Practice". Cleans up session and stops playback.
+     */
+    fun confirmExitPractice() {
+        _showExitConfirmationModal.value = false
+        wasPlayingBeforeExitPrompt = false
+        setPlaying(false)
+        endPitchSession()
+    }
+
     fun setCurrentScore(score: MusicXmlScore?) {
         _currentScore.value = score
         _isPlaying.value = false
         isPitchSessionStarted = false
+        _showExitConfirmationModal.value = false
+        wasPlayingBeforeExitPrompt = false
     }
 
     fun setPlaybackProgress(progress: Float) {
@@ -334,11 +409,11 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
             } else null
         }.sortedByDescending { kotlin.math.abs(it.averageDeviation) }.take(3)
 
-        // Calculate Top Problematic Measure (the single exact measure with the most mistakes among attempted measures)
+        // Calculate Problematic Measures (ranked by mistake count, then pitch deviation)
         val score = _currentScore.value
         val attemptsByMeasure = attempts.filter { it.measureNumber > 0 }.groupBy { it.measureNumber }
 
-        val topProblematicMeasure = if (attemptsByMeasure.isNotEmpty()) {
+        val problematicMeasures = if (attemptsByMeasure.isNotEmpty()) {
             attemptsByMeasure.mapNotNull { (measureNum, measureAttempts) ->
                 val eventsInMeasure = measureAttempts.groupBy { it.eventId }
                 // Events where user sang but did not achieve a match
@@ -350,7 +425,7 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
                 val avgDevMeasure = if (validDeviations.isNotEmpty()) validDeviations.average().toFloat() else 0f
 
                 if (failedAttemptedEvents > 0 || (measureAttempts.isNotEmpty() && kotlin.math.abs(avgDevMeasure) > 25f)) {
-                    val effectiveMistakes = if (failedAttemptedEvents > 0) failedAttemptedEvents else 1
+                    val effectiveMistakes = failedAttemptedEvents
                     com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure(
                         measureNumber = measureNum,
                         mistakeCount = effectiveMistakes,
@@ -359,11 +434,14 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
                         averageDeviation = avgDevMeasure
                     )
                 } else null
-            }.maxWithOrNull(
-                compareBy<com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure> { it.mistakeCount }
-                    .thenBy { kotlin.math.abs(it.averageDeviation) }
-            )
-        } else null
+            }.sortedWith(
+                compareByDescending<com.cit.kaido.voxsight.ui.screens.practice.ProblematicMeasure> { it.mistakeCount }
+                    .thenByDescending { kotlin.math.abs(it.averageDeviation) }
+                    .thenBy { it.measureNumber }
+            ).take(3)
+        } else emptyList()
+
+        val topProblematicMeasure = problematicMeasures.firstOrNull()
 
         // Calculate Vocal Highlights
         val successfulAttempts = attempts.filter { it.isMatch && it.noteName.isNotBlank() }
@@ -390,6 +468,7 @@ class PracticeViewModel(application: android.app.Application) : androidx.lifecyc
             problematicNotes = problematicNotes,
             vocalHighlight = vocalHighlight,
             topProblematicMeasure = topProblematicMeasure,
+            problematicMeasures = problematicMeasures,
             recordingFile = resolvedRecordingFile
         )
     }

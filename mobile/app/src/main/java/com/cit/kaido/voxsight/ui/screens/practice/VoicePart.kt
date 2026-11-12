@@ -3,6 +3,7 @@ package com.cit.kaido.voxsight.ui.screens.practice
 import androidx.compose.ui.graphics.Color
 import com.cit.kaido.voxsight.model.MusicalEvent
 import com.cit.kaido.voxsight.model.SATBVoice
+import com.cit.kaido.voxsight.model.isSoloVoiceToken
 import com.cit.kaido.voxsight.model.normalizeLegacyVoiceToParts
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -111,24 +112,30 @@ fun isEventTargetForSinger(selectedPart: VoicePart, event: MusicalEvent): Boolea
     val parts = event.participatingParts.map { it.uppercase().trim() }
 
     // 3. Tutti / Universal Choral Match (ALL singers sing Tutti)
-    if (parts.contains("ALL")) {
+    if (parts.contains("ALL") || parts.contains("TUTTI")) {
         return true
     }
 
-    // 4. Direct Match (Exact part match or participant in cross-section unison like ["T", "B"])
+    // 4. Solo Part Matching (Solo / Baritone Solo only matches Solo or Tutti events, never SATB choir)
+    if (selectedPart.isSoloPart) {
+        return parts.any { isSoloVoiceToken(it) }
+    }
+    if (parts.all { isSoloVoiceToken(it) }) {
+        return false
+    }
+
+    // 5. Direct Match (Exact part match or participant in cross-section unison like ["T", "B"])
     if (parts.contains(selectedKey)) {
         return true
     }
-    if (selectedPart == VoicePart.Solo && parts.contains("BARITONE SOLO")) return true
-    if (selectedPart == VoicePart.BaritoneSolo && (parts.contains("BARITONE SOLO") || parts.contains("SOLO"))) return true
 
-    // 5. Parent Section Selection (User selected "Soprano" / "S")
+    // 6. Parent Section Selection (User selected "Soprano" / "S")
     val allowedParts = SECTION_DIVISI_MAP[selectedKey]
     if (allowedParts != null && parts.any { it in allowedParts }) {
         return true
     }
 
-    // 6. Divisi Sub-Part Match (if selectedPart is Divisi like S1 and event is parent "S")
+    // 7. Divisi Sub-Part Match (if selectedPart is Divisi like S1 and event is parent "S")
     val parent = DIVISI_TO_PARENT_MAP[selectedKey]
     if (parent != null && parts.contains(parent)) {
         return true
@@ -152,35 +159,46 @@ fun isEventTargetForSinger(selectedPart: VoicePart, event: MusicalEvent): Boolea
  */
 fun isEventMatchingFocusOrPart(targetPart: String?, event: MusicalEvent): Boolean {
     if (targetPart.isNullOrBlank()) return true
-    val focus = targetPart.trim().uppercase()
+    if (event.isRest) return false
+    val rawFocus = targetPart.trim().uppercase()
+    val focus = if (isSoloVoiceToken(rawFocus)) "SOLO" else rawFocus
     val eventVoices = event.participatingParts.ifEmpty { normalizeLegacyVoiceToParts(event.satbVoice) }
         .map { it.trim().uppercase() }
 
-    if (eventVoices.isEmpty()) return true
+    // Fail-safe: when a specific focus part is active, events with no recognized vocal/non-vocal parts must NOT bypass filtering
+    if (eventVoices.isEmpty()) return false
 
     // 1. Tutti / Universal Choral Unison: All vocal singers participate
     if (eventVoices.any { it == "ALL" || it == "TUTTI" || it == "UNISON_ALL" }) {
         return focus !in setOf("OTHER", "OTHERS")
     }
 
-    // 2. Direct exact match (e.g. "B1" == "B1", "SOLO" == "SOLO", or unison ["B1", "B2"])
+    // 2. Solo isolation: Solo focus matches any Solo token; non-Solo focus rejects pure Solo events
+    if (focus == "SOLO") {
+        return eventVoices.any { isSoloVoiceToken(it) }
+    }
+    if (eventVoices.all { isSoloVoiceToken(it) }) {
+        return false
+    }
+
+    // 3. Direct exact match (e.g. "B1" == "B1", "OTHERS" == "OTHERS", or unison ["B1", "B2"])
     if (eventVoices.contains(focus)) {
         return true
     }
 
-    // 3. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
+    // 4. Parent section selection (e.g. Focus is "B" -> intentionally includes "B", "B1", "B2")
     val allowedDivisi = SECTION_DIVISI_MAP[focus]
     if (allowedDivisi != null && eventVoices.any { it in allowedDivisi }) {
         return true
     }
 
-    // 4. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
+    // 5. Divisi focus matching undivided parent notes (e.g. Focus is "B1" or "B2", note is parent "B")
     val parent = DIVISI_TO_PARENT_MAP[focus]
     if (parent != null && eventVoices.contains(parent)) {
         return true
     }
 
-    // 5. Cross-section unisons (e.g. UNISON_TB has ["T", "B"])
+    // 6. Cross-section unisons (e.g. UNISON_TB has ["T", "B"])
     if (eventVoices.any { it == "UNISON_TB" || it == "TB" }) {
         val effective = parent ?: focus
         if (effective == "T" || effective == "B") return true

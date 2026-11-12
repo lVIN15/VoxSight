@@ -357,7 +357,7 @@
 
                 var isExplicitSolo = ['solo', 'cantor', 'leader', 'descant', 'baritone solo', 'baritone'].some(function(w) { return combined.indexOf(w) !== -1; });
                 var isAccomp = ['piano', 'organ', 'keyboard', 'guitar', 'accomp', 'orch', 'strings'].some(function(w) { return combined.indexOf(w) !== -1; });
-                var isCondensedPair = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 't/b', 't / b', 'tenor / bass', 'tenor/bass', 'women', 'men'].some(function(w) { return combined.indexOf(w) !== -1; });
+                var isCondensedPair = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 't/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'women', 'men'].some(function(w) { return combined.indexOf(w) !== -1; });
 
                 var isSoprano = !isCondensedPair && (combined.indexOf('soprano') !== -1 || combined.indexOf('sopr') !== -1 || combined.indexOf('sop') !== -1 || combined === 's' || combined === 's.' || /\bs\b/i.test(combined)) && combined.indexOf('alto') === -1;
                 var isAlto = !isCondensedPair && (combined.indexOf('alto') !== -1 || combined.indexOf('alt') !== -1 || combined === 'a' || combined === 'a.' || /\ba\b/i.test(combined)) && combined.indexOf('soprano') === -1;
@@ -556,7 +556,7 @@
         }
 
         // ─── SATB Vocal Part Info (100% Parity with Editor) ──────────────
-        function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice, isDivisiChord) {
+        function getVocalPartInfo(voiceNum, staffIdx, partIdx, totalParts, chordPos, customVoice, isDivisiChord, isUserVoiceOverride) {
             function applyInStaffDivisi(info) {
                 if (!isDivisiChord || !info || (chordPos !== 'top' && chordPos !== 'bottom')) return info;
                 var isTop = (chordPos === 'top');
@@ -582,6 +582,8 @@
                 }
             }
             var isPartSolo = false;
+            var isPartCondensedSA = false;
+            var isPartCondensedTB = false;
             if (xmlDoc && typeof partIdx === 'number') {
                 try {
                     var partsList = (typeof xmlDoc.getElementsByTagName === 'function') ? xmlDoc.getElementsByTagName('part') : null;
@@ -601,12 +603,49 @@
                         if (comb.indexOf('baritone') !== -1 || isSoloNamed) {
                             isPartSolo = true;
                         }
+                        isPartCondensedSA = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return comb.indexOf(w) !== -1; });
+                        isPartCondensedTB = ['t/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return comb.indexOf(w) !== -1; });
                     }
                 } catch(e) {}
             }
 
+            var vocalPartEntry = (xmlDoc && xmlDoc._vxVocalPartMap && typeof partIdx === 'number') ? xmlDoc._vxVocalPartMap[partIdx] : null;
+            var hasScoreSoloPart = (xmlDoc && xmlDoc._vxVocalPartMap && Array.isArray(xmlDoc._vxVocalPartMap))
+                ? xmlDoc._vxVocalPartMap.some(function(entry) { return entry && entry.part === "SOLO"; })
+                : false;
+            if (vocalPartEntry && vocalPartEntry.part === "SOLO") {
+                isPartSolo = true;
+            }
+            if (isPartSolo && !isUserVoiceOverride && totalParts > 1) {
+                return { voice: "SOLO", part: "SOLO", color: "#FF6D00", partId: 5, participating: ["SOLO"] };
+            }
+
+            var ignoreStaleBackendCustomVoice = false;
+            if (!isUserVoiceOverride && customVoice !== null && customVoice !== undefined) {
+                var cvCheck = String(customVoice).trim().toUpperCase();
+                if (cvCheck !== "" && cvCheck !== "TUTTI" && cvCheck !== "ALL" && cvCheck !== "UNISON_ALL") {
+                    if (isPartCondensedSA) {
+                        var validSA = ["1", "2", "S", "S1", "S2", "SOPRANO", "SOPRANO1", "SOPRANO 1", "SOPRANO2", "SOPRANO 2", "A", "A1", "A2", "ALTO", "ALTO1", "ALTO 1", "ALTO2", "ALTO 2", "SA", "UNISON_SA", "S1S2", "UNISON_S1S2", "A1A2", "UNISON_A1A2"];
+                        if (validSA.indexOf(cvCheck) === -1) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    } else if (isPartCondensedTB) {
+                        var validTB = ["3", "4", "T", "T1", "T2", "TENOR", "TENOR1", "TENOR 1", "TENOR2", "TENOR 2", "B", "B1", "B2", "BASS", "BASS1", "BASS 1", "BASS2", "BASS 2", "TB", "UNISON_TB", "T1T2", "UNISON_T1T2", "B1B2", "UNISON_B1B2"];
+                        if (validTB.indexOf(cvCheck) === -1) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    } else if (totalParts >= 4 && hasScoreSoloPart && vocalPartEntry && ["S", "A", "T", "B"].indexOf(vocalPartEntry.part) !== -1) {
+                        var expectedPrefix = vocalPartEntry.part;
+                        var matchesSection = (cvCheck === expectedPrefix || cvCheck === expectedPrefix + "1" || cvCheck === expectedPrefix + "2" || cvCheck.indexOf(vocalPartEntry.voice) === 0);
+                        if (!matchesSection) {
+                            ignoreStaleBackendCustomVoice = true;
+                        }
+                    }
+                }
+            }
+
             // Priority 1: Explicit user override via data-vx-voice attribute
-            if (customVoice !== null && customVoice !== undefined) {
+            if (!ignoreStaleBackendCustomVoice && customVoice !== null && customVoice !== undefined) {
                 var cv = String(customVoice).trim().toUpperCase();
                 if (cv !== "") {
                     switch (cv) {
@@ -686,8 +725,8 @@
                         }
 
                         // Composite / Condensed Part Check (e.g. "Soprano / Alto", "S/A", "Tenor / Bass", "T/B")
-                        var isCondensedSA = ['s/a', 's / a', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
-                        var isCondensedTB = ['t/b', 't / b', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+                        var isCondensedSA = ['s/a', 's / a', 's & a', 's.a.', 's. a.', 'soprano / alto', 'soprano/alto', 'women'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
+                        var isCondensedTB = ['t/b', 't / b', 't & b', 't.b.', 't. b.', 'tenor / bass', 'tenor/bass', 'men'].some(function(w) { return combinedStr.indexOf(w) !== -1; });
 
                         if (isCondensedSA) {
                             if (chordPos === 'bottom' || voiceNum === 2) {
@@ -2267,16 +2306,39 @@
             }
         }
 
+        function isSoloPartToken(val) {
+            if (!val) return false;
+            var u = String(val).trim().toUpperCase();
+            if (u === 'SOLO' || u === '5' || u === 'BARITONE SOLO' || u === 'BARITONE_SOLO' || u === 'BARITONE' ||
+                u === 'SOPRANO SOLO' || u === 'ALTO SOLO' || u === 'TENOR SOLO' || u === 'BASS SOLO' ||
+                u === 'CANTOR' || u === 'LEADER' || u === 'DESCANT' || u === 'SOLOIST' || u === 'SOL' || u === 'SOL.') {
+                return true;
+            }
+            return u.indexOf('SOLO') === 0 || u.endsWith(' SOLO') || u.endsWith('_SOLO');
+        }
+
         /**
          * Multi-part relational matcher for Visual Focus illumination.
          * Ensures merged notes (UNISON_TB) stay illuminated for both Tenor and Bass!
          */
         function isVisualFocusMatch(focus, partLabel, participating) {
             if (!focus) return true;
+            function isSoloToken(val) {
+                if (!val) return false;
+                var u = String(val).trim().toUpperCase();
+                if (u === 'SOLO' || u === '5' || u === 'BARITONE SOLO' || u === 'BARITONE_SOLO' || u === 'BARITONE' ||
+                    u === 'SOPRANO SOLO' || u === 'ALTO SOLO' || u === 'TENOR SOLO' || u === 'BASS SOLO' ||
+                    u === 'CANTOR' || u === 'LEADER' || u === 'DESCANT' || u === 'SOLOIST' || u === 'SOL' || u === 'SOL.') {
+                    return true;
+                }
+                return u.indexOf('SOLO') === 0 || u.endsWith(' SOLO') || u.endsWith('_SOLO');
+            }
             var nf = String(focus).trim().toUpperCase();
             var np = String(partLabel || '').trim().toUpperCase();
             if (nf === 'OTHER') nf = 'OTHERS';
             if (np === 'OTHER') np = 'OTHERS';
+            if (isSoloToken(nf)) nf = 'SOLO';
+            if (isSoloToken(np)) np = 'SOLO';
 
             // 1. Direct string match
             if (nf === np) return true;
@@ -2285,6 +2347,7 @@
             if (participating && Array.isArray(participating)) {
                 for (var i = 0; i < participating.length; i++) {
                     var p = String(participating[i]).trim().toUpperCase();
+                    if (isSoloToken(p)) p = 'SOLO';
                     if (p === nf) return true;
                     if (nf === 'S' && (p === 'S1' || p === 'S2')) return true;
                     if (nf === 'A' && (p === 'A1' || p === 'A2')) return true;
@@ -2296,6 +2359,11 @@
             // 3. TUTTI or UNISON_ALL matches any vocal focus
             if (np === 'TUTTI' || np === 'UNISON_ALL' || np === 'ALL') {
                 return (nf !== 'OTHERS');
+            }
+
+            // Solo isolation: Solo focus only matches Solo or Tutti; non-Solo focus never matches Solo
+            if (nf === 'SOLO' || np === 'SOLO') {
+                return false;
             }
 
             // 4. Section matching (Focus = S matches S1, S2, UNISON_SA, UNISON_S1S2)
@@ -2552,6 +2620,8 @@
                             var vxId = vxIdStr ? parseInt(vxIdStr, 10) : null;
                             var customVoiceStr = node.getAttribute('data-vx-voice');
                             var customVoice = (customVoiceStr && customVoiceStr.trim() !== '') ? customVoiceStr.trim() : null;
+                            var voiceSourceStr = (node.getAttribute('data-vx-voice-source') || '').trim().toLowerCase();
+                            var isUserVoiceOverride = (voiceSourceStr === 'user' || voiceSourceStr === 'user_override');
 
                             list.push({
                                 el: node,
@@ -2563,6 +2633,7 @@
                                 midi: midi,
                                 voice: voice,
                                 customVoice: customVoice,
+                                isUserVoiceOverride: isUserVoiceOverride,
                                 staffLocal: staffLocal,
                                 staffIdx: staffIdx,
                                 trackKey: trackKey,
@@ -2910,7 +2981,7 @@
                         }
                     }
 
-                    var vocalInfo = getVocalPartInfo(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord);
+                    var vocalInfo = getVocalPartInfo(xn.voice, gn.staffIdx, xn.partIdx, xmlParts.length, xn.chordPos, xn.customVoice, xn.isDivisiChord, xn.isUserVoiceOverride);
 
                     gNote.__vx_id = vxId;
                     if (gNote.sourceNote) gNote.sourceNote.__vx_id = vxId;
@@ -3230,8 +3301,10 @@
 
         function isVoicePartMatch(part, focus) {
             if (!part || !focus) return false;
-            const p = part.trim().toUpperCase();
-            const f = focus.trim().toUpperCase();
+            var p = part.trim().toUpperCase();
+            var f = focus.trim().toUpperCase();
+            if (isSoloPartToken(p)) p = 'SOLO';
+            if (isSoloPartToken(f)) f = 'SOLO';
             if (p === f) return true;
             // Handle numbered divisi: S1 vs S2, etc.
             const fNum = f.match(/\d+/);
@@ -3239,8 +3312,8 @@
             if (fNum && pNum && fNum[0] !== pNum[0]) {
                 return false;
             }
-            if (f.startsWith('SOLO') || p.startsWith('SOLO')) {
-                return f.startsWith('SOLO') && p.startsWith('SOLO');
+            if (f === 'SOLO' || p === 'SOLO') {
+                return f === 'SOLO' && p === 'SOLO';
             }
             if (f.startsWith('S') && p.startsWith('S')) return true;
             if (f.startsWith('A') && p.startsWith('A')) return true;

@@ -11,12 +11,35 @@ val KNOWN_VOCAL_PARTS: Set<String> = setOf(
     "A", "A1", "A2",
     "T", "T1", "T2",
     "B", "B1", "B2",
-    "SOLO", "ALL"
+    "SOLO", "BARITONE SOLO", "ALL"
 )
 
 val KNOWN_NON_VOCAL_PARTS: Set<String> = setOf(
     "OTHER", "OTHERS", "PIANO", "ACCOMP", "ORGAN", "VIOLIN", "STRINGS", "INSTRUMENT"
 )
+
+/**
+ * Returns true if the given token represents a Solo / Lead / Cantor / Descant voice part
+ * (including named soloists such as "Baritone Solo", "Soprano Solo", "Tenor Solo", etc.).
+ */
+fun isSoloVoiceToken(voice: String?): Boolean {
+    if (voice.isNullOrBlank()) return false
+    val upper = voice.uppercase().trim()
+    if (upper in setOf(
+        "SOLO", "5",
+        "BARITONE SOLO", "BARITONE_SOLO", "BARITONE", "BAR. SOLO",
+        "SOPRANO SOLO", "SOPRANO_SOLO",
+        "ALTO SOLO", "ALTO_SOLO",
+        "TENOR SOLO", "TENOR_SOLO",
+        "BASS SOLO", "BASS_SOLO",
+        "MEZZO SOLO", "MEZZO_SOLO",
+        "CANTOR", "LEADER", "DESCANT", "SOLOIST",
+        "OBLIGATO", "OBBLIGATO", "SOL", "SOL."
+    )) {
+        return true
+    }
+    return upper.startsWith("SOLO") || upper.endsWith(" SOLO") || upper.endsWith("_SOLO")
+}
 
 /**
  * Normalizes legacy v1.0 satb_voice strings to a list of standard part keys.
@@ -25,6 +48,7 @@ val KNOWN_NON_VOCAL_PARTS: Set<String> = setOf(
 fun normalizeLegacyVoiceToParts(voice: String?): List<String> {
     if (voice.isNullOrBlank()) return emptyList()
     val upper = voice.uppercase().trim()
+    if (isSoloVoiceToken(upper)) return listOf("SOLO")
     return when (upper) {
         "S", "SOPRANO", "1" -> listOf("S")
         "A", "ALTO", "2" -> listOf("A")
@@ -39,12 +63,12 @@ fun normalizeLegacyVoiceToParts(voice: String?): List<String> {
         "B1", "BASS1", "BASS 1" -> listOf("B1")
         "B2", "BASS2", "BASS 2" -> listOf("B2")
         "SOLO", "5" -> listOf("SOLO")
-        "UNISON_TB", "TB" -> listOf("T", "B")
-        "UNISON_SA", "SA" -> listOf("S", "A")
-        "UNISON_S1S2", "S1S2" -> listOf("S1", "S2")
-        "UNISON_A1A2", "A1A2" -> listOf("A1", "A2")
-        "UNISON_T1T2", "T1T2" -> listOf("T1", "T2")
-        "UNISON_B1B2", "B1B2" -> listOf("B1", "B2")
+        "UNISON_TB", "TB", "TENOR / BASS", "TENOR/BASS" -> listOf("T", "B")
+        "UNISON_SA", "SA", "SOPRANO / ALTO", "SOPRANO/ALTO" -> listOf("S", "A")
+        "UNISON_S1S2", "S1S2", "SOPRANO 1 / 2", "SOPRANO 1/2" -> listOf("S1", "S2")
+        "UNISON_A1A2", "A1A2", "ALTO 1 / 2", "ALTO 1/2" -> listOf("A1", "A2")
+        "UNISON_T1T2", "T1T2", "TENOR 1 / 2", "TENOR 1/2" -> listOf("T1", "T2")
+        "UNISON_B1B2", "B1B2", "BASS 1 / 2", "BASS 1/2" -> listOf("B1", "B2")
         "UNISON_ALL", "TUTTI", "ALL" -> listOf("ALL") // Universal Choral Unison token
         "6", "OTHER", "OTHERS", "PIANO", "ACCOMP", "ORGAN", "VIOLIN", "STRINGS" -> listOf("OTHERS")
         else -> emptyList() // All unrecognized or contradictory tokens fail safely
@@ -58,7 +82,7 @@ enum class SATBVoice {
         fun fromString(value: String?): SATBVoice {
             if (value == null) return UNKNOWN
             val upper = value.uppercase().trim()
-            if (upper in setOf("SOLO", "5")) return SOLO
+            if (isSoloVoiceToken(upper)) return SOLO
             if (upper in setOf("OTHER", "OTHERS", "PIANO", "ACCOMP", "ORGAN", "VIOLIN", "STRINGS", "INSTRUMENT", "6")) return OTHERS
             if (upper in setOf("S", "S1", "S2", "SOPRANO", "SOPRANO 1", "SOPRANO 2", "1")) return SOPRANO
             if (upper in setOf("A", "A1", "A2", "ALTO", "ALTO 1", "ALTO 2", "2")) return ALTO
@@ -136,7 +160,10 @@ data class MusicalEvent(
     val participatingParts: List<String>
         get() {
             if (!rawParticipatingParts.isNullOrEmpty()) {
-                val cleaned = rawParticipatingParts.map { it.uppercase().trim() }
+                val cleaned = rawParticipatingParts.map { rawToken ->
+                    val token = rawToken.uppercase().trim()
+                    if (isSoloVoiceToken(token) && token != "BARITONE SOLO") "SOLO" else token
+                }
                 return when {
                     cleaned.all { it in KNOWN_VOCAL_PARTS } -> cleaned
                     cleaned.all { it in KNOWN_NON_VOCAL_PARTS } -> listOf("OTHERS")

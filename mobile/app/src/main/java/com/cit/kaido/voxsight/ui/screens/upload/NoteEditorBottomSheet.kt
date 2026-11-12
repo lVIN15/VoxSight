@@ -765,7 +765,7 @@ fun NoteEditorBottomSheet(
                             Text(
                                 text = "Where relative to the selected note would you like to insert it?",
                                 fontSize = 14.sp,
-                                color = VoxTextSubtitle
+                                color = VoxTextPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
 
@@ -811,7 +811,7 @@ fun NoteEditorBottomSheet(
                         TextButton(
                             onClick = { pendingAddType = null }
                         ) {
-                            Text("Cancel", color = VoxTextSubtitle, fontWeight = FontWeight.SemiBold)
+                            Text("Cancel", color = VoxTextPrimary, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 )

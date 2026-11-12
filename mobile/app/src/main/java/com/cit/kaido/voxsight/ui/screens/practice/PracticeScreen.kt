@@ -161,8 +161,8 @@ fun Module2PracticeScreen(
     val defaultPart = initialSelectedPart ?: availableParts.firstOrNull() ?: VoicePart.Soprano
     var selectedPart by remember(availableParts, initialSelectedPart) { mutableStateOf(defaultPart) }
     var audioFocusPart by remember(availableParts, initialSelectedPart) { mutableStateOf(defaultPart) }
-    var audioFocusEnabled by remember { mutableStateOf(false) }
-    var visualFocusEnabled by remember { mutableStateOf(false) }
+    var audioFocusEnabled by remember(isMicEnabled) { mutableStateOf(isMicEnabled) }
+    var visualFocusEnabled by remember(isMicEnabled) { mutableStateOf(isMicEnabled) }
     var isAccompanimentEnabled by remember { mutableStateOf(true) }
 
     val hasAccompaniment = availableParts.contains(VoicePart.Others)
@@ -379,7 +379,9 @@ fun Module2PracticeScreen(
                 )
             }
 
-            LaunchedEffect(audioFocusPart, audioFocusEnabled, isAccompanimentEnabled, midiController) {
+            LaunchedEffect(audioFocusPart, audioFocusEnabled, isAccompanimentEnabled, isMicEnabled, selectedPart, midiController) {
+                midiController?.isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others
+                midiController?.selectedVoicePart = selectedPart.apiCode
                 midiController?.isAccompanimentEnabled = isAccompanimentEnabled
                 if (audioFocusEnabled) {
                     val focusKey = audioFocusPart.apiCode
@@ -389,7 +391,9 @@ fun Module2PracticeScreen(
                 }
             }
 
-            LaunchedEffect(selectedPart, visualFocusEnabled, midiController) {
+            LaunchedEffect(selectedPart, visualFocusEnabled, isMicEnabled, midiController) {
+                midiController?.isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others
+                midiController?.selectedVoicePart = selectedPart.apiCode
                 if (visualFocusEnabled) {
                     val partKey = selectedPart.apiCode
                     midiController?.setVisualFocus(partKey)
@@ -417,11 +421,15 @@ fun Module2PracticeScreen(
                         pitchAttempts = pitchAttempts,
                         onReady = { controller ->
                             midiController = controller
+                            controller.isMicEnabled = isMicEnabled && selectedPart != VoicePart.Others
+                            controller.selectedVoicePart = selectedPart.apiCode
                             currentBpm = controller.getBaseBPM()
                             val partKey = selectedPart.apiCode
                             if (audioFocusEnabled) {
                                 val focusKey = audioFocusPart.apiCode
                                 controller.focusPart(focusKey)
+                            } else {
+                                controller.unmuteAllParts()
                             }
                             if (visualFocusEnabled) {
                                 controller.setVisualFocus(partKey)
@@ -776,7 +784,8 @@ private fun PracticeTopBar(
         IconButton(onClick = onBackClicked) {
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = stringResource(R.string.cd_back)
+                contentDescription = stringResource(R.string.cd_back),
+                tint = VoxTextPrimary
             )
         }
 

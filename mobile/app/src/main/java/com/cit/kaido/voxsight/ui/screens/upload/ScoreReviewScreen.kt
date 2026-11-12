@@ -87,13 +87,22 @@ data class SelectedMultiRestInfo(
     val count: Int
 )
 
+private data class EditorConfirmPayload(
+    val xml: String? = null,
+    val isEdited: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ScoreReviewScreen(
     musicXml: String,
     originalScoreUri: String? = null,
-    onConfirm: (String) -> Unit,
+    isConfirming: Boolean = false,
+    confirmErrorMessage: String? = null,
+    onClearConfirmError: () -> Unit = {},
+    onConfirmWithEditFlag: ((modifiedXml: String, isEdited: Boolean) -> Unit)? = null,
+    onConfirm: (String) -> Unit = {},
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
@@ -114,6 +123,10 @@ fun ScoreReviewScreen(
     var showPartsLegend by remember { mutableStateOf(false) }
     var editorSettings by remember { mutableStateOf(EditorPreferences.loadSettings(context)) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
+    var showExitConfirmDialog by remember { mutableStateOf(false) }
+    var isSubmittingConfirm by remember { mutableStateOf(false) }
+    val isConfirmLocked = isSubmittingConfirm || isConfirming
     val isDeviceLowEnd = remember { EditorPreferences.isLowEndDevice(context) }
     val isEffectivePerformance = remember(editorSettings, isDeviceLowEnd) {
         EditorPreferences.isEffectivePerformanceMode(context, editorSettings)
@@ -123,6 +136,83 @@ fun ScoreReviewScreen(
     var dynamicVoiceCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
     val legendItems = remember(parsedScore, dynamicVoiceCodes) {
         extractScorePartLegendItems(parsedScore, dynamicVoiceCodes)
+    }
+
+    LaunchedEffect(confirmErrorMessage) {
+        if (!confirmErrorMessage.isNullOrBlank()) {
+            isSubmittingConfirm = false
+        }
+    }
+
+    LaunchedEffect(isConfirming) {
+        if (!isConfirming && !confirmErrorMessage.isNullOrBlank()) {
+            isSubmittingConfirm = false
+        }
+    }
+
+    LaunchedEffect(isConfirmLocked) {
+        webViewInstance?.evaluateJavascript(
+            "if (window.setEditorInteractionLocked) window.setEditorInteractionLocked($isConfirmLocked);",
+            null
+        )
+    }
+
+    val triggerConfirm: () -> Unit = {
+        if (!isConfirmLocked) {
+            isSubmittingConfirm = true
+            onClearConfirmError()
+            showNoteBottomSheet = false
+            showOriginalScoreSheet = false
+            showMetadataDialog = false
+            showSettingsSheet = false
+            selectedMultiRest = null
+            selectedNote = null
+
+            val webView = webViewInstance
+            if (webView != null) {
+                webView.evaluateJavascript(
+                    "if (window.setEditorInteractionLocked) window.setEditorInteractionLocked(true);",
+                    null
+                )
+                webView.evaluateJavascript(
+                    "JSON.stringify({ xml: (window.getModifiedXml ? window.getModifiedXml() : ''), isEdited: (window.isEditorScoreEdited ? window.isEditorScoreEdited() : false) });"
+                ) { result ->
+                    var resolvedXml = musicXml
+                    var resolvedEdited = false
+                    if (result != null && result != "null" && result.isNotEmpty() && result != "\"\"") {
+                        try {
+                            val jsonStr = Gson().fromJson(result, String::class.java)
+                            val payload = Gson().fromJson(jsonStr, EditorConfirmPayload::class.java)
+                            if (!payload?.xml.isNullOrBlank()) {
+                                resolvedXml = payload.xml
+                                resolvedEdited = payload.isEdited
+                            }
+                        } catch (_: Exception) {
+                            val rawXml = try {
+                                Gson().fromJson(result, String::class.java)
+                            } catch (_: Exception) {
+                                result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
+                            }
+                            if (!rawXml.isNullOrBlank() && rawXml.contains("<score-partwise")) {
+                                resolvedXml = rawXml
+                                resolvedEdited = true
+                            }
+                        }
+                    }
+                    if (onConfirmWithEditFlag != null) {
+                        onConfirmWithEditFlag(resolvedXml, resolvedEdited)
+                    } else {
+                        onConfirm(resolvedXml)
+                    }
+                }
+            } else {
+                if (onConfirmWithEditFlag != null) {
+                    onConfirmWithEditFlag(musicXml, false)
+                } else {
+                    onConfirm(musicXml)
+                }
+            }
+        }
     }
 
     LaunchedEffect(musicXml, isWebLoaded) {
@@ -153,13 +243,37 @@ fun ScoreReviewScreen(
         }
     }
 
-    BackHandler(enabled = isFullscreen) {
-        isFullscreen = false
-        webViewInstance?.evaluateJavascript("zoomFit();", null)
+    val handleBackPress: () -> Unit = {
+        if (!isConfirmLocked) {
+            if (isFullscreen) {
+                isFullscreen = false
+                webViewInstance?.evaluateJavascript("zoomFit();", null)
+            } else if (hasUnsavedChanges || canUndo) {
+                showExitConfirmDialog = true
+            } else {
+                val webView = webViewInstance
+                if (webView != null) {
+                    webView.evaluateJavascript("window.isEditorScoreEdited ? window.isEditorScoreEdited() : false;") { result ->
+                        val isEdited = result?.trim()?.removeSurrounding("\"")?.equals("true", ignoreCase = true) == true
+                        if (isEdited) {
+                            showExitConfirmDialog = true
+                        } else {
+                            onCancel()
+                        }
+                    }
+                } else {
+                    onCancel()
+                }
+            }
+        }
     }
 
-    BackHandler(enabled = !isFullscreen) {
-        onCancel()
+    BackHandler(enabled = isConfirmLocked) {
+        // Consume back press while score confirmation and saving are in progress
+    }
+
+    BackHandler(enabled = !isConfirmLocked) {
+        handleBackPress()
     }
 
     // JS Bridge class to capture note/rest clicks
@@ -167,13 +281,26 @@ fun ScoreReviewScreen(
         @JavascriptInterface
         fun onHistoryChanged(canUndoVal: Boolean, canRedoVal: Boolean) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 canUndo = canUndoVal
                 canRedo = canRedoVal
+                if (canUndoVal) {
+                    hasUnsavedChanges = true
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun onScoreEdited(isEdited: Boolean) {
+            (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
+                hasUnsavedChanges = isEdited
             }
         }
         @JavascriptInterface
         fun onPageChanged(currentPage: Int, totalPages: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 editorCurrentPage = currentPage
                 editorTotalPages = totalPages
             }
@@ -193,6 +320,7 @@ fun ScoreReviewScreen(
             voiceCode: String? = null
         ) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 selectedMultiRest = null
                 selectedNote = SelectedNoteInfo(
                     id = id,
@@ -223,6 +351,7 @@ fun ScoreReviewScreen(
         @JavascriptInterface
         fun onOpenNoteDetails() {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 if (selectedNote != null) {
                     showNoteBottomSheet = true
                 }
@@ -232,6 +361,7 @@ fun ScoreReviewScreen(
         @JavascriptInterface
         fun onMultiRestSelected(measureNum: Int, count: Int) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 selectedNote = null
                 showNoteBottomSheet = false
                 selectedMultiRest = SelectedMultiRestInfo(measureNum, count)
@@ -241,6 +371,7 @@ fun ScoreReviewScreen(
         @JavascriptInterface
         fun onToolGroupSelected(groupName: String) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 editorSettings = editorSettings.copy(lastSelectedToolGroup = groupName)
                 EditorPreferences.saveSettings(context, editorSettings)
             }
@@ -249,6 +380,7 @@ fun ScoreReviewScreen(
         @JavascriptInterface
         fun onVoiceAssigned(voiceCode: String) {
             (context as? android.app.Activity)?.runOnUiThread {
+                if (isConfirmLocked) return@runOnUiThread
                 val clean = voiceCode.trim().uppercase()
                 if (clean.isNotEmpty()) {
                     dynamicVoiceCodes = dynamicVoiceCodes + clean
@@ -273,62 +405,61 @@ fun ScoreReviewScreen(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = onCancel) {
+                        IconButton(
+                            onClick = handleBackPress,
+                            enabled = !isConfirmLocked
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Cancel",
-                                tint = VoxPurplePrimary
+                                contentDescription = "Back",
+                                tint = if (!isConfirmLocked) VoxPurplePrimary else VoxTextSubtitle
                             )
                         }
                     },
                     actions = {
                         if (!originalScoreUri.isNullOrBlank()) {
-                            IconButton(onClick = { showOriginalScoreSheet = true }, modifier = Modifier.size(36.dp)) {
+                            IconButton(
+                                onClick = { showOriginalScoreSheet = true },
+                                enabled = !isConfirmLocked,
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Visibility,
                                     contentDescription = "Compare with Original Scan",
-                                    tint = VoxPurplePrimary
+                                    tint = if (!isConfirmLocked) VoxPurplePrimary else VoxTextSubtitle
                                 )
                             }
                         }
-                        IconButton(onClick = { showMetadataDialog = true }, modifier = Modifier.size(36.dp)) {
+                        IconButton(
+                            onClick = { showMetadataDialog = true },
+                            enabled = !isConfirmLocked,
+                            modifier = Modifier.size(36.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.Description,
                                 contentDescription = "Score Info & Metadata",
-                                tint = VoxPurplePrimary
+                                tint = if (!isConfirmLocked) VoxPurplePrimary else VoxTextSubtitle
                             )
                         }
-                        IconButton(onClick = { showSettingsSheet = true }, modifier = Modifier.size(36.dp)) {
+                        IconButton(
+                            onClick = { showSettingsSheet = true },
+                            enabled = !isConfirmLocked,
+                            modifier = Modifier.size(36.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.Settings,
                                 contentDescription = "Editor Settings",
-                                tint = VoxPurplePrimary
+                                tint = if (!isConfirmLocked) VoxPurplePrimary else VoxTextSubtitle
                             )
                         }
                         Button(
-                            onClick = {
-                                webViewInstance?.let { webView ->
-                                    webView.evaluateJavascript("getModifiedXml();") { result ->
-                                        if (result != null && result != "null" && result.isNotEmpty() && result != "\"\"") {
-                                            val rawXml = try {
-                                                Gson().fromJson(result, String::class.java)
-                                            } catch (e: Exception) {
-                                                result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
-                                            }
-                                            if (!rawXml.isNullOrBlank()) {
-                                                onConfirm(rawXml)
-                                            } else {
-                                                onConfirm(musicXml)
-                                            }
-                                        } else {
-                                            onConfirm(musicXml)
-                                        }
-                                    }
-                                } ?: onConfirm(musicXml)
-                            },
+                            onClick = triggerConfirm,
+                            enabled = !isConfirmLocked,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = VoxPurplePrimary,
-                                contentColor = Color.White
+                                contentColor = Color.White,
+                                disabledContainerColor = VoxPurplePrimary.copy(alpha = 0.65f),
+                                disabledContentColor = Color.White
                             ),
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
@@ -336,19 +467,34 @@ fun ScoreReviewScreen(
                                 .height(34.dp)
                                 .padding(end = 4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Check,
-                                contentDescription = "Confirm",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Confirm",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = Color.White
-                            )
+                            if (isConfirmLocked) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Saving...",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Check,
+                                    contentDescription = "Confirm",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Confirm",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -357,6 +503,7 @@ fun ScoreReviewScreen(
         },
         bottomBar = {}
     ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -387,12 +534,13 @@ fun ScoreReviewScreen(
                     ) {
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomOut();", null) },
+                            enabled = !isConfirmLocked,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomOut,
                                 contentDescription = "Zoom Out",
-                                tint = VoxTextPrimary,
+                                tint = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -403,7 +551,9 @@ fun ScoreReviewScreen(
                             border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
                             modifier = Modifier
                                 .height(32.dp)
-                                .clickable { webViewInstance?.evaluateJavascript("zoomFit();", null) }
+                                .clickable(enabled = !isConfirmLocked) {
+                                    webViewInstance?.evaluateJavascript("zoomFit();", null)
+                                }
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
@@ -412,19 +562,20 @@ fun ScoreReviewScreen(
                                 Text(
                                     text = "Fit",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = VoxTextPrimary
+                                    color = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray
                                 )
                             }
                         }
 
                         IconButton(
                             onClick = { webViewInstance?.evaluateJavascript("zoomIn();", null) },
+                            enabled = !isConfirmLocked,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.ZoomIn,
                                 contentDescription = "Zoom In",
-                                tint = VoxTextPrimary,
+                                tint = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -438,13 +589,13 @@ fun ScoreReviewScreen(
                         ) {
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("prevPage();", null) },
-                                enabled = editorCurrentPage > 1,
+                                enabled = !isConfirmLocked && editorCurrentPage > 1,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                     contentDescription = "Previous Page",
-                                    tint = if (editorCurrentPage > 1) VoxTextPrimary else Color.LightGray,
+                                    tint = if (!isConfirmLocked && editorCurrentPage > 1) VoxTextPrimary else Color.LightGray,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -460,13 +611,13 @@ fun ScoreReviewScreen(
 
                             IconButton(
                                 onClick = { webViewInstance?.evaluateJavascript("nextPage();", null) },
-                                enabled = editorCurrentPage < editorTotalPages,
+                                enabled = !isConfirmLocked && editorCurrentPage < editorTotalPages,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                     contentDescription = "Next Page",
-                                    tint = if (editorCurrentPage < editorTotalPages) VoxTextPrimary else Color.LightGray,
+                                    tint = if (!isConfirmLocked && editorCurrentPage < editorTotalPages) VoxTextPrimary else Color.LightGray,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -485,7 +636,7 @@ fun ScoreReviewScreen(
                                 border = BorderStroke(1.dp, if (showPartsLegend) VoxPurplePrimary else Color(0xFFE5E7EB)),
                                 modifier = Modifier
                                     .height(28.dp)
-                                    .clickable { showPartsLegend = !showPartsLegend }
+                                    .clickable(enabled = !isConfirmLocked) { showPartsLegend = !showPartsLegend }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp),
@@ -520,12 +671,13 @@ fun ScoreReviewScreen(
                         if (!originalScoreUri.isNullOrBlank() && isFullscreen) {
                             IconButton(
                                 onClick = { showOriginalScoreSheet = true },
+                                enabled = !isConfirmLocked,
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Visibility,
                                     contentDescription = "Compare with Original Scan",
-                                    tint = VoxTextPrimary,
+                                    tint = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -533,12 +685,13 @@ fun ScoreReviewScreen(
 
                         IconButton(
                             onClick = { showSettingsSheet = true },
+                            enabled = !isConfirmLocked,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Settings,
                                 contentDescription = "Editor Settings",
-                                tint = VoxTextPrimary,
+                                tint = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -548,12 +701,13 @@ fun ScoreReviewScreen(
                                 isFullscreen = !isFullscreen
                                 webViewInstance?.evaluateJavascript("zoomFit();", null)
                             },
+                            enabled = !isConfirmLocked,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = if (isFullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
                                 contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen View",
-                                tint = VoxTextPrimary,
+                                tint = if (!isConfirmLocked) VoxTextPrimary else Color.LightGray,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -636,14 +790,188 @@ fun ScoreReviewScreen(
             }
         }
 
+            if (isConfirmLocked) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        tonalElevation = 8.dp,
+                        shadowElevation = 12.dp,
+                        modifier = Modifier
+                            .padding(horizontal = 32.dp)
+                            .widthIn(min = 260.dp, max = 340.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = VoxPurplePrimary,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = "Preparing your practice session...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = VoxTextPrimary
+                            )
+                            Text(
+                                text = "Saving your score and configuring vocal parts...",
+                                fontSize = 13.sp,
+                                color = VoxTextSubtitle
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showExitConfirmDialog && !isConfirmLocked) {
+            AlertDialog(
+                onDismissRequest = { showExitConfirmDialog = false },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = null,
+                            tint = VoxPurplePrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Unsaved Changes",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = VoxTextPrimary
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "You have unsaved changes in this score. What would you like to do before exiting?",
+                            fontSize = 14.sp,
+                            color = VoxTextPrimary,
+                            lineHeight = 20.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                showExitConfirmDialog = false
+                                triggerConfirm()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VoxPurplePrimary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Save Changes", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showExitConfirmDialog = false
+                                onCancel()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            border = BorderStroke(1.5.dp, Color(0xFFDC2626)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFDC2626)
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Discard Changes", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFFDC2626))
+                        }
+                        TextButton(
+                            onClick = { showExitConfirmDialog = false },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp),
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = VoxTextPrimary
+                            )
+                        ) {
+                            Text("Continue Editing", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = VoxTextPrimary)
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = null
+            )
+        }
+
+        if (!confirmErrorMessage.isNullOrBlank()) {
+            AlertDialog(
+                onDismissRequest = onClearConfirmError,
+                containerColor = Color.White,
+                title = {
+                    Text(
+                        text = "Unable to Prepare Practice Session",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = VoxTextPrimary
+                    )
+                },
+                text = {
+                    Text(
+                        text = confirmErrorMessage,
+                        fontSize = 14.sp,
+                        color = VoxTextPrimary
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = triggerConfirm,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = VoxPurplePrimary,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text("Retry", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onClearConfirmError) {
+                        Text("Back to Editor", color = VoxPurplePrimary, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            )
+        }
+
         // Show Edit Info & Text Words Dialog
-        if (showMetadataDialog) {
+        if (showMetadataDialog && !isConfirmLocked) {
             ScoreInfoDialog(
                 initialTitle = parsedScore?.title ?: "",
                 initialComposer = parsedScore?.composer ?: "",
                 onDismissRequest = { showMetadataDialog = false },
                 onApply = { newTitle, newComposer, newArranger, oldWord, newWord ->
                     showMetadataDialog = false
+                    hasUnsavedChanges = true
                     val escapedTitle = escapeJavascriptString(newTitle)
                     val escapedComp = escapeJavascriptString(newComposer)
                     val escapedArr = escapeJavascriptString(newArranger)
@@ -659,7 +987,7 @@ fun ScoreReviewScreen(
         }
 
         // Show Edit sheet only if user explicitly requested note details & lyrics
-        if (showOriginalScoreSheet && !originalScoreUri.isNullOrBlank()) {
+        if (showOriginalScoreSheet && !originalScoreUri.isNullOrBlank() && !isConfirmLocked) {
             ModalBottomSheet(
                 onDismissRequest = { showOriginalScoreSheet = false },
                 containerColor = Color.White,
@@ -673,7 +1001,7 @@ fun ScoreReviewScreen(
             }
         }
 
-        if (showSettingsSheet) {
+        if (showSettingsSheet && !isConfirmLocked) {
             EditorSettingsBottomSheet(
                 settings = editorSettings,
                 isDeviceLowEnd = isDeviceLowEnd,
@@ -685,7 +1013,7 @@ fun ScoreReviewScreen(
             )
         }
 
-    if (showNoteBottomSheet) {
+        if (showNoteBottomSheet && !isConfirmLocked) {
             selectedNote?.let { note ->
                 NoteEditorBottomSheet(
                     noteId = note.id,
@@ -700,45 +1028,55 @@ fun ScoreReviewScreen(
                     isRest = note.isRest,
                     isDotted = note.isDotted,
                     onLyricChanged = { newLyric ->
+                        hasUnsavedChanges = true
                         val escapedLyric = escapeJavascriptString(newLyric)
                         webViewInstance?.evaluateJavascript("updateNoteLyric(${note.id}, '$escapedLyric');", null)
                         selectedNote = selectedNote?.copy(lyricText = newLyric)
                     },
                     onVoiceChanged = { newVoiceCode ->
+                        hasUnsavedChanges = true
                         val escapedCode = escapeJavascriptString(newVoiceCode)
                         webViewInstance?.evaluateJavascript("updateNoteVoice(${note.id}, '$escapedCode');", null)
                         selectedNote = selectedNote?.copy(voiceCode = newVoiceCode)
                         dynamicVoiceCodes = dynamicVoiceCodes + newVoiceCode
                     },
                     onPitchChanged = { newStep, newAlter, newOctave ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("updateNotePitch(${note.id}, '$newStep', $newAlter, $newOctave);", null)
                         selectedNote = selectedNote?.copy(pitchStep = newStep, alter = newAlter, octave = newOctave, isRest = false)
                     },
                     onDurationChanged = { newDuration, dotted ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("updateNoteDuration(${note.id}, '$newDuration', $dotted);", null)
                         selectedNote = selectedNote?.copy(durationType = newDuration, isDotted = dotted)
                     },
                     onToggleDot = { dotted ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("toggleNoteDot(${note.id}, $dotted);", null)
                         selectedNote = selectedNote?.copy(isDotted = dotted)
                     },
                     onConvertToRest = {
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("convertToRest(${note.id});", null)
                         selectedNote = selectedNote?.copy(isRest = true)
                     },
                     onConvertToNote = { step, alter, octave ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("convertToNote(${note.id}, '$step', $alter, $octave);", null)
                         selectedNote = selectedNote?.copy(isRest = false, pitchStep = step, alter = alter, octave = octave)
                     },
                     onAddNote = { pos, step, alter, octave, type, dotted ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("addNote(${note.id}, '$pos', '$step', $alter, $octave, '$type', $dotted);", null)
                         Toast.makeText(context, "Note added", Toast.LENGTH_SHORT).show()
                     },
                     onAddRest = { pos, type, dotted ->
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("addRest(${note.id}, '$pos', '$type', $dotted);", null)
                         Toast.makeText(context, "Rest added", Toast.LENGTH_SHORT).show()
                     },
                     onDeleteClicked = {
+                        hasUnsavedChanges = true
                         webViewInstance?.evaluateJavascript("deleteNote(${note.id});", null)
                         selectedNote = null
                         showNoteBottomSheet = false
@@ -752,20 +1090,23 @@ fun ScoreReviewScreen(
         }
 
         // Show Native Edit Bottom Sheet if a multimeasure rest (H-bar) is selected
-        selectedMultiRest?.let { multiRest ->
-            MultiRestEditorBottomSheet(
-                measureNumber = multiRest.measureNumber,
-                count = multiRest.count,
-                onCountChanged = { delta ->
-                    webViewInstance?.evaluateJavascript("adjustMultiRestCount($delta);", null)
-                    val newCount = (multiRest.count + delta).coerceAtLeast(1)
-                    selectedMultiRest = selectedMultiRest?.copy(count = newCount)
-                },
-                onDismissRequest = {
-                    selectedMultiRest = null
-                    webViewInstance?.evaluateJavascript("clearHighlights();", null)
-                }
-            )
+        if (!isConfirmLocked) {
+            selectedMultiRest?.let { multiRest ->
+                MultiRestEditorBottomSheet(
+                    measureNumber = multiRest.measureNumber,
+                    count = multiRest.count,
+                    onCountChanged = { delta ->
+                        hasUnsavedChanges = true
+                        webViewInstance?.evaluateJavascript("adjustMultiRestCount($delta);", null)
+                        val newCount = (multiRest.count + delta).coerceAtLeast(1)
+                        selectedMultiRest = selectedMultiRest?.copy(count = newCount)
+                    },
+                    onDismissRequest = {
+                        selectedMultiRest = null
+                        webViewInstance?.evaluateJavascript("clearHighlights();", null)
+                    }
+                )
+            }
         }
     }
 }
@@ -852,7 +1193,7 @@ fun regenerateEventsJsonFromScore(score: MusicXmlScore): String {
                         }
                     }
                 }
-                isBaritoneSoloPart -> "BARITONE SOLO"
+                isBaritoneSoloPart -> "SOLO"
                 nameLower.contains("solo") || nameLower.contains("cantor") || nameLower.contains("leader") || nameLower.contains("descant") -> "SOLO"
                 nameLower.contains("piano") || nameLower.contains("organ") || nameLower.contains("keyboard") || nameLower.contains("guitar") || nameLower.contains("accomp") || nameLower.contains("orch") || nameLower.contains("strings") || nameLower.contains("other") -> "OTHERS"
                 isCondensedSA -> if (note.voice == 2 || note.originalVoice == 2) "ALTO" else "SOPRANO"
@@ -1050,7 +1391,7 @@ fun ScoreInfoDialog(
                 Text(
                     text = "Correct OCR typos in performance directions (e.g. optional descant, allegro, solo):",
                     style = MaterialTheme.typography.bodySmall,
-                    color = VoxTextSubtitle
+                    color = VoxTextPrimary
                 )
                 OutlinedTextField(
                     value = oldWord,
@@ -1088,7 +1429,7 @@ fun ScoreInfoDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text("CANCEL", color = VoxTextSubtitle, fontWeight = FontWeight.SemiBold)
+                Text("CANCEL", color = VoxTextPrimary, fontWeight = FontWeight.SemiBold)
             }
         },
         containerColor = Color.White,

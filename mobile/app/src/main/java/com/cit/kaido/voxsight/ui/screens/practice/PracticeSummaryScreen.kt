@@ -272,11 +272,22 @@ fun PracticeSummaryScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                 }
 
-                // Top Problematic Area Section (Displays the exact measure with the most mistakes)
-                if (summary.topProblematicMeasure != null) {
-                    val measure = summary.topProblematicMeasure
+                // Top Problematic Area Section (Displays the flagged measures needing practice)
+                val flaggedMeasures = if (summary.problematicMeasures.isNotEmpty()) {
+                    summary.problematicMeasures
+                } else {
+                    listOfNotNull(summary.topProblematicMeasure)
+                }
+
+                if (flaggedMeasures.isNotEmpty()) {
+                    val allMeasuresFlawless = flaggedMeasures.all { it.mistakeCount == 0 } && accuracy >= 100
+                    val sectionTitle = if (allMeasuresFlawless) "Intonation Focus Areas" else "Top Area to Practice"
+                    val sectionSubtitle = if (allMeasuresFlawless) {
+                        "All notes were sung in tune (100% Pitch Accuracy)! The measures below highlight subtle intonation tendencies where pitch leaned slightly sharp or flat."
+                    } else null
+
                     Text(
-                        text = "Top Area to Practice",
+                        text = sectionTitle,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
@@ -284,30 +295,47 @@ fun PracticeSummaryScreen(
                         ),
                         color = Color(0xFF191C20)
                     )
+                    if (sectionSubtitle != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = sectionSubtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF4A4452),
+                            lineHeight = 20.sp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    val issueLabel = if (measure.mistakeCount > 0) {
-                        "${measure.mistakeCount} ${if (measure.mistakeCount == 1) "MISTAKE" else "MISTAKES"}${if (measure.averageDeviation != 0f) " • " + (if (measure.isSharp) "SHARP" else "FLAT") else ""}"
-                    } else {
-                        if (measure.isSharp) "SHARP" else "FLAT"
-                    }
+                    flaggedMeasures.forEachIndexed { idx, measure ->
+                        val devStr = if (measure.averageDeviation != 0f) " (${if (measure.isSharp && measure.averageDeviation > 0) "+" else ""}${measure.averageDeviation.toInt()}¢)" else ""
+                        val issueLabel = if (measure.mistakeCount > 0) {
+                            val count = measure.mistakeCount
+                            "$count ${if (count == 1) "FLAGGED NOTE" else "FLAGGED NOTES"} • ${if (measure.isSharp) "SUNG SHARP" else "SUNG FLAT"}$devStr"
+                        } else {
+                            "${if (measure.isSharp) "SUNG SHARP" else "SUNG FLAT"}$devStr"
+                        }
 
-                    if (score != null) {
-                        // Render authentic 5-line staff sheet music notation for the measure with the most mistakes
-                        RealMeasureNotationView(
-                            measureNumber = measure.measureNumber,
-                            score = score,
-                            voice = selectedVoice,
-                            pitchAttempts = pitchAttempts,
-                            mistakeCount = measure.mistakeCount,
-                            isSharp = measure.isSharp
-                        )
-                    } else {
-                        MeasureReviewCard(
-                            measureName = "Measure ${measure.measureNumber}",
-                            issueType = issueLabel,
-                            isSharp = measure.isSharp
-                        )
+                        if (score != null) {
+                            // Render authentic 5-line staff sheet music notation for each flagged measure
+                            RealMeasureNotationView(
+                                measureNumber = measure.measureNumber,
+                                score = score,
+                                voice = selectedVoice,
+                                pitchAttempts = pitchAttempts,
+                                mistakeCount = measure.mistakeCount,
+                                isSharp = measure.isSharp,
+                                averageDeviation = measure.averageDeviation
+                            )
+                        } else {
+                            MeasureReviewCard(
+                                measureName = "Measure ${measure.measureNumber}",
+                                issueType = issueLabel,
+                                isSharp = measure.isSharp
+                            )
+                        }
+                        if (idx < flaggedMeasures.lastIndex) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 } else if (summary.problematicNotes.isNotEmpty()) {
@@ -323,20 +351,39 @@ fun PracticeSummaryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    val noteMeasure = score?.notes?.firstOrNull { it.step.equals(note.noteName.take(1), true) }?.measureNumber ?: 1
+                    val noteMeasure = pitchAttempts.firstOrNull {
+                        it.measureNumber > 0 && it.noteName.equals(note.noteName, ignoreCase = true) && !it.isMatch
+                    }?.measureNumber ?: pitchAttempts.firstOrNull {
+                        it.measureNumber > 0 && it.noteName.equals(note.noteName, ignoreCase = true)
+                    }?.measureNumber ?: pitchAttempts.firstOrNull {
+                        it.measureNumber > 0
+                    }?.measureNumber ?: 1
+
+                    val noteHadMistake = pitchAttempts.any {
+                        it.measureNumber == noteMeasure && it.noteName.equals(note.noteName, ignoreCase = true) && !it.isMatch
+                    }
+                    val mistakeCountForNote = if (noteHadMistake) 1 else 0
+
                     if (score != null) {
                         RealMeasureNotationView(
                             measureNumber = noteMeasure,
                             score = score,
                             voice = selectedVoice,
                             pitchAttempts = pitchAttempts,
-                            mistakeCount = 1,
-                            isSharp = note.isSharp
+                            mistakeCount = mistakeCountForNote,
+                            isSharp = note.isSharp,
+                            averageDeviation = note.averageDeviation
                         )
                     } else {
+                        val devStr = if (note.averageDeviation != 0f) " (${if (note.isSharp && note.averageDeviation > 0) "+" else ""}${note.averageDeviation.toInt()}¢)" else ""
+                        val noteIssue = if (mistakeCountForNote > 0) {
+                            "1 FLAGGED NOTE • ${if (note.isSharp) "SUNG SHARP" else "SUNG FLAT"}$devStr"
+                        } else {
+                            "${if (note.isSharp) "SUNG SHARP" else "SUNG FLAT"}$devStr"
+                        }
                         MeasureReviewCard(
                             measureName = "Note ${note.noteName}",
-                            issueType = if (note.isSharp) "SHARP" else "FLAT",
+                            issueType = noteIssue,
                             isSharp = note.isSharp
                         )
                     }
