@@ -45,7 +45,7 @@
             border-radius: 4px;
             pointer-events: auto;
             cursor: grab;
-            touch-action: none;
+            touch-action: pan-x pan-y;
             transition: border-color 0.15s ease, background 0.15s ease;
             display: none;
             z-index: 150;
@@ -57,36 +57,49 @@
             border-color: #5B2D8E;
             background: rgba(91, 45, 142, 0.16);
             box-shadow: none;
+            touch-action: none !important;
             transition: none !important;
         }
 
         /* Drag Handle on Selection Ring */
         .selection-drag-handle {
             position: absolute;
-            right: -11px;
+            right: -13px;
             top: 50%;
             transform: translateY(-50%);
-            width: 14px;
-            height: 22px;
+            width: 16px;
+            height: 24px;
             background: #5B2D8E;
             color: #FFFFFF;
-            border-radius: 3px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: ns-resize;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 700;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
             pointer-events: auto;
             touch-action: none;
             user-select: none;
             -webkit-user-select: none;
+            z-index: 155;
+        }
+
+        /* Generous touch target for the drag handle */
+        .selection-drag-handle::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            right: -12px;
+            top: -12px;
+            bottom: -12px;
+            pointer-events: auto;
         }
 
         .selection-drag-handle:active, #selection-indicator.dragging .selection-drag-handle {
             background: #4C2278;
-            transform: translateY(-50%) scale(1.05);
+            transform: translateY(-50%) scale(1.08);
         }
 
         /* ─── Note Micro-HUD (Hidden: All operations are housed in the unified bottom editing deck) ─── */
@@ -7569,94 +7582,90 @@
                 var finalOctave = Math.floor(pitchDragCurrentDiatonicIndex / 7);
                 var finalStep = DIATONIC_STEPS[((pitchDragCurrentDiatonicIndex % 7) + 7) % 7];
                 updateNotePitch(selectedNoteId, finalStep, pitchDragStartAlter, finalOctave);
+                updateDeckUI(selectedNoteId);
                 updateStatus('Pitch changed to ' + finalStep + finalOctave);
             }
         }
 
         function initPitchDragging() {
             var ind = document.getElementById('selection-indicator');
-            var scoreContainer = document.getElementById('score-container');
-            if (!scoreContainer) return;
+            var dragHandle = document.getElementById('selection-drag-handle');
+            if (!ind) return;
 
-            var touchTrackCandidateId = null;
-            var touchStartX = 0, touchStartY = 0;
-            var isTrackingTouch = false;
-            var didStartPitchDrag = false;
-
-            function onTouchStartScore(e) {
-                var target = e.target;
-                if (target && target.closest && (
-                    target.closest('#note-micro-hud') ||
-                    target.closest('#soundslice-deck') ||
-                    target.closest('#multirest-stepper-panel') ||
-                    target.closest('#zoom-controls') ||
-                    target.closest('#palette-drag-ghost')
-                )) {
-                    return;
-                }
-
-                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
-
-                if (ind && (ind.contains(target) || target === ind) && selectedNoteId !== null) {
-                    touchTrackCandidateId = selectedNoteId;
-                } else {
-                    touchTrackCandidateId = findNoteAtPoint(clientX, clientY);
-                }
-
-                touchStartX = clientX;
-                touchStartY = clientY;
-                isTrackingTouch = true;
-                didStartPitchDrag = false;
-            }
-
-            function onTouchMoveScore(e) {
-                if (!isTrackingTouch || didStartPitchDrag) return;
-                var clientX = (e.touches && e.touches.length > 0) ? e.touches[0].clientX : e.clientX;
-                var clientY = (e.touches && e.touches.length > 0) ? e.touches[0].clientY : e.clientY;
-
-                var dx = clientX - touchStartX;
-                var dy = clientY - touchStartY;
-                var dist = Math.hypot(dx, dy);
-
-                // If user dragged finger vertically more than 7px on a note, start direct drag!
-                if (dist > 7) {
-                    if (touchTrackCandidateId !== null) {
-                        didStartPitchDrag = true;
-                        isTrackingTouch = false;
-                        if (e.cancelable) e.preventDefault();
-                        startPitchDrag(touchTrackCandidateId, clientX, clientY);
-                    } else {
-                        isTrackingTouch = false;
-                    }
-                }
-            }
-
-            function onTouchEndScore(e) {
-                if (!isTrackingTouch) return;
-                isTrackingTouch = false;
-            }
-
-            scoreContainer.addEventListener('mousedown', onTouchStartScore);
-            window.addEventListener('mousemove', onTouchMoveScore, { passive: false });
-            window.addEventListener('mouseup', onTouchEndScore);
-
-            scoreContainer.addEventListener('touchstart', onTouchStartScore, { passive: false });
-            window.addEventListener('touchmove', onTouchMoveScore, { passive: false });
-            window.addEventListener('touchend', onTouchEndScore);
-
-            if (ind) {
-                ind.addEventListener('mousedown', function(e) {
+            // 1. Direct drag via dedicated handle (Instant response, touch or mouse)
+            if (dragHandle) {
+                dragHandle.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
                     if (selectedNoteId !== null) {
                         startPitchDrag(selectedNoteId, e.clientX, e.clientY);
                     }
                 });
-                ind.addEventListener('touchstart', function(e) {
+                dragHandle.addEventListener('touchstart', function(e) {
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
                     if (selectedNoteId !== null && e.touches && e.touches.length > 0) {
                         startPitchDrag(selectedNoteId, e.touches[0].clientX, e.touches[0].clientY);
                     }
                 }, { passive: false });
             }
+
+            // 2. Selection Box (Notehead):
+            // On desktop mouse: drag on mousedown
+            ind.addEventListener('mousedown', function(e) {
+                if (e.target && e.target.id === 'selection-drag-handle') return;
+                if (e.button === 0 && selectedNoteId !== null) {
+                    startPitchDrag(selectedNoteId, e.clientX, e.clientY);
+                }
+            });
+
+            // On mobile touch: NEVER hijack immediate touchmove!
+            // If the user drags/swipes across the note, ALLOW SCROLLING!
+            // Only initiate pitch drag if the user deliberately long-presses (350ms) on the note without moving.
+            var longPressTimer = null;
+            var touchStartX = 0;
+            var touchStartY = 0;
+            var isLongPressActive = false;
+
+            ind.addEventListener('touchstart', function(e) {
+                if (e.target && e.target.id === 'selection-drag-handle') return;
+                if (selectedNoteId === null || !e.touches || e.touches.length !== 1) return;
+
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                isLongPressActive = false;
+
+                clearTimeout(longPressTimer);
+                longPressTimer = setTimeout(function() {
+                    isLongPressActive = true;
+                    if (navigator.vibrate) {
+                        try { navigator.vibrate(15); } catch (err) {}
+                    }
+                    startPitchDrag(selectedNoteId, touchStartX, touchStartY);
+                }, 350);
+            }, { passive: true });
+
+            ind.addEventListener('touchmove', function(e) {
+                if (isLongPressActive) return; // Drag already active
+                if (!e.touches || e.touches.length === 0) return;
+
+                var dx = e.touches[0].clientX - touchStartX;
+                var dy = e.touches[0].clientY - touchStartY;
+                // If finger moves more than 8px before timer fires, user is scrolling! Cancel drag!
+                if (Math.hypot(dx, dy) > 8) {
+                    clearTimeout(longPressTimer);
+                }
+            }, { passive: true });
+
+            ind.addEventListener('touchend', function() {
+                clearTimeout(longPressTimer);
+                isLongPressActive = false;
+            }, { passive: true });
+
+            ind.addEventListener('touchcancel', function() {
+                clearTimeout(longPressTimer);
+                isLongPressActive = false;
+            }, { passive: true });
         }
 
         // ─── Floating Bottom Palette Dock (Tap-to-Set & Drag-and-Drop) ─────────
